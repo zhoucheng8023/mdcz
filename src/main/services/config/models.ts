@@ -156,7 +156,6 @@ const fieldPrioritiesSchema = z.object({
   publisher: z.array(z.enum(Website)).default([Website.DMM, Website.FC2, Website.JAVDB]),
   series: z.array(z.enum(Website)).default([Website.DMM, Website.JAVDB, Website.JAVBUS]),
   release_date: z.array(z.enum(Website)).default([Website.DMM, Website.FC2, Website.JAVDB, Website.JAVBUS]),
-  runtime: z.array(z.enum(Website)).default([Website.DMM, Website.JAVDB]),
   rating: z.array(z.enum(Website)).default([Website.JAVDB, Website.DMM]),
   trailer_url: z.array(z.enum(Website)).default([Website.DMM_TV, Website.DMM, Website.JAVBUS]),
 });

@@ -1,7 +1,7 @@
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
 
-import { extractAttr, extractList, extractText, parseDate, parseRuntime } from "../../base/parser";
+import { extractAttr, extractList, extractText, parseDate } from "../../base/parser";
 import { uniqueStrings } from "../helpers";
 import { readFirstJsonLdRecord } from "../jsonLd";
 
@@ -68,10 +68,6 @@ export const parseMonoLikeDetail = ($: CheerioAPI): Partial<CrawlerData> | null 
         extractText($, "th:contains('配信開始日') + td"),
     ) ?? undefined;
 
-  const runtime =
-    parseRuntime(extractText($, "td:contains('収録時間') + td") ?? extractText($, "th:contains('収録時間') + td")) ??
-    undefined;
-
   const studio = extractText($, "td:contains('メーカー') + td a") ?? extractText($, "th:contains('メーカー') + td a");
   const publisher =
     extractText($, "td:contains('レーベル') + td a") ?? extractText($, "th:contains('レーベル') + td a") ?? studio;
@@ -124,7 +120,6 @@ export const parseMonoLikeDetail = ($: CheerioAPI): Partial<CrawlerData> | null 
     series,
     plot,
     release_date: release,
-    runtime,
     rating: Number.isFinite(rating) ? rating : undefined,
     cover_url: coverUrl,
     poster_url: coverUrl?.replace("pl.jpg", "ps.jpg"),

@@ -156,7 +156,6 @@ export class DmmCrawler extends BaseDmmCrawler {
       series: baseData.series,
       plot: baseData.plot,
       release_date: baseData.release_date,
-      runtime: baseData.runtime,
       rating: baseData.rating,
       cover_url: baseData.cover_url,
       poster_url: baseData.poster_url ?? baseData.cover_url?.replace("pl.jpg", "ps.jpg"),

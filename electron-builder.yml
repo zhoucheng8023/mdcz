@@ -14,6 +14,11 @@ files:
   - resources/**
   - package.json
   - "!**/*.map"
+  - "!node_modules/mediainfo.js/dist/MediaInfoModule.wasm"
+
+extraResources:
+  - from: node_modules/mediainfo.js/dist/MediaInfoModule.wasm
+    to: MediaInfoModule.wasm
 
 win:
   target:

@@ -14,6 +14,14 @@ export interface ActorProfile {
   cup_size?: string;
 }
 
+export interface VideoMeta {
+  durationSeconds: number;
+  width: number;
+  height: number;
+  codec?: string;
+  bitrate?: number;
+}
+
 export interface CrawlerData {
   title: string;
   title_zh?: string;
@@ -30,7 +38,6 @@ export interface CrawlerData {
   plot_zh?: string;
   release_date?: string;
   release_year?: number;
-  runtime?: number;
   rating?: number;
   cover_url?: string;
   poster_url?: string;
@@ -67,6 +74,7 @@ export interface ScrapeResult {
   fileInfo: FileInfo;
   status: ScrapeResultStatus;
   crawlerData?: CrawlerData;
+  videoMeta?: VideoMeta;
   error?: string;
   outputPath?: string;
   nfoPath?: string;

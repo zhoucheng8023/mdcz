@@ -153,7 +153,6 @@ export class Jav321Crawler extends BaseCrawler {
       series: undefined,
       plot,
       release_date: releaseDate,
-      runtime: undefined,
       rating: undefined,
       cover_url: coverUrlAbsolute,
       poster_url: undefined,

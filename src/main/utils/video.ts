@@ -1,31 +1,10 @@
-import { execFile } from "node:child_process";
 import { open } from "node:fs/promises";
-import { promisify } from "node:util";
-import ffprobeStatic from "ffprobe-static";
-
-interface FfprobeData {
-  streams?: FfprobeStream[];
-  format?: FfprobeFormat;
-}
-
-interface FfprobeFormat {
-  duration?: number | string;
-}
-
-interface FfprobeStream {
-  codec_type?: string;
-  width?: number | string;
-  height?: number | string;
-}
-
-export interface VideoMetadata {
-  durationSeconds: number;
-  width: number;
-  height: number;
-}
+import { join } from "node:path";
+import type { VideoMeta } from "@shared/types";
+import { app } from "electron";
+import { isTrackType, type MediaInfoResult, mediaInfoFactory } from "mediainfo.js";
 
 const CHUNK_SIZE = 64 * 1024;
-const execFileAsync = promisify(execFile);
 
 const toNumber = (value: unknown): number => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -42,63 +21,83 @@ const toNumber = (value: unknown): number => {
   return 0;
 };
 
-const runFfprobe = async (filePath: string): Promise<FfprobeData> => {
-  const ffprobePath = ffprobeStatic.path;
-  if (!ffprobePath) {
-    throw new Error("ffprobe binary path is unavailable");
+const toOptionalString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
   }
 
-  const args = ["-v", "error", "-show_format", "-show_streams", "-print_format", "json", filePath];
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+};
 
-  const { stdout } = await execFileAsync(ffprobePath, args, {
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
+const toPositiveNumber = (value: unknown): number | undefined => {
+  const parsed = toNumber(value);
+  return parsed > 0 ? parsed : undefined;
+};
+
+const toVideoMetadata = (result: MediaInfoResult): VideoMeta => {
+  const tracks = result.media?.track ?? [];
+  const generalTrack = tracks.find((track) => isTrackType(track, "General"));
+  const videoTrack = tracks.find((track) => isTrackType(track, "Video"));
+
+  const codec =
+    toOptionalString(videoTrack?.Format) ??
+    toOptionalString(videoTrack?.CodecID_String) ??
+    toOptionalString(videoTrack?.CodecID);
+
+  const bitrate = toPositiveNumber(videoTrack?.BitRate) ?? toPositiveNumber(generalTrack?.OverallBitRate);
+
+  return {
+    durationSeconds: toNumber(generalTrack?.Duration),
+    width: Math.max(0, Math.round(toNumber(videoTrack?.Width))),
+    height: Math.max(0, Math.round(toNumber(videoTrack?.Height))),
+    codec,
+    bitrate,
+  };
+};
+
+const initMediaInfo = () => {
+  const locateFile = app.isPackaged ? (path: string) => join(process.resourcesPath, path) : undefined;
+  return mediaInfoFactory({
+    format: "object",
+    chunkSize: CHUNK_SIZE,
+    ...(locateFile ? { locateFile } : {}),
   });
-
-  const payload = JSON.parse(stdout) as FfprobeData;
-  return payload;
 };
 
-const toUnsignedBigInt = (value: bigint): bigint => value & BigInt("0xFFFFFFFFFFFFFFFF");
+let cachedPromise: ReturnType<typeof initMediaInfo> | undefined;
 
-const readUInt64LE = (buffer: Buffer, offset: number): bigint => {
-  return buffer.readBigUInt64LE(offset);
+const getMediaInfo = () => {
+  if (!cachedPromise) {
+    cachedPromise = initMediaInfo();
+  }
+  return cachedPromise;
 };
 
-export const computeOshash = async (filePath: string): Promise<string> => {
+export const probeVideoMetadata = async (filePath: string): Promise<VideoMeta> => {
+  const mediaInfo = await getMediaInfo();
   const handle = await open(filePath, "r");
 
   try {
     const { size } = await handle.stat();
-    if (size < CHUNK_SIZE * 2) {
-      throw new Error("File is too small for oshash");
-    }
+    const metadata = await mediaInfo.analyzeData(
+      () => size,
+      async (chunkSize, offset) => {
+        const remaining = Math.max(0, size - offset);
+        if (remaining === 0) {
+          return new Uint8Array(0);
+        }
 
-    const head = Buffer.alloc(CHUNK_SIZE);
-    const tail = Buffer.alloc(CHUNK_SIZE);
+        const requestedSize = chunkSize > 0 ? chunkSize : CHUNK_SIZE;
+        const length = Math.min(requestedSize, remaining);
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, offset);
+        return buffer.subarray(0, bytesRead);
+      },
+    );
 
-    await handle.read(head, 0, CHUNK_SIZE, 0);
-    await handle.read(tail, 0, CHUNK_SIZE, size - CHUNK_SIZE);
-
-    let hash = BigInt(size);
-
-    for (let index = 0; index < CHUNK_SIZE; index += 8) {
-      hash = toUnsignedBigInt(hash + readUInt64LE(head, index) + readUInt64LE(tail, index));
-    }
-
-    return hash.toString(16).padStart(16, "0");
+    return toVideoMetadata(metadata);
   } finally {
     await handle.close();
   }
-};
-
-export const probeVideoMetadata = async (filePath: string): Promise<VideoMetadata> => {
-  const metadata = await runFfprobe(filePath);
-  const stream = metadata.streams?.find((candidate: FfprobeStream) => candidate.codec_type === "video");
-
-  return {
-    durationSeconds: toNumber(metadata.format?.duration),
-    width: toNumber(stream?.width),
-    height: toNumber(stream?.height),
-  };
 };

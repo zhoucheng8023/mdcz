@@ -45,7 +45,6 @@ export const parseNfo = (xml: string): CrawlerData => {
   const plot = toStringValue(movieNode.plot);
   const premiered = toStringValue(movieNode.premiered);
   const yearText = toStringValue(movieNode.year);
-  const runtimeText = toStringValue(movieNode.runtime);
   const ratingText = toStringValue(movieNode.rating);
 
   const uniqueidNode = movieNode.uniqueid;
@@ -119,7 +118,6 @@ export const parseNfo = (xml: string): CrawlerData => {
     })
     .find((item) => item.trim().length > 0);
 
-  const runtime = runtimeText ? Number.parseInt(runtimeText, 10) : undefined;
   const rating = ratingText ? Number.parseFloat(ratingText) : undefined;
   const releaseYear = yearText ? Number.parseInt(yearText, 10) : undefined;
 
@@ -138,7 +136,6 @@ export const parseNfo = (xml: string): CrawlerData => {
     plot_zh: plot,
     release_date: premiered,
     release_year: Number.isFinite(releaseYear) ? releaseYear : undefined,
-    runtime: Number.isFinite(runtime) ? runtime : undefined,
     rating: Number.isFinite(rating) ? rating : undefined,
     cover_url: coverUrl,
     poster_url: undefined,

@@ -62,14 +62,6 @@ const hasLoginWallTitle = (title: string | undefined): boolean => {
   return /fanza\s*ログイン|ログイン|login/iu.test(title);
 };
 
-const toRuntimeMinutes = (seconds: number | undefined): number | undefined => {
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
-    return undefined;
-  }
-
-  return Math.max(1, Math.round(seconds / 60));
-};
-
 const buildTrailerFromPlaylist = (playlistUrl: string | undefined): string | undefined => {
   if (!playlistUrl) {
     return undefined;
@@ -116,7 +108,6 @@ const parseDmmVideoData = (payload: unknown, fallbackNumber: string): Partial<Cr
     series: content.series?.name,
     plot: content.description,
     release_date: content.makerReleasedAt?.slice(0, 10) ?? content.deliveryStartDate?.slice(0, 10),
-    runtime: toRuntimeMinutes(content.duration),
     rating: data?.reviewSummary?.average,
     cover_url: content.packageImage?.largeUrl,
     poster_url: content.packageImage?.mediumUrl,
@@ -226,7 +217,6 @@ export class DmmTvCrawler extends BaseDmmCrawler {
         series: graphQlData.series,
         plot: graphQlData.plot,
         release_date: graphQlData.release_date,
-        runtime: graphQlData.runtime,
         rating: graphQlData.rating,
         cover_url: graphQlData.cover_url,
         poster_url: graphQlData.poster_url,
@@ -253,7 +243,6 @@ export class DmmTvCrawler extends BaseDmmCrawler {
       series: parsed.series,
       plot: parsed.plot,
       release_date: parsed.release_date,
-      runtime: parsed.runtime,
       rating: parsed.rating,
       cover_url: parsed.cover_url,
       poster_url: parsed.poster_url,

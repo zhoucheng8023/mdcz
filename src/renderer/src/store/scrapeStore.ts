@@ -11,7 +11,10 @@ export interface ScrapeResult {
   outline?: string;
   tags?: string[];
   release?: string;
-  runtime?: string;
+  duration?: string;
+  resolution?: string;
+  codec?: string;
+  bitrate?: string;
   directors?: string[];
   series?: string;
   studio?: string;
@@ -20,8 +23,6 @@ export interface ScrapeResult {
   poster_url?: string;
   thumb_url?: string;
   output_path?: string;
-  poster_size?: [number, number];
-  thumb_size?: [number, number];
   scene_images?: string[];
   /** Maps field names to the website that provided the value. */
   sources?: Record<string, string>;

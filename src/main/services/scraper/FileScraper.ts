@@ -5,7 +5,8 @@ import type { ConfigManager } from "@main/services/config/ConfigManager";
 import { loggerService } from "@main/services/LoggerService";
 import type { SignalService } from "@main/services/SignalService";
 import { parseFileInfo } from "@main/utils/number";
-import type { CrawlerData, FileInfo, ScrapeResult } from "@shared/types";
+import { probeVideoMetadata } from "@main/utils/video";
+import type { CrawlerData, FileInfo, ScrapeResult, VideoMeta } from "@shared/types";
 import type { AggregationService } from "./aggregation";
 import type { DownloadManager } from "./DownloadManager";
 import type { FileOrganizer } from "./FileOrganizer";
@@ -68,6 +69,14 @@ export class FileScraper {
       }
 
       const crawlerData: CrawlerData = aggregationResult.data;
+      let videoMeta: VideoMeta | undefined;
+
+      try {
+        videoMeta = await probeVideoMetadata(fileInfo.filePath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Video probe failed: ${message}`);
+      }
 
       this.setProgress(progress, 30);
       const plan = this.deps.fileOrganizer.plan(fileInfo, crawlerData, configuration);
@@ -94,6 +103,7 @@ export class FileScraper {
         savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, translated, {
           assets,
           sources: aggregationResult.sources,
+          videoMeta,
         });
       }
       this.setProgress(progress, 80);
@@ -116,6 +126,7 @@ export class FileScraper {
         },
         status: "success",
         crawlerData: translated,
+        videoMeta,
         outputPath: plan.outputDir,
         nfoPath: savedNfoPath,
         assets,

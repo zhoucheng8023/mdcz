@@ -48,7 +48,6 @@ export abstract class BaseFc2Crawler extends BaseCrawler {
       posterUrl?: string;
       plot?: string;
       releaseDate?: string;
-      runtime?: number;
       rating?: number;
       sampleImageUrls?: string[];
       trailerUrl?: string;
@@ -67,7 +66,6 @@ export abstract class BaseFc2Crawler extends BaseCrawler {
       series: BaseFc2Crawler.FC2_SERIES,
       plot: fields.plot,
       release_date: fields.releaseDate,
-      runtime: fields.runtime,
       rating: fields.rating,
       cover_url: fields.coverUrl,
       poster_url: fields.posterUrl,

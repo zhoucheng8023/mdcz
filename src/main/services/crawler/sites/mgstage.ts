@@ -3,7 +3,7 @@ import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
 
 import { BaseCrawler } from "../base/BaseCrawler";
-import { extractText, parseDate, parseRuntime } from "../base/parser";
+import { extractText, parseDate } from "../base/parser";
 import type { Context } from "../base/types";
 import { extractByLabel, toAbsoluteUrl, uniqueStrings } from "./helpers";
 
@@ -64,7 +64,6 @@ export class MGStageCrawler extends BaseCrawler {
 
     const number = extractByLabel($, "品番") ?? context.number;
     const releaseDate = parseDate(extractByLabel($, "配信開始日") ?? extractByLabel($, "発売日")) ?? undefined;
-    const runtime = parseRuntime(extractByLabel($, "収録時間")) ?? undefined;
     const studio = extractByLabel($, "メーカー");
     const publisher = extractByLabel($, "レーベル") ?? studio;
     const series = extractByLabel($, "シリーズ");
@@ -110,7 +109,6 @@ export class MGStageCrawler extends BaseCrawler {
       series,
       plot,
       release_date: releaseDate,
-      runtime,
       rating,
       cover_url: coverUrlAbsolute,
       poster_url: undefined,

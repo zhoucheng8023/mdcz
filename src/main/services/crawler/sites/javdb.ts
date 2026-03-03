@@ -3,7 +3,7 @@ import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
 import { BaseCrawler } from "../base/BaseCrawler";
-import { extractAttr, extractText, parseDate, parseRuntime } from "../base/parser";
+import { extractAttr, extractText, parseDate } from "../base/parser";
 import type { Context } from "../base/types";
 import { toAbsoluteUrl } from "./helpers";
 
@@ -150,7 +150,6 @@ export class JavdbCrawler extends BaseCrawler {
     const series = findStrongRow($, ["系列:", "Series:"])?.trim() || undefined;
     const director = findStrongRow($, ["導演:", "Director:"])?.trim() || undefined;
     const release = parseDate(findStrongRow($, ["日期:", "Released Date:"])) ?? undefined;
-    const runtime = parseRuntime(findStrongRow($, ["時長", "Duration:"])) ?? undefined;
 
     const coverUrl = extractAttr($, "img.video-cover", "src");
     const coverUrlAbsolute = toAbsoluteUrl(JAVDB_BASE_URL, coverUrl);
@@ -177,7 +176,6 @@ export class JavdbCrawler extends BaseCrawler {
       series,
       plot: undefined,
       release_date: release,
-      runtime,
       rating: undefined,
       cover_url: coverUrlAbsolute,
       poster_url: posterUrl,

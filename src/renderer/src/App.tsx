@@ -26,6 +26,26 @@ declare module "@tanstack/react-router" {
   }
 }
 
+const formatDuration = (durationSeconds: number | undefined): string | undefined => {
+  if (typeof durationSeconds !== "number" || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    return undefined;
+  }
+
+  const totalSeconds = Math.round(durationSeconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
+const formatBitrate = (bitrateBps: number | undefined): string | undefined => {
+  if (typeof bitrateBps !== "number" || !Number.isFinite(bitrateBps) || bitrateBps <= 0) {
+    return undefined;
+  }
+
+  return `${(bitrateBps / 1_000_000).toFixed(1)} Mbps`;
+};
+
 const normalizeResultItem = (payload: BackendScrapeResult): ScrapeResult => {
   const data = payload.crawlerData;
   const assets = payload.assets;
@@ -42,7 +62,13 @@ const normalizeResultItem = (payload: BackendScrapeResult): ScrapeResult => {
     outline: data?.plot_zh ?? data?.plot,
     tags: data?.genres,
     release: data?.release_date,
-    runtime: typeof data?.runtime === "number" ? String(data.runtime) : undefined,
+    duration: formatDuration(payload.videoMeta?.durationSeconds),
+    resolution:
+      payload.videoMeta && payload.videoMeta.width > 0 && payload.videoMeta.height > 0
+        ? `${payload.videoMeta.width}x${payload.videoMeta.height}`
+        : undefined,
+    codec: payload.videoMeta?.codec,
+    bitrate: formatBitrate(payload.videoMeta?.bitrate),
     directors: data?.director ? [data.director] : undefined,
     series: data?.series,
     studio: data?.studio,

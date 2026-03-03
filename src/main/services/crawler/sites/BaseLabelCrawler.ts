@@ -3,7 +3,7 @@ import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
 
 import { BaseCrawler } from "../base/BaseCrawler";
-import { parseDate, parseRuntime } from "../base/parser";
+import { parseDate } from "../base/parser";
 import type { Context } from "../base/types";
 import { extractByLabel, toAbsoluteUrl } from "./helpers";
 
@@ -88,7 +88,6 @@ export abstract class BaseLabelCrawler extends BaseCrawler {
       series: extractByLabel($, "系列"),
       plot: $(".box_works01_text p").first().text().trim() || undefined,
       release_date: parseDate(extractByLabel($, "配信開始日")) ?? undefined,
-      runtime: parseRuntime(extractByLabel($, "収録時間")) ?? undefined,
       rating: undefined,
       cover_url: coverUrl,
       poster_url: posterUrl,

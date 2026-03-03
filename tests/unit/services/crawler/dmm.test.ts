@@ -80,7 +80,6 @@ describe("DmmCrawler", () => {
     expect(data.title).toBe("Sample DMM Digital Title");
     expect(data.plot).toBe("Plot from json-ld");
     expect(data.release_date).toBe("2024-04-01");
-    expect(data.runtime).toBe(120);
     expect(data.actors).toEqual(["Actor A"]);
     expect(data.genres).toEqual(["Tag A", "Tag B"]);
     expect(data.studio).toBe("Studio A");

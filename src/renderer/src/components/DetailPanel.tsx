@@ -207,11 +207,6 @@ export function DetailPanel() {
                     className="w-full h-full object-cover"
                     onError={handlePosterError}
                   />
-                  {selectedItem.poster_size && selectedItem.poster_size[0] > 0 && (
-                    <div className="text-[9px] font-mono text-muted-foreground py-0.5 bg-background/80 text-center border-t">
-                      {selectedItem.poster_size[0]} x {selectedItem.poster_size[1]}
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="w-full aspect-2/3 bg-muted/20 rounded-lg flex items-center justify-center border border-dashed">
@@ -232,9 +227,24 @@ export function DetailPanel() {
                   {selectedItem.release}
                 </Row>
               )}
-              {selectedItem.runtime && (
+              {selectedItem.duration && (
                 <Row label="时长" variant="metadata">
-                  {selectedItem.runtime} 分钟
+                  {selectedItem.duration}
+                </Row>
+              )}
+              {selectedItem.resolution && (
+                <Row label="分辨率" variant="metadata">
+                  {selectedItem.resolution}
+                </Row>
+              )}
+              {selectedItem.codec && (
+                <Row label="编码" variant="metadata">
+                  {selectedItem.codec}
+                </Row>
+              )}
+              {selectedItem.bitrate && (
+                <Row label="码率" variant="metadata">
+                  {selectedItem.bitrate}
                 </Row>
               )}
               {selectedItem.studio && (
@@ -287,11 +297,6 @@ export function DetailPanel() {
               <div className="aspect-video flex items-center justify-center">
                 <img src={thumbSrc} alt="Cover" className="w-full h-full object-cover" onError={handleThumbError} />
               </div>
-              {selectedItem.thumb_size && selectedItem.thumb_size[0] > 0 && (
-                <div className="text-[10px] font-mono text-muted-foreground py-1 bg-background/80 text-center border-t">
-                  {selectedItem.thumb_size[0]} x {selectedItem.thumb_size[1]}
-                </div>
-              )}
             </div>
           )}
 

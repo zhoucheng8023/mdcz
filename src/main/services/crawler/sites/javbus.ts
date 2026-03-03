@@ -3,7 +3,7 @@ import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
 import { BaseCrawler } from "../base/BaseCrawler";
-import { extractText, parseDate, parseRuntime } from "../base/parser";
+import { extractText, parseDate } from "../base/parser";
 import type { Context } from "../base/types";
 import { toAbsoluteUrl } from "./helpers";
 
@@ -116,7 +116,6 @@ export class JavbusCrawler extends BaseCrawler {
 
     const number = readHeaderValue(["識別碼", "识别码", "ID"]) ?? context.number;
     const release = parseDate(readHeaderValue(["發行日期", "发行日期", "Released"])) ?? undefined;
-    const runtime = parseRuntime(readHeaderValue(["長度", "长度", "Runtime"])) ?? undefined;
 
     const actors = $("div.star-name a")
       .map((_index: number, element: CheerioInput) => $(element).text().trim())
@@ -158,7 +157,6 @@ export class JavbusCrawler extends BaseCrawler {
       series,
       plot: undefined,
       release_date: release,
-      runtime,
       rating: undefined,
       cover_url: coverUrlAbsolute,
       poster_url: posterUrl,

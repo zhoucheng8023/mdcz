@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, relative } from "node:path";
 import { toArray } from "@main/utils/common";
-import type { ActorProfile, CrawlerData, DownloadedAssets } from "@shared/types";
+import type { ActorProfile, CrawlerData, DownloadedAssets, VideoMeta } from "@shared/types";
 import { XMLBuilder } from "fast-xml-parser";
 import type { SourceMap } from "./aggregation/types";
 
@@ -72,6 +72,7 @@ const buildStringNodes = (values: string[]) => values.map((value) => value.trim(
 export interface NfoOptions {
   assets?: DownloadedAssets;
   sources?: SourceMap;
+  videoMeta?: VideoMeta;
 }
 
 export class NfoGenerator {
@@ -80,6 +81,9 @@ export class NfoGenerator {
     const plot = data.plot_zh?.trim() || data.plot?.trim();
     const assets = options?.assets;
     const sources = options?.sources;
+    const runtimeMinutes = options?.videoMeta?.durationSeconds
+      ? Math.round(options.videoMeta.durationSeconds / 60)
+      : undefined;
 
     const movie: Record<string, unknown> = {};
 
@@ -93,7 +97,7 @@ export class NfoGenerator {
     movie.plot = plot && plot.length > 0 ? plot : undefined;
     movie.premiered = data.release_date;
     movie.year = data.release_year ?? parseReleaseYear(data.release_date);
-    movie.runtime = data.runtime;
+    movie.runtime = runtimeMinutes;
     movie.rating = data.rating;
     movie.studio = data.studio;
     movie.director = data.director;
