@@ -62,7 +62,7 @@ const normalizeResultItem = (payload: BackendScrapeResult): ScrapeResult => {
     outline: data?.plot_zh ?? data?.plot,
     tags: data?.genres,
     release: data?.release_date,
-    duration: formatDuration(payload.videoMeta?.durationSeconds),
+    duration: formatDuration(payload.videoMeta?.durationSeconds ?? data?.durationSeconds),
     resolution:
       payload.videoMeta && payload.videoMeta.width > 0 && payload.videoMeta.height > 0
         ? `${payload.videoMeta.width}x${payload.videoMeta.height}`
