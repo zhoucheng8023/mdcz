@@ -8,6 +8,20 @@ import type { FetchOptions } from "../../FetchGateway";
 import { classifyDmmDetailFailure } from "./failureClassifier";
 import { buildDmmHttpOptions, normalizeDmmCookieHeader } from "./SessionVault";
 
+const AWS_PLACEHOLDER_KEYWORDS = ["now_printing", "nowprinting", "noimage", "nopic", "media_violation"];
+
+const toAwsProbeUrl = (value: string): string => {
+  const url = new URL(value);
+  url.searchParams.set("w", "120");
+  url.searchParams.set("h", "90");
+  return url.toString();
+};
+
+const isAwsPlaceholderUrl = (value: string): boolean => {
+  const resolvedUrl = value.toLowerCase();
+  return AWS_PLACEHOLDER_KEYWORDS.some((keyword) => resolvedUrl.includes(keyword));
+};
+
 /**
  * Shared base for DMM and DMM_TV crawlers.
  * Encapsulates cookie management, failure classification,
@@ -75,8 +89,7 @@ export abstract class BaseDmmCrawler extends BaseCrawler {
     const results = await Promise.all(
       awsCandidates.map(async (awsUrl) => {
         try {
-          const result = await this.gateway.fetchHead(awsUrl);
-          return result.ok ? awsUrl : null;
+          return (await this.isValidAwsImage(awsUrl)) ? awsUrl : null;
         } catch {
           return null;
         }
@@ -94,5 +107,10 @@ export abstract class BaseDmmCrawler extends BaseCrawler {
     }
 
     return data;
+  }
+
+  private async isValidAwsImage(awsUrl: string): Promise<boolean> {
+    const probe = await this.gateway.probeUrl(toAwsProbeUrl(awsUrl), { method: "GET" });
+    return probe.ok && !isAwsPlaceholderUrl(probe.resolvedUrl);
   }
 }

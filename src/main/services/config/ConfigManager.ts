@@ -7,7 +7,7 @@ import { loggerService } from "@main/services/LoggerService";
 import { getProperty, setProperty } from "@main/utils/common";
 import { app } from "electron";
 import { ComputedConfig, type ComputedConfiguration } from "./computed";
-import { type Configuration, configurationSchema, defaultConfiguration } from "./models";
+import { type Configuration, configurationSchema, type DeepPartial, defaultConfiguration } from "./models";
 
 const ACTIVE_PROFILE_META_FILE = ".active-profile.json";
 const CONFIG_DIRECTORY_META_FILE = ".config-directory.json";
@@ -87,7 +87,7 @@ export class ConfigManager extends EventEmitter {
     return this.computedConfig.value;
   }
 
-  async save(partial: Partial<Configuration>): Promise<void> {
+  async save(partial: DeepPartial<Configuration>): Promise<void> {
     await this.ensureLoaded();
 
     const merged = mergeDeep(this.configuration, partial);

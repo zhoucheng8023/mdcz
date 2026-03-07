@@ -193,14 +193,14 @@ export function DetailPanel() {
       </div>
 
       {/* Scrollable Content */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-4 space-y-4 min-w-0">
           {/* Poster + Metadata Side by Side */}
           <div className="flex gap-4 items-stretch">
             {/* Poster (left, fixed width) */}
             <div className="shrink-0 w-36 self-stretch">
               {posterSrc ? (
-                <div className="relative bg-muted/20 rounded-lg overflow-hidden border aspect-[2/3]">
+                <div className="relative bg-muted/20 rounded-lg overflow-hidden border aspect-2/3">
                   <img
                     src={posterSrc}
                     alt="Poster"
@@ -314,7 +314,7 @@ export function DetailPanel() {
           {selectedItem.outline && (
             <div>
               <div className="text-xs text-muted-foreground mb-2">内容简介</div>
-              <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">
+              <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap wrap-break-word">
                 {selectedItem.outline}
               </p>
             </div>

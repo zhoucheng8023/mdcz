@@ -23,7 +23,7 @@
     "build:linux": "pnpm build && electron-builder --linux AppImage",
     "test": "vitest run --silent",
     "test:main": "vitest run --project unit",
-    "typecheck": "concurrently \"tsc --noEmit -p tsconfig.node.json\" \"tsc --noEmit -p tsconfig.web.json\"",
+    "typecheck": "concurrently \"tsc --noEmit -p tsconfig.node.json\" \"tsc --noEmit -p tsconfig.web.json\" \"tsc --noEmit -p tsconfig.test.json\"",
     "format": "biome check --write",
     "prepare": "simple-git-hooks"
   },

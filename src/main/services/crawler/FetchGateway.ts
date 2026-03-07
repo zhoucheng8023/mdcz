@@ -1,10 +1,14 @@
-import type { NetworkClient } from "@main/services/network";
+import type { NetworkClient, ProbeResult } from "@main/services/network";
 
 export interface FetchOptions {
   timeout?: number;
   headers?: Record<string, string>;
   cookies?: string;
   signal?: AbortSignal;
+}
+
+export interface ProbeFetchOptions extends FetchOptions {
+  method?: "HEAD" | "GET";
 }
 
 export interface GraphQLOperation {
@@ -47,6 +51,14 @@ export class FetchGateway {
 
   async fetchHead(url: string, options: FetchOptions = {}): Promise<{ status: number; ok: boolean }> {
     return this.networkClient.head(url, this.toHttpInit(options));
+  }
+
+  async probeUrl(url: string, options: ProbeFetchOptions = {}): Promise<ProbeResult> {
+    const { method, ...requestOptions } = options;
+    return this.networkClient.probe(url, {
+      ...this.toHttpInit(requestOptions),
+      method,
+    });
   }
 
   private toHeaders(options: { headers?: Record<string, string>; cookies?: string }): Record<string, string> {

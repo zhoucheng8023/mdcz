@@ -4,10 +4,17 @@ import type { CrawlerData } from "@shared/types";
 /** Maps each CrawlerData field to the Website that provided the winning value. */
 export type SourceMap = Partial<Record<keyof CrawlerData, Website>>;
 
+export interface ImageAlternatives {
+  cover_url: string[];
+  poster_url: string[];
+  fanart_url: string[];
+}
+
 /** Result of aggregating crawler data from multiple sources. */
 export interface AggregationResult {
   data: CrawlerData;
   sources: SourceMap;
+  imageAlternatives: ImageAlternatives;
   stats: AggregationStats;
 }
 

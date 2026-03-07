@@ -226,9 +226,9 @@ export function ResultTree() {
   const failedResults = results.filter((r) => r.status === "failed");
 
   return (
-    <Card className="flex flex-col h-full border-0 shadow-none rounded-none bg-transparent pt-4">
+    <Card className="flex h-full flex-col gap-2 border-0 bg-transparent pt-4 shadow-none rounded-none">
       <CardHeader className="border-b shrink-0 pb-2!">
-        <CardTitle className="text-sm font-bold flex justify-between items-center gap-2 tracking-tight">
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-bold tracking-tight">
           <span>处理结果列表</span>
           <div className="flex items-center">
             <div className="flex gap-2">
@@ -253,9 +253,9 @@ export function ResultTree() {
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0 flex-1 overflow-hidden">
+      <CardContent className="flex-1 min-h-0 overflow-hidden p-0">
         <ScrollArea className="h-full">
-          <div className="p-3 space-y-1">
+          <div className="space-y-1 p-3">
             {results.length === 0 && (
               <div className="text-center text-muted-foreground py-12 text-xs opacity-60">
                 暂无结果。启动刮削任务后，处理项将显示在此处。

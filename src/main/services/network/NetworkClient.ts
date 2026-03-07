@@ -9,7 +9,21 @@ import { RateLimiter } from "./RateLimiter";
 const RETRY_STATUS_CODE = 429;
 const RETRY_AFTER_CAP_MS = 15_000;
 const RETRYABLE_STATUS_CODES = new Set([408, 500, 502, 503, 504]);
+const PROBE_FALLBACK_STATUS_CODES = new Set([403, 405, 501]);
 type ImpitResponse = Awaited<ReturnType<Impit["fetch"]>>;
+type ProbeMethod = "HEAD" | "GET";
+type ProbeOptions = Omit<ImpitRequestInit, "method"> & {
+  method?: ProbeMethod;
+};
+
+export interface NetworkCookieJar {
+  getCookieString(url: string): Promise<string> | string;
+  setCookie(cookie: string, url: string, cb?: unknown): Promise<void> | void;
+}
+
+export interface NetworkSession {
+  getText(url: string, init?: Omit<ImpitRequestInit, "method">): Promise<string>;
+}
 
 export interface NetworkClientOptions {
   timeoutMs?: number;
@@ -18,6 +32,18 @@ export interface NetworkClientOptions {
   getTimeoutMs?: () => number | undefined;
   getRetryCount?: () => number | undefined;
   rateLimiter?: RateLimiter;
+}
+
+export interface ProbeResult {
+  ok: boolean;
+  status: number;
+  contentLength: number | null;
+  resolvedUrl: string;
+}
+
+interface RequestBehavior {
+  allowNonOkResponse?: boolean;
+  retryLogPrefix?: string;
 }
 
 export class NetworkClient {
@@ -112,48 +138,121 @@ export class NetworkClient {
   }
 
   async head(url: string, init: Omit<ImpitRequestInit, "method"> = {}): Promise<{ status: number; ok: boolean }> {
-    const response = await this.request(url, {
-      ...init,
-      method: "HEAD",
-    });
+    const { status, ok } = await this.probe(url, init);
 
     return {
-      status: response.status,
-      ok: response.ok,
+      status,
+      ok,
     };
   }
 
-  private async request(url: string, init: ImpitRequestInit) {
+  async probe(url: string, init: ProbeOptions = {}): Promise<ProbeResult> {
+    const method = init.method ?? "HEAD";
+    if (method === "GET") {
+      const response = await this.requestForProbe(url, {
+        ...init,
+        method: "GET",
+      });
+
+      return this.toProbeResult(url, response);
+    }
+
+    const response = await this.requestForProbe(url, {
+      ...init,
+      method: "HEAD",
+    });
+    if (response.ok || !PROBE_FALLBACK_STATUS_CODES.has(response.status)) {
+      return this.toProbeResult(url, response);
+    }
+
+    const fallbackResponse = await this.requestForProbe(url, {
+      ...init,
+      method: "GET",
+      headers: this.buildProbeFallbackHeaders(init.headers),
+    });
+
+    return this.toProbeResult(url, fallbackResponse);
+  }
+
+  createSession(options: { cookieJar?: NetworkCookieJar } = {}): NetworkSession {
+    const client = this.createImpitClient(options.cookieJar);
+
+    return {
+      getText: async (url: string, init: Omit<ImpitRequestInit, "method"> = {}) => {
+        const response = await this.executeRequest(
+          url,
+          {
+            ...init,
+            method: "GET",
+          },
+          client,
+        );
+        return response.text();
+      },
+    };
+  }
+
+  private toProbeResult(url: string, response: ImpitResponse): ProbeResult {
+    return {
+      status: response.status,
+      ok: response.ok,
+      contentLength: this.parseResponseContentLength(response),
+      resolvedUrl: response.url || url,
+    };
+  }
+
+  private async request(url: string, init: ImpitRequestInit): Promise<ImpitResponse> {
+    return this.executeRequest(url, init);
+  }
+
+  private async requestForProbe(url: string, init: ImpitRequestInit): Promise<ImpitResponse> {
+    return this.executeRequest(url, init, undefined, {
+      allowNonOkResponse: true,
+      retryLogPrefix: `probe ${url}`,
+    });
+  }
+
+  private async executeRequest(
+    url: string,
+    init: ImpitRequestInit,
+    client?: Impit,
+    behavior: RequestBehavior = {},
+  ): Promise<ImpitResponse> {
     return this.rateLimiter.schedule(url, async () => {
       const maxRetries = this.resolveRetryCount();
       let attempt = 0;
 
       while (true) {
-        const response = await this.fetchOnce(url, init);
+        const response = await this.fetchOnce(url, init, client);
         if (response.ok) {
           return response;
         }
 
-        if (!this.shouldRetryResponse(response) || attempt >= maxRetries) {
+        const retryable = this.shouldRetryResponse(response);
+        if (!retryable || attempt >= maxRetries) {
+          if (behavior.allowNonOkResponse) {
+            return response;
+          }
+
           throw this.toHttpError(url, response);
         }
 
         const delayMs = this.getRetryDelayMs(response, attempt);
         attempt += 1;
         this.logger.warn(
-          `Retrying ${url} (${attempt}/${maxRetries}) after ${delayMs}ms due to HTTP ${response.status}`,
+          `Retrying ${behavior.retryLogPrefix ?? url} (${attempt}/${maxRetries}) after ${delayMs}ms due to HTTP ${response.status}`,
         );
         await sleep(delayMs);
       }
     });
   }
 
-  private async fetchOnce(url: string, init: ImpitRequestInit): Promise<ImpitResponse> {
-    const client = this.createImpitClient();
+  private async fetchOnce(url: string, init: ImpitRequestInit, client?: Impit): Promise<ImpitResponse> {
+    const currentClient = client ?? this.createImpitClient();
     const headers = new Headers(init.headers);
     this.applyReferer(url, headers);
 
-    return client.fetch(url, {
+    return currentClient.fetch(url, {
       ...init,
       timeout: init.timeout ?? this.resolveTimeoutMs(),
       headers,
@@ -162,6 +261,36 @@ export class NetworkClient {
 
   private toHttpError(url: string, response: ImpitResponse): Error {
     return new Error(`HTTP ${response.status} ${response.statusText} for ${url}`);
+  }
+
+  private buildProbeFallbackHeaders(headersInit: ImpitRequestInit["headers"]): Headers {
+    const headers = new Headers(headersInit);
+    headers.set("range", headers.get("range") ?? "bytes=0-0");
+    return headers;
+  }
+
+  private parseContentLength(value: string | null): number | null {
+    if (!value) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  private parseResponseContentLength(response: ImpitResponse): number | null {
+    const contentRange = response.headers.get("content-range");
+    if (contentRange) {
+      const match = contentRange.match(/\/(\d+)$/u);
+      if (match) {
+        const parsed = Number.parseInt(match[1], 10);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          return parsed;
+        }
+      }
+    }
+
+    return this.parseContentLength(response.headers.get("content-length"));
   }
 
   private getRetryAfterDelayMs(response: ImpitResponse): number | null {
@@ -209,7 +338,7 @@ export class NetworkClient {
     return Math.max(0, Math.trunc(value));
   }
 
-  private createImpitClient(): Impit {
+  private createImpitClient(cookieJar?: NetworkCookieJar): Impit {
     return new Impit({
       browser: this.options.browserImpersonation,
       timeout: this.resolveTimeoutMs(),
@@ -217,6 +346,7 @@ export class NetworkClient {
       followRedirects: true,
       vanillaFallback: true,
       http3: false,
+      cookieJar,
     });
   }
 

@@ -87,7 +87,7 @@ export class AggregationService {
 
     // Aggregate fields from all successful sources
     const aggregator = new FieldAggregator(config.aggregation.fieldPriorities, config.aggregation.behavior);
-    const { data, sources } = aggregator.aggregate(successes);
+    const { data, sources, imageAlternatives } = aggregator.aggregate(successes);
 
     // Validate minimum threshold: number + title + (cover_url OR poster_url)
     if (!data.number || !data.title || (!data.cover_url && !data.poster_url)) {
@@ -97,7 +97,7 @@ export class AggregationService {
       return null;
     }
 
-    const result: AggregationResult = { data, sources, stats };
+    const result: AggregationResult = { data, sources, imageAlternatives, stats };
 
     this.putInCache(cacheKey, result);
     return result;

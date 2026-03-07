@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node", "electron-vite/node", "vitest/globals"]
+  },
+  "include": [
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/renderer/src/**/*.ts",
+    "src/renderer/src/**/*.tsx",
+    "src/**/*.d.ts",
+    "packages/shared/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

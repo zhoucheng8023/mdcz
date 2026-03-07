@@ -7,6 +7,7 @@ export enum Website {
   JAV321 = "jav321",
   JAVBUS = "javbus",
   JAVDB = "javdb",
+  KM_PRODUCE = "km_produce",
   MGSTAGE = "mgstage",
   PRESTIGE = "prestige",
 }

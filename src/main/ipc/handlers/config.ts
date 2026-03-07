@@ -1,4 +1,4 @@
-import { type Configuration, ConfigValidationError, configManager } from "@main/services/config";
+import { type Configuration, ConfigValidationError, configManager, type DeepPartial } from "@main/services/config";
 import { toErrorMessage } from "@main/utils/common";
 import { IpcChannel } from "@shared/IpcChannel";
 import type { IpcRouterContract } from "@shared/ipcContract";
@@ -33,7 +33,7 @@ export const createConfigHandlers = (): Pick<
       throw asSerializableIpcError(error);
     }
   }),
-  [IpcChannel.Config_Save]: t.procedure.input<{ config?: Partial<Configuration> }>().action(async ({ input }) => {
+  [IpcChannel.Config_Save]: t.procedure.input<{ config?: DeepPartial<Configuration> }>().action(async ({ input }) => {
     try {
       await configManager.save(input?.config ?? {});
       return { success: true as const };

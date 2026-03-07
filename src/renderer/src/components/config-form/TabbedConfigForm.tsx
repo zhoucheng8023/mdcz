@@ -116,6 +116,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "download.downloadSceneImages", label: "下载剧照", section: "download" },
   { key: "download.downloadTrailer", label: "下载预告片", section: "download" },
   { key: "download.downloadNfo", label: "下载 NFO", section: "download" },
+  { key: "download.amazonJpCoverEnhance", label: "Amazon封面图片增强", section: "download" },
   { key: "download.keepCover", label: "保留已有封面图", section: "download" },
   { key: "download.keepPoster", label: "保留已有海报", section: "download" },
   { key: "download.keepFanart", label: "保留已有同人画", section: "download" },
@@ -335,6 +336,11 @@ function DownloadSection(_props: SectionRenderProps) {
       <BoolField name="download.downloadSceneImages" label="下载剧照" />
       <BoolField name="download.downloadTrailer" label="下载预告片" />
       <BoolField name="download.downloadNfo" label="下载 NFO" />
+      <BoolField
+        name="download.amazonJpCoverEnhance"
+        label="Amazon封面图片增强"
+        description="使用日本Amazon的商品封面来优化封面显示，使用该功能一般需要日本IP"
+      />
       <BoolField name="download.keepCover" label="保留已有封面图" />
       <BoolField name="download.keepPoster" label="保留已有海报" />
       <BoolField name="download.keepFanart" label="保留已有同人画" />

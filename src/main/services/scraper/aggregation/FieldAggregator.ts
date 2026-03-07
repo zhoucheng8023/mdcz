@@ -1,7 +1,7 @@
 import type { Website } from "@shared/enums";
 import type { ActorProfile, CrawlerData } from "@shared/types";
 
-import type { AggregationStrategy, SourceMap } from "./types";
+import type { AggregationStrategy, ImageAlternatives, SourceMap } from "./types";
 import { FIELD_STRATEGIES } from "./types";
 
 const SCRIPT_PATTERN =
@@ -26,6 +26,17 @@ const DEFAULT_BEHAVIOR: AggregationBehavior = {
 };
 
 type SourceEntry = { site: Website; data: CrawlerData };
+type ResolvedField = { value: unknown; source?: Website; alternatives?: string[] };
+
+const EMPTY_IMAGE_ALTERNATIVES: ImageAlternatives = {
+  cover_url: [],
+  poster_url: [],
+  fanart_url: [],
+};
+
+function isImageField(field: keyof CrawlerData): field is keyof ImageAlternatives {
+  return field === "cover_url" || field === "poster_url" || field === "fanart_url";
+}
 
 /** Selects the best value for each CrawlerData field from multiple sources. */
 export class FieldAggregator {
@@ -38,8 +49,15 @@ export class FieldAggregator {
     this.behavior = { ...DEFAULT_BEHAVIOR, ...behavior };
   }
 
-  aggregate(results: Map<Website, CrawlerData>): { data: CrawlerData; sources: SourceMap } {
+  aggregate(results: Map<Website, CrawlerData>): {
+    data: CrawlerData;
+    sources: SourceMap;
+    imageAlternatives: ImageAlternatives;
+  } {
     const sources: SourceMap = {};
+    const imageAlternatives: ImageAlternatives = {
+      ...EMPTY_IMAGE_ALTERNATIVES,
+    };
 
     const entries: SourceEntry[] = Array.from(results.entries()).map(([site, data]) => ({ site, data }));
     if (entries.length === 0) {
@@ -55,6 +73,9 @@ export class FieldAggregator {
       const ordered = this.orderByPriority(entries, priority);
 
       const result = this.applyStrategy(field, strategy, ordered);
+      if (isImageField(field)) {
+        imageAlternatives[field] = result.alternatives ?? [];
+      }
       if (result.value !== undefined && result.value !== null) {
         sources[field] = result.source;
       }
@@ -87,7 +108,7 @@ export class FieldAggregator {
       website: resolve("website") ?? firstEntry.data.website,
     };
 
-    return { data, sources };
+    return { data, sources, imageAlternatives };
   }
 
   private orderByPriority(entries: SourceEntry[], priority: Website[]): SourceEntry[] {
@@ -120,7 +141,7 @@ export class FieldAggregator {
     field: keyof CrawlerData,
     strategy: AggregationStrategy,
     entries: SourceEntry[],
-  ): { value: unknown; source?: Website } {
+  ): ResolvedField {
     switch (strategy) {
       case "first_non_null":
         return this.firstNonNull(field, entries);
@@ -137,7 +158,7 @@ export class FieldAggregator {
     }
   }
 
-  private firstNonNull(field: keyof CrawlerData, entries: SourceEntry[]): { value: unknown; source?: Website } {
+  private firstNonNull(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
     for (const entry of entries) {
       const value = entry.data[field];
       if (value !== undefined && value !== null && value !== "") {
@@ -147,7 +168,7 @@ export class FieldAggregator {
     return { value: undefined };
   }
 
-  private firstNonEmpty(field: keyof CrawlerData, entries: SourceEntry[]): { value: unknown; source?: Website } {
+  private firstNonEmpty(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
     for (const entry of entries) {
       const value = entry.data[field];
       if (Array.isArray(value) && value.length > 0) {
@@ -160,7 +181,7 @@ export class FieldAggregator {
     return { value: undefined };
   }
 
-  private longest(field: keyof CrawlerData, entries: SourceEntry[]): { value: unknown; source?: Website } {
+  private longest(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
     let best: { value: string; source: Website } | null = null;
 
     for (const entry of entries) {
@@ -176,7 +197,7 @@ export class FieldAggregator {
     return best ? { value: best.value, source: best.source } : { value: undefined };
   }
 
-  private union(field: keyof CrawlerData, entries: SourceEntry[]): { value: unknown; source?: Website } {
+  private union(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
     if (field === "actors") {
       return this.unionActors(entries);
     }
@@ -274,16 +295,37 @@ export class FieldAggregator {
     };
   }
 
-  private highestQuality(field: keyof CrawlerData, entries: SourceEntry[]): { value: unknown; source?: Website } {
-    // Prefer AWS DMM URLs regardless of priority
-    for (const entry of entries) {
+  private highestQuality(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
+    const candidates = entries.flatMap((entry) => {
       const value = entry.data[field];
-      if (typeof value === "string" && value.includes("awsimgsrc.dmm.co.jp")) {
-        return { value, source: entry.site };
+      if (typeof value !== "string" || value.length === 0) {
+        return [];
       }
+
+      return [{ value, source: entry.site }];
+    });
+
+    if (candidates.length === 0) {
+      return { value: undefined, alternatives: [] };
     }
 
-    // Fall back to first_non_null
-    return this.firstNonNull(field, entries);
+    const winner = candidates.find((candidate) => candidate.value.includes("awsimgsrc.dmm.co.jp")) ?? candidates[0];
+    const seen = new Set<string>([winner.value]);
+    const alternatives: string[] = [];
+
+    for (const candidate of candidates) {
+      if (seen.has(candidate.value)) {
+        continue;
+      }
+
+      seen.add(candidate.value);
+      alternatives.push(candidate.value);
+    }
+
+    return {
+      value: winner.value,
+      source: winner.source,
+      alternatives,
+    };
   }
 }

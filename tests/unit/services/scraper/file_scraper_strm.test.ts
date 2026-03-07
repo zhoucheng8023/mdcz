@@ -1,5 +1,6 @@
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { SignalService } from "@main/services/SignalService";
+import type { AmazonJpImageService } from "@main/services/scraper/AmazonJpImageService";
 import type { AggregationService } from "@main/services/scraper/aggregation";
 import type { DownloadManager } from "@main/services/scraper/DownloadManager";
 import type { FileOrganizer, OrganizePlan } from "@main/services/scraper/FileOrganizer";
@@ -57,6 +58,9 @@ describe("FileScraper .strm support", () => {
       translateService: {
         translateCrawlerData: vi.fn().mockResolvedValue(crawlerData),
       } as unknown as TranslateService,
+      amazonJpImageService: {
+        enhance: vi.fn().mockResolvedValue({ upgraded: false, reason: "skip: disabled" }),
+      } as unknown as AmazonJpImageService,
       nfoGenerator: {
         writeNfo,
       } as unknown as NfoGenerator,

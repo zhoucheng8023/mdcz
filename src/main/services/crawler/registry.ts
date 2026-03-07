@@ -9,6 +9,7 @@ import { Fc2Crawler } from "./sites/fc2";
 import { Jav321Crawler } from "./sites/jav321";
 import { JavbusCrawler } from "./sites/javbus";
 import { JavdbCrawler } from "./sites/javdb";
+import { KMProduceCrawler } from "./sites/kmproduce";
 import { MGStageCrawler } from "./sites/mgstage";
 import { PrestigeCrawler } from "./sites/prestige";
 
@@ -38,3 +39,4 @@ registerCrawler(Website.DAHLIA, DahliaCrawler);
 registerCrawler(Website.FC2, Fc2Crawler);
 registerCrawler(Website.MGSTAGE, MGStageCrawler);
 registerCrawler(Website.JAV321, Jav321Crawler);
+registerCrawler(Website.KM_PRODUCE, KMProduceCrawler);

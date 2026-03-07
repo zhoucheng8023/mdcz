@@ -1,12 +1,13 @@
 import { open } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { VideoMeta } from "@shared/types";
 import { app } from "electron";
 import { isTrackType, type MediaInfoResult, mediaInfoFactory } from "mediainfo.js";
 
-const CHUNK_SIZE = 64 * 1024;
+export const CHUNK_SIZE = 64 * 1024;
 
-const toNumber = (value: unknown): number => {
+export const toNumber = (value: unknown): number => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
@@ -57,7 +58,9 @@ const toVideoMetadata = (result: MediaInfoResult): VideoMeta => {
 };
 
 const initMediaInfo = () => {
-  const locateFile = app.isPackaged ? (path: string) => join(process.resourcesPath, path) : undefined;
+  const locateFile = app.isPackaged
+    ? (path: string) => pathToFileURL(join(process.resourcesPath, path)).href
+    : undefined;
   return mediaInfoFactory({
     format: "object",
     chunkSize: CHUNK_SIZE,
@@ -67,7 +70,7 @@ const initMediaInfo = () => {
 
 let cachedPromise: ReturnType<typeof initMediaInfo> | undefined;
 
-const getMediaInfo = () => {
+export const getMediaInfo = () => {
   if (!cachedPromise) {
     cachedPromise = initMediaInfo();
   }
