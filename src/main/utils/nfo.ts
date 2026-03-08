@@ -23,6 +23,42 @@ const toStringValue = (value: unknown): string | undefined => {
   return undefined;
 };
 
+interface ThumbEntry {
+  aspect?: string;
+  value: string;
+}
+
+const parseThumbEntries = (value: unknown): ThumbEntry[] => {
+  return toArray(value)
+    .map((item): ThumbEntry | null => {
+      if (typeof item === "string") {
+        const text = toStringValue(item);
+        return text ? { value: text } : null;
+      }
+
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const node = item as Record<string, unknown>;
+      const text = toStringValue(node["#text"]);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        aspect: toStringValue(node["@_aspect"])?.toLowerCase(),
+        value: text,
+      };
+    })
+    .filter((item): item is ThumbEntry => item !== null);
+};
+
+const pickThumbByAspect = (thumbs: ThumbEntry[], aspects: string[]): string | undefined => {
+  const normalizedAspects = aspects.map((aspect) => aspect.toLowerCase());
+  return thumbs.find((entry) => entry.aspect && normalizedAspects.includes(entry.aspect))?.value;
+};
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
@@ -107,17 +143,18 @@ export const parseNfo = (xml: string): CrawlerData => {
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
 
-  const coverUrl = toArray(movieNode.thumb)
-    .map((item) => {
-      if (typeof item === "string") {
-        return item;
-      }
-      if (item && typeof item === "object") {
-        return toStringValue((item as Record<string, unknown>)["#text"]) ?? "";
-      }
-      return "";
-    })
-    .find((item) => item.trim().length > 0);
+  const thumbs = parseThumbEntries(movieNode.thumb);
+  const fanartThumbs = parseThumbEntries(
+    movieNode.fanart && typeof movieNode.fanart === "object"
+      ? (movieNode.fanart as Record<string, unknown>).thumb
+      : undefined,
+  );
+  const coverUrl =
+    pickThumbByAspect(thumbs, ["thumb", "cover"]) ?? thumbs.find((entry) => !entry.aspect)?.value ?? thumbs[0]?.value;
+  const posterUrl = pickThumbByAspect(thumbs, ["poster"]);
+  const fanartUrl = fanartThumbs[0]?.value;
+  const sampleImages = fanartThumbs.slice(1).map((entry) => entry.value);
+  const trailerUrl = toStringValue(movieNode.trailer);
 
   const rating = ratingText ? Number.parseFloat(ratingText) : undefined;
   const releaseYear = yearText ? Number.parseInt(yearText, 10) : undefined;
@@ -139,10 +176,10 @@ export const parseNfo = (xml: string): CrawlerData => {
     release_year: Number.isFinite(releaseYear) ? releaseYear : undefined,
     rating: Number.isFinite(rating) ? rating : undefined,
     cover_url: coverUrl,
-    poster_url: undefined,
-    fanart_url: undefined,
-    sample_images: [],
-    trailer_url: undefined,
+    poster_url: posterUrl,
+    fanart_url: fanartUrl,
+    sample_images: sampleImages,
+    trailer_url: trailerUrl,
     website,
   };
 };

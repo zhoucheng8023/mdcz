@@ -4,6 +4,7 @@ import { configurationSchema } from "@main/services/config";
 import type { ConfigManager } from "@main/services/config/ConfigManager";
 import { loggerService } from "@main/services/LoggerService";
 import type { SignalService } from "@main/services/SignalService";
+import { pathExists } from "@main/utils/file";
 import { parseFileInfo } from "@main/utils/number";
 import { probeVideoMetadata } from "@main/utils/video";
 import { Website } from "@shared/enums";
@@ -117,11 +118,15 @@ export class FileScraper {
 
       let savedNfoPath: string | undefined;
       if (configuration.download.downloadNfo) {
-        savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, translated, {
-          assets,
-          sources: aggregationResult.sources,
-          videoMeta,
-        });
+        if (configuration.download.keepNfo && (await pathExists(plan.nfoPath))) {
+          savedNfoPath = plan.nfoPath;
+        } else {
+          savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, translated, {
+            assets,
+            sources: aggregationResult.sources,
+            videoMeta,
+          });
+        }
       }
       this.setProgress(progress, 80);
 
@@ -132,7 +137,6 @@ export class FileScraper {
       });
 
       const outputVideoPath = await this.deps.fileOrganizer.organizeVideo(fileInfo, plan, configuration);
-      await this.deps.fileOrganizer.cleanupUnwantedFiles(assets, plan.nfoPath, configuration);
 
       this.setProgress(progress, 100);
 

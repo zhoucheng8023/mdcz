@@ -16,7 +16,7 @@ const DEFAULT_VIDEO_EXTENSIONS = new Set([
   ".strm",
 ]);
 
-const exists = async (path: string): Promise<boolean> => {
+export const pathExists = async (path: string): Promise<boolean> => {
   try {
     await stat(path);
     return true;
@@ -99,7 +99,7 @@ export const resolveAvailablePath = async (targetPath: string, ignoreExistingPat
   let resolvedPath = targetPath;
   let suffix = 1;
 
-  while (await exists(resolvedPath)) {
+  while (await pathExists(resolvedPath)) {
     if (ignored && resolve(resolvedPath) === ignored) {
       return resolvedPath;
     }

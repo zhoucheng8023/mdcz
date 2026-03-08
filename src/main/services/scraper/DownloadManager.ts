@@ -1,9 +1,10 @@
-import { copyFile, mkdir, unlink } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rename, rm, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { Configuration } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient, ProbeResult } from "@main/services/network";
+import { pathExists } from "@main/utils/file";
 import { validateImage } from "@main/utils/image";
 import type { CrawlerData, DownloadedAssets } from "@shared/types";
 import type { ImageAlternatives } from "./aggregation";
@@ -21,6 +22,32 @@ const normalizeUrl = (input?: string): string | null => {
   return trimmed;
 };
 
+const resolveExistingAsset = async (assetPath: string): Promise<string | undefined> => {
+  return (await pathExists(assetPath)) ? assetPath : undefined;
+};
+
+const resolveSingleAsset = async ({
+  targetPath,
+  keepExisting,
+  create,
+}: {
+  targetPath: string;
+  keepExisting: boolean;
+  create: () => Promise<string | null>;
+}): Promise<{ assetPath?: string; createdPath?: string }> => {
+  const existingPath = await resolveExistingAsset(targetPath);
+  if (keepExisting && existingPath) {
+    return { assetPath: existingPath };
+  }
+
+  const createdPath = await create();
+  if (createdPath) {
+    return { assetPath: createdPath, createdPath };
+  }
+
+  return { assetPath: existingPath };
+};
+
 /** Optional callbacks for download progress reporting. */
 export interface DownloadCallbacks {
   /** Called after each scene image completes (success or fail). */
@@ -28,7 +55,7 @@ export interface DownloadCallbacks {
 }
 
 type PrimaryImageKey = keyof Pick<DownloadedAssets, "cover" | "poster" | "fanart">;
-type PrimaryImageTask = { key: PrimaryImageKey; candidates: string[]; path: string };
+type PrimaryImageTask = { key: PrimaryImageKey; candidates: string[]; path: string; keepExisting: boolean };
 type SceneImageTask = { key: "sceneImages"; path: string; url: string };
 type ParallelResult<K extends string> = { key: K; path: string; success: boolean };
 type ProbedImageCandidate = ProbeResult & { index: number; url: string };
@@ -51,8 +78,21 @@ export class DownloadManager {
     };
 
     const primaryTasks = this.buildPrimaryImageTasks(outputDir, data, config, imageAlternatives);
+    const pendingPrimaryTasks: PrimaryImageTask[] = [];
 
-    const primaryResults = await this.runParallel(primaryTasks, 3, async (task) => {
+    for (const task of primaryTasks) {
+      const existingAsset = await resolveExistingAsset(task.path);
+      if (task.keepExisting && existingAsset) {
+        assets[task.key] = existingAsset;
+        continue;
+      }
+
+      if (task.candidates.length > 0) {
+        pendingPrimaryTasks.push(task);
+      }
+    }
+
+    const primaryResults = await this.runParallel(pendingPrimaryTasks, 3, async (task) => {
       return !!(await this.downloadBestImage(task.candidates, task.path));
     });
 
@@ -64,33 +104,67 @@ export class DownloadManager {
       }
     }
 
+    for (const task of primaryTasks) {
+      if (!assets[task.key]) {
+        const existingAsset = await resolveExistingAsset(task.path);
+        if (existingAsset) {
+          assets[task.key] = existingAsset;
+        }
+      }
+    }
+
     if (config.download.downloadSceneImages) {
-      const urls = (data.sample_images ?? [])
-        .map((item) => normalizeUrl(item))
-        .filter((item): item is string => !!item)
-        .slice(0, config.aggregation.behavior.maxSceneImages);
+      const sceneDir = join(outputDir, config.paths.sceneImagesFolder);
+      const existingSceneImages = await this.listExistingSceneImages(sceneDir);
+      if (config.download.keepSceneImages && existingSceneImages.length > 0) {
+        assets.sceneImages.push(...existingSceneImages);
+      } else {
+        const urls = (data.sample_images ?? [])
+          .map((item) => normalizeUrl(item))
+          .filter((item): item is string => !!item)
+          .slice(0, config.aggregation.behavior.maxSceneImages);
 
-      const sceneTasks: SceneImageTask[] = urls.map((url, index) => ({
-        url,
-        path: join(outputDir, config.paths.sceneImagesFolder, `scene-${String(index + 1).padStart(3, "0")}.jpg`),
-        key: "sceneImages" as const,
-      }));
+        if (urls.length === 0) {
+          assets.sceneImages.push(...existingSceneImages);
+        } else {
+          const sceneTasks: SceneImageTask[] = urls.map((url, index) => ({
+            url,
+            path: join(outputDir, config.paths.sceneImagesFolder, `scene-${String(index + 1).padStart(3, "0")}.jpg`),
+            key: "sceneImages" as const,
+          }));
 
-      let sceneCompleted = 0;
-      const sceneResults = await this.runParallel(
-        sceneTasks,
-        config.download.sceneImageConcurrency,
-        async (task) => !!(await this.downloadAndValidateImage(task.url, task.path)),
-        () => {
-          sceneCompleted++;
-          callbacks?.onSceneProgress?.(sceneCompleted, sceneTasks.length);
-        },
-      );
+          let sceneCompleted = 0;
+          const sceneResults = await this.runParallel(
+            sceneTasks,
+            config.download.sceneImageConcurrency,
+            async (task) => !!(await this.downloadAndValidateImage(task.url, task.path)),
+            () => {
+              sceneCompleted++;
+              callbacks?.onSceneProgress?.(sceneCompleted, sceneTasks.length);
+            },
+          );
 
-      for (const result of sceneResults) {
-        if (result.success) {
-          assets.sceneImages.push(result.path);
-          assets.downloaded.push(result.path);
+          const existingSceneSet = new Set(existingSceneImages);
+          for (const [index, result] of sceneResults.entries()) {
+            const task = sceneTasks[index];
+            if (!task) {
+              continue;
+            }
+
+            if (result?.success) {
+              assets.sceneImages.push(result.path);
+              assets.downloaded.push(result.path);
+              continue;
+            }
+
+            if (existingSceneSet.has(task.path)) {
+              assets.sceneImages.push(task.path);
+            }
+          }
+
+          if (assets.sceneImages.length > 0) {
+            await this.removeStaleSceneImages(existingSceneImages, assets.sceneImages, sceneDir);
+          }
         }
       }
     }
@@ -98,29 +172,47 @@ export class DownloadManager {
     const coverPath = assets.cover;
     if (coverPath) {
       if (config.download.downloadPoster && !assets.poster) {
-        const posterPath = await this.copyDerivedImage(coverPath, join(outputDir, "poster.jpg"), "poster");
-        if (posterPath) {
-          assets.poster = posterPath;
-          assets.downloaded.push(posterPath);
+        const posterTargetPath = join(outputDir, "poster.jpg");
+        const posterResult = await resolveSingleAsset({
+          targetPath: posterTargetPath,
+          keepExisting: config.download.keepPoster,
+          create: () => this.copyDerivedImage(coverPath, posterTargetPath, "poster"),
+        });
+        if (posterResult.assetPath) {
+          assets.poster = posterResult.assetPath;
+          if (posterResult.createdPath) {
+            assets.downloaded.push(posterResult.createdPath);
+          }
         }
       }
       if (config.download.downloadFanart && !assets.fanart) {
-        const fanartPath = await this.copyDerivedImage(coverPath, join(outputDir, "fanart.jpg"), "fanart");
-        if (fanartPath) {
-          assets.fanart = fanartPath;
-          assets.downloaded.push(fanartPath);
+        const fanartTargetPath = join(outputDir, "fanart.jpg");
+        const fanartResult = await resolveSingleAsset({
+          targetPath: fanartTargetPath,
+          keepExisting: config.download.keepFanart,
+          create: () => this.copyDerivedImage(coverPath, fanartTargetPath, "fanart"),
+        });
+        if (fanartResult.assetPath) {
+          assets.fanart = fanartResult.assetPath;
+          if (fanartResult.createdPath) {
+            assets.downloaded.push(fanartResult.createdPath);
+          }
         }
       }
     }
 
     if (config.download.downloadTrailer) {
+      const trailerPath = join(outputDir, "trailer.mp4");
       const url = normalizeUrl(data.trailer_url);
-      if (url) {
-        const trailerPath = join(outputDir, "trailer.mp4");
-        const result = await this.safeDownload(url, trailerPath);
-        if (result) {
-          assets.trailer = trailerPath;
-          assets.downloaded.push(trailerPath);
+      const trailerResult = await resolveSingleAsset({
+        targetPath: trailerPath,
+        keepExisting: config.download.keepTrailer,
+        create: async () => (url ? this.safeDownload(url, trailerPath) : null),
+      });
+      if (trailerResult.assetPath) {
+        assets.trailer = trailerResult.assetPath;
+        if (trailerResult.createdPath) {
+          assets.downloaded.push(trailerResult.createdPath);
         }
       }
     }
@@ -140,6 +232,7 @@ export class DownloadManager {
       tasks,
       "cover",
       config.download.downloadCover,
+      config.download.keepCover,
       data.cover_url,
       imageAlternatives.cover_url,
       join(outputDir, "cover.jpg"),
@@ -148,6 +241,7 @@ export class DownloadManager {
       tasks,
       "poster",
       config.download.downloadPoster,
+      config.download.keepPoster,
       data.poster_url,
       imageAlternatives.poster_url,
       join(outputDir, "poster.jpg"),
@@ -156,6 +250,7 @@ export class DownloadManager {
       tasks,
       "fanart",
       config.download.downloadFanart,
+      config.download.keepFanart,
       data.fanart_url,
       imageAlternatives.fanart_url,
       join(outputDir, "fanart.jpg"),
@@ -168,6 +263,7 @@ export class DownloadManager {
     tasks: PrimaryImageTask[],
     key: PrimaryImageKey,
     enabled: boolean,
+    keepExisting: boolean,
     primaryUrl: string | undefined,
     alternatives: string[] | undefined,
     path: string,
@@ -177,9 +273,7 @@ export class DownloadManager {
     }
 
     const candidates = this.buildImageCandidates(primaryUrl, alternatives);
-    if (candidates.length > 0) {
-      tasks.push({ key, candidates, path });
-    }
+    tasks.push({ key, candidates, path, keepExisting });
   }
 
   private buildImageCandidates(primaryUrl?: string, alternatives?: string[]): string[] {
@@ -261,15 +355,18 @@ export class DownloadManager {
   }
 
   private async downloadAndValidateImage(url: string, outputPath: string): Promise<string | null> {
-    const downloadedPath = await this.safeDownload(url, outputPath);
+    const tempPath = `${outputPath}.part`;
+    const downloadedPath = await this.safeDownload(url, tempPath);
     if (!downloadedPath) {
       return null;
     }
 
     try {
-      const validation = await validateImage(outputPath);
+      const validation = await validateImage(tempPath);
       if (validation.valid) {
-        return downloadedPath;
+        await unlink(outputPath).catch(() => undefined);
+        await rename(tempPath, outputPath);
+        return outputPath;
       }
 
       this.logger.warn(`Image invalid (${validation.reason ?? "parse_failed"}): ${url}`);
@@ -278,7 +375,7 @@ export class DownloadManager {
       this.logger.warn(`Image validation failed for ${url}: ${message}`);
     }
 
-    await unlink(outputPath).catch(() => undefined);
+    await unlink(tempPath).catch(() => undefined);
     return null;
   }
 
@@ -328,6 +425,44 @@ export class DownloadManager {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Download failed for ${url}: ${message}`);
       return null;
+    }
+  }
+
+  private async listExistingSceneImages(sceneDir: string): Promise<string[]> {
+    try {
+      const entries = await readdir(sceneDir, { withFileTypes: true });
+      return entries
+        .filter((entry) => entry.isFile() && /^scene-\d+/iu.test(entry.name))
+        .map((entry) => join(sceneDir, entry.name))
+        .sort((a, b) => a.localeCompare(b));
+    } catch {
+      return [];
+    }
+  }
+
+  private async removeStaleSceneImages(
+    existingPaths: string[],
+    activePaths: string[],
+    sceneDir: string,
+  ): Promise<void> {
+    const activeSet = new Set(activePaths);
+    const stalePaths = existingPaths.filter((filePath) => !activeSet.has(filePath));
+
+    for (const stalePath of stalePaths) {
+      await unlink(stalePath).catch(() => undefined);
+    }
+
+    if (stalePaths.length === 0) {
+      return;
+    }
+
+    try {
+      const remaining = await readdir(sceneDir);
+      if (remaining.length === 0) {
+        await rm(sceneDir, { recursive: true });
+      }
+    } catch {
+      /* directory may not exist */
     }
   }
 }

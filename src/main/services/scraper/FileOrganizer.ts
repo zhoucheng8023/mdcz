@@ -1,11 +1,17 @@
-import { readdir, rm, stat, unlink } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
 import { dirname, join, normalize, parse, resolve } from "node:path";
 
 import type { Configuration } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
-import { ensureParentDirectory, hasEnoughDiskSpace, moveFileSafely, resolveAvailablePath } from "@main/utils/file";
+import {
+  ensureParentDirectory,
+  hasEnoughDiskSpace,
+  listVideoFiles,
+  moveFileSafely,
+  resolveAvailablePath,
+} from "@main/utils/file";
 import { buildSafePath, sanitizePathSegment } from "@main/utils/path";
-import type { CrawlerData, DownloadedAssets, FileInfo } from "@shared/types";
+import type { CrawlerData, FileInfo } from "@shared/types";
 
 export interface OrganizePlan {
   outputDir: string;
@@ -129,6 +135,8 @@ const truncatePathSegments = (value: string, maxLength: number): string => {
     .join("/");
 };
 
+const isGeneratedSidecarVideo = (filePath: string): boolean => parse(filePath).name.toLowerCase() === "trailer";
+
 export class FileOrganizer {
   private readonly logger = loggerService.getLogger("FileOrganizer");
 
@@ -172,12 +180,26 @@ export class FileOrganizer {
 
   async ensureOutputReady(plan: OrganizePlan, sourceFilePath: string): Promise<OrganizePlan> {
     await ensureParentDirectory(plan.targetVideoPath);
-    const stats = await stat(sourceFilePath);
-
     const outputRoot = dirname(plan.targetVideoPath);
-    const ok = await hasEnoughDiskSpace(outputRoot, stats.size);
-    if (!ok) {
-      throw new Error(`Not enough disk space to move file to ${outputRoot}`);
+    const sourceDir = resolve(dirname(sourceFilePath));
+    const sameDirectoryOutput = sourceDir === resolve(outputRoot);
+
+    if (sameDirectoryOutput) {
+      const videoFiles = await listVideoFiles(sourceDir, false);
+      const otherVideos = videoFiles.filter(
+        (filePath) => resolve(filePath) !== resolve(sourceFilePath) && !isGeneratedSidecarVideo(filePath),
+      );
+      if (otherVideos.length > 0) {
+        throw new Error("成功后不移动文件时，仅支持源目录内存在单个视频文件");
+      }
+    }
+
+    if (!sameDirectoryOutput) {
+      const stats = await stat(sourceFilePath);
+      const ok = await hasEnoughDiskSpace(outputRoot, stats.size);
+      if (!ok) {
+        throw new Error(`Not enough disk space to move file to ${outputRoot}`);
+      }
     }
 
     const targetVideoPath = await resolveAvailablePath(plan.targetVideoPath, sourceFilePath);
@@ -221,38 +243,6 @@ export class FileOrganizer {
     await ensureParentDirectory(targetPath);
     await moveFileSafely(fileInfo.filePath, targetPath);
     this.logger.info(`Moved failed file to ${failedDir}: ${fileInfo.fileName}`);
-  }
-
-  async cleanupUnwantedFiles(assets: DownloadedAssets, nfoPath: string, config: Configuration): Promise<void> {
-    const tryDelete = async (filePath: string | undefined) => {
-      if (!filePath) return;
-      try {
-        await unlink(filePath);
-      } catch {
-        /* file may not exist */
-      }
-    };
-
-    if (!config.download.keepCover) await tryDelete(assets.cover);
-    if (!config.download.keepPoster) await tryDelete(assets.poster);
-    if (!config.download.keepFanart) await tryDelete(assets.fanart);
-    if (!config.download.keepTrailer) await tryDelete(assets.trailer);
-    if (!config.download.keepNfo) await tryDelete(nfoPath);
-
-    if (!config.download.keepSceneImages) {
-      for (const img of assets.sceneImages) {
-        await tryDelete(img);
-      }
-      if (assets.sceneImages.length > 0) {
-        const sceneDir = dirname(assets.sceneImages[0]);
-        try {
-          const remaining = await readdir(sceneDir);
-          if (remaining.length === 0) await rm(sceneDir, { recursive: true });
-        } catch {
-          /* directory may not exist */
-        }
-      }
-    }
   }
 
   private resolveBaseOutput(fileInfo: FileInfo, config: Configuration): string {

@@ -328,6 +328,25 @@ function NetworkSection(_props: SectionRenderProps) {
 }
 
 function DownloadSection(_props: SectionRenderProps) {
+  const form = useFormContext<FieldValues>();
+  const [downloadCover, downloadPoster, downloadFanart, downloadSceneImages, downloadTrailer, downloadNfo] = form.watch(
+    [
+      "download.downloadCover",
+      "download.downloadPoster",
+      "download.downloadFanart",
+      "download.downloadSceneImages",
+      "download.downloadTrailer",
+      "download.downloadNfo",
+    ],
+  ) as [
+    boolean | undefined,
+    boolean | undefined,
+    boolean | undefined,
+    boolean | undefined,
+    boolean | undefined,
+    boolean | undefined,
+  ];
+
   return (
     <>
       <BoolField name="download.downloadCover" label="下载封面图" />
@@ -341,12 +360,12 @@ function DownloadSection(_props: SectionRenderProps) {
         label="Amazon封面图片增强"
         description="使用日本Amazon的商品封面来优化封面显示，使用该功能一般需要日本IP"
       />
-      <BoolField name="download.keepCover" label="保留已有封面图" />
-      <BoolField name="download.keepPoster" label="保留已有海报" />
-      <BoolField name="download.keepFanart" label="保留已有同人画" />
-      <BoolField name="download.keepSceneImages" label="保留已有剧照" />
-      <BoolField name="download.keepTrailer" label="保留已有预告片" />
-      <BoolField name="download.keepNfo" label="保留已有 NFO" />
+      {downloadCover && <BoolField name="download.keepCover" label="保留已有封面图" />}
+      {downloadPoster && <BoolField name="download.keepPoster" label="保留已有海报" />}
+      {downloadFanart && <BoolField name="download.keepFanart" label="保留已有同人画" />}
+      {downloadSceneImages && <BoolField name="download.keepSceneImages" label="保留已有剧照" />}
+      {downloadTrailer && <BoolField name="download.keepTrailer" label="保留已有预告片" />}
+      {downloadNfo && <BoolField name="download.keepNfo" label="保留已有 NFO" />}
     </>
   );
 }

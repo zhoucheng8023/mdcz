@@ -1,0 +1,286 @@
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { configurationSchema, defaultConfiguration } from "@main/services/config";
+import type { NetworkClient, ProbeResult } from "@main/services/network";
+import { DownloadManager } from "@main/services/scraper/DownloadManager";
+import * as imageUtils from "@main/utils/image";
+import { Website } from "@shared/enums";
+import type { CrawlerData } from "@shared/types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const tempDirs: string[] = [];
+
+const createTempDir = async (): Promise<string> => {
+  const dirPath = await mkdtemp(join(tmpdir(), "mdcz-download-manager-"));
+  tempDirs.push(dirPath);
+  return dirPath;
+};
+
+const createConfig = (overrides: Record<string, unknown> = {}) =>
+  configurationSchema.parse({
+    ...defaultConfiguration,
+    ...overrides,
+  });
+
+const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData => ({
+  title: "Sample",
+  number: "ABC-123",
+  actors: [],
+  genres: [],
+  sample_images: [],
+  website: Website.DMM,
+  ...overrides,
+});
+
+const createDownloadConfig = (overrides: Partial<typeof defaultConfiguration.download> = {}) =>
+  createConfig({
+    download: {
+      ...defaultConfiguration.download,
+      ...overrides,
+    },
+  });
+
+const seedFiles = async (root: string, files: Record<string, string>): Promise<void> => {
+  await Promise.all(
+    Object.entries(files).map(async ([relativePath, content]) => {
+      const filePath = join(root, relativePath);
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content, "utf8");
+    }),
+  );
+};
+
+const createDownloadSubject = async (files: Record<string, string> = {}) => {
+  const root = await createTempDir();
+  await seedFiles(root, files);
+
+  const networkClient = new FakeNetworkClient();
+  const manager = new DownloadManager(networkClient as unknown as NetworkClient);
+
+  return { root, networkClient, manager };
+};
+
+const mockImageValidation = (valid: boolean) =>
+  vi.spyOn(imageUtils, "validateImage").mockResolvedValue(
+    valid
+      ? {
+          valid: true,
+          width: 1,
+          height: 1,
+        }
+      : {
+          valid: false,
+          width: 0,
+          height: 0,
+          reason: "parse_failed",
+        },
+  );
+
+class FakeNetworkClient {
+  readonly download = vi.fn(async (url: string, outputPath: string) => {
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `downloaded:${url}`, "utf8");
+    return outputPath;
+  });
+
+  readonly probe = vi.fn(
+    async (url: string): Promise<ProbeResult> => ({
+      ok: true,
+      status: 200,
+      contentLength: 1024,
+      resolvedUrl: url,
+    }),
+  );
+}
+
+describe("DownloadManager keep flags", () => {
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(
+      tempDirs.splice(0, tempDirs.length).map(async (dirPath) => {
+        await rm(dirPath, { recursive: true, force: true });
+      }),
+    );
+  });
+
+  it("reuses existing sidecar assets when keep flags are enabled", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject({
+      "cover.jpg": "cover",
+      "poster.jpg": "poster",
+      "fanart.jpg": "fanart",
+      "trailer.mp4": "trailer",
+      "samples/scene-001.jpg": "scene",
+    });
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        cover_url: "https://example.com/cover.jpg",
+        poster_url: "https://example.com/poster.jpg",
+        fanart_url: "https://example.com/fanart.jpg",
+        trailer_url: "https://example.com/trailer.mp4",
+        sample_images: ["https://example.com/scene-001.jpg"],
+      }),
+      createConfig(),
+    );
+
+    expect(assets.cover).toBe(join(root, "cover.jpg"));
+    expect(assets.poster).toBe(join(root, "poster.jpg"));
+    expect(assets.fanart).toBe(join(root, "fanart.jpg"));
+    expect(assets.trailer).toBe(join(root, "trailer.mp4"));
+    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.downloaded).toEqual([]);
+    expect(networkClient.probe).not.toHaveBeenCalled();
+    expect(networkClient.download).not.toHaveBeenCalled();
+  });
+
+  it("creates missing poster and fanart from an existing kept cover", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject({
+      "cover.jpg": "cover",
+    });
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData(),
+      createDownloadConfig({
+        downloadTrailer: false,
+        downloadSceneImages: false,
+      }),
+    );
+
+    expect(assets.cover).toBe(join(root, "cover.jpg"));
+    expect(assets.poster).toBe(join(root, "poster.jpg"));
+    expect(assets.fanart).toBe(join(root, "fanart.jpg"));
+    expect(assets.downloaded).toEqual([join(root, "poster.jpg"), join(root, "fanart.jpg")]);
+    await expect(readFile(join(root, "poster.jpg"), "utf8")).resolves.toBe("cover");
+    await expect(readFile(join(root, "fanart.jpg"), "utf8")).resolves.toBe("cover");
+    expect(networkClient.probe).not.toHaveBeenCalled();
+    expect(networkClient.download).not.toHaveBeenCalled();
+  });
+
+  it("refreshes existing assets when keep flags are disabled", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject({
+      "cover.jpg": "old-cover",
+    });
+    mockImageValidation(true);
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        cover_url: "https://example.com/cover-new.jpg",
+      }),
+      createDownloadConfig({
+        keepCover: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadSceneImages: false,
+        downloadTrailer: false,
+      }),
+    );
+
+    expect(assets.cover).toBe(join(root, "cover.jpg"));
+    expect(assets.downloaded).toEqual([join(root, "cover.jpg")]);
+    await expect(readFile(join(root, "cover.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/cover-new.jpg",
+    );
+    expect(networkClient.probe).toHaveBeenCalledTimes(1);
+    expect(networkClient.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the previous image when a refreshed download fails validation", async () => {
+    const { root, manager } = await createDownloadSubject({
+      "cover.jpg": "old-cover",
+    });
+    mockImageValidation(false);
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        cover_url: "https://example.com/cover-bad.jpg",
+      }),
+      createDownloadConfig({
+        keepCover: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadSceneImages: false,
+        downloadTrailer: false,
+      }),
+    );
+
+    expect(assets.cover).toBe(join(root, "cover.jpg"));
+    expect(assets.downloaded).toEqual([]);
+    await expect(readFile(join(root, "cover.jpg"), "utf8")).resolves.toBe("old-cover");
+  });
+
+  it("replaces the scene image set when keepSceneImages is disabled", async () => {
+    const { root, manager } = await createDownloadSubject({
+      "samples/scene-001.jpg": "old-1",
+      "samples/scene-002.jpg": "old-2",
+    });
+    mockImageValidation(true);
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: ["https://example.com/scene-new-1.jpg"],
+      }),
+      createDownloadConfig({
+        downloadCover: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadTrailer: false,
+        keepSceneImages: false,
+      }),
+    );
+
+    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.downloaded).toEqual([join(root, "samples", "scene-001.jpg")]);
+    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/scene-new-1.jpg",
+    );
+    await expect(access(join(root, "samples", "scene-002.jpg"))).rejects.toThrow();
+  });
+
+  it("keeps existing scene images when keepSceneImages is disabled but the current scrape has no scene sources", async () => {
+    const { root, manager } = await createDownloadSubject({
+      "samples/scene-001.jpg": "old-1",
+    });
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: [],
+      }),
+      createDownloadConfig({
+        downloadCover: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadTrailer: false,
+        keepSceneImages: false,
+      }),
+    );
+
+    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.downloaded).toEqual([]);
+    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe("old-1");
+  });
+
+  it("keeps the previous scene image when a refreshed download fails validation", async () => {
+    const { root, manager } = await createDownloadSubject({
+      "samples/scene-001.jpg": "old-1",
+    });
+    mockImageValidation(false);
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: ["https://example.com/scene-bad-1.jpg"],
+      }),
+      createDownloadConfig({
+        downloadCover: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadTrailer: false,
+        keepSceneImages: false,
+      }),
+    );
+
+    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.downloaded).toEqual([]);
+    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe("old-1");
+  });
+});

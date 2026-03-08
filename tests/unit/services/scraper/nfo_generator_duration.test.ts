@@ -103,4 +103,26 @@ describe("NfoGenerator", () => {
     expect(parsed.series).toBe("Collection");
     expect(parsed.release_date).toBe("2024-01-02");
   });
+
+  it("preserves local poster, cover, fanart, trailer, and sample image references when parsed back", () => {
+    const xml = new NfoGenerator().buildXml(
+      createCrawlerData({
+        poster_url: "https://remote.example.com/poster.jpg",
+        cover_url: "https://remote.example.com/cover.jpg",
+        fanart_url: "https://remote.example.com/fanart.jpg",
+        trailer_url: "https://remote.example.com/trailer.mp4",
+      }),
+      {
+        assets: createAssets(),
+      },
+    );
+
+    const parsed = parseNfo(xml);
+
+    expect(parsed.poster_url).toBe("poster.jpg");
+    expect(parsed.cover_url).toBe("cover.jpg");
+    expect(parsed.fanart_url).toBe("fanart.jpg");
+    expect(parsed.trailer_url).toBe("trailer.mp4");
+    expect(parsed.sample_images).toEqual(["samples/scene-001.jpg"]);
+  });
 });

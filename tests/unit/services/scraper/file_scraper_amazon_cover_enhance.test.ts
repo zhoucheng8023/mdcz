@@ -66,7 +66,6 @@ describe("FileScraper Amazon cover enhance", () => {
         plan: vi.fn().mockReturnValue(plan),
         ensureOutputReady: vi.fn().mockResolvedValue(plan),
         organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
-        cleanupUnwantedFiles: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });
@@ -109,7 +108,6 @@ describe("FileScraper Amazon cover enhance", () => {
         plan: vi.fn().mockReturnValue(plan),
         ensureOutputReady: vi.fn().mockResolvedValue(plan),
         organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
-        cleanupUnwantedFiles: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });
@@ -150,7 +148,6 @@ describe("FileScraper Amazon cover enhance", () => {
         plan: vi.fn().mockReturnValue(plan),
         ensureOutputReady: vi.fn().mockResolvedValue(plan),
         organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
-        cleanupUnwantedFiles: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });
@@ -198,7 +195,6 @@ describe("FileScraper Amazon cover enhance", () => {
         plan: vi.fn().mockReturnValue(plan),
         ensureOutputReady: vi.fn().mockResolvedValue(plan),
         organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
-        cleanupUnwantedFiles: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });
@@ -242,7 +238,6 @@ describe("FileScraper Amazon cover enhance", () => {
         plan: vi.fn().mockReturnValue(plan),
         ensureOutputReady: vi.fn().mockResolvedValue(plan),
         organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
-        cleanupUnwantedFiles: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });
@@ -301,7 +296,6 @@ describe("FileScraper Amazon cover enhance", () => {
         plan: vi.fn().mockReturnValue(plan),
         ensureOutputReady: vi.fn().mockResolvedValue(plan),
         organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
-        cleanupUnwantedFiles: vi.fn().mockResolvedValue(undefined),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });

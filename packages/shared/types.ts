@@ -67,7 +67,7 @@ export interface DownloadedAssets {
   fanart?: string;
   sceneImages: string[];
   trailer?: string;
-  /** Flat list of every successfully downloaded path. */
+  /** Flat list of every asset path created during the current scrape. */
   downloaded: string[];
 }
 

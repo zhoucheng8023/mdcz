@@ -55,4 +55,29 @@ describe("buildComputedConfiguration", () => {
     expect(computed.networkTimeoutMs).toBe(25_000);
     expect(computed.networkRetryCount).toBe(4);
   });
+
+  it("requires folderTemplate to include {number} when successFileMove is enabled", () => {
+    const result = configurationSchema.safeParse({
+      naming: {
+        folderTemplate: "{actor}",
+      },
+      behavior: {
+        successFileMove: true,
+      },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+
+    expect(result.error.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ["naming", "folderTemplate"],
+          message: "开启成功后移动文件时，文件夹模板必须包含 {number}",
+        }),
+      ]),
+    );
+  });
 });

@@ -200,19 +200,29 @@ const aggregationSchema = z
     }
   });
 
-export const configurationSchema = z.object({
-  network: networkSchema.default(() => networkSchema.parse({})),
-  scrape: scrapeSchema.default(() => scrapeSchema.parse({})),
-  naming: namingSchema.default(() => namingSchema.parse({})),
-  translate: translateSchema.default(() => translateSchema.parse({})),
-  download: downloadSchema.default(() => downloadSchema.parse({})),
-  server: serverSchema.default(() => serverSchema.parse({})),
-  shortcuts: shortcutsSchema.default(() => shortcutsSchema.parse({})),
-  ui: uiSchema.default(() => uiSchema.parse({})),
-  paths: pathsSchema.default(() => pathsSchema.parse({})),
-  behavior: behaviorSchema.default(() => behaviorSchema.parse({})),
-  aggregation: aggregationSchema.default(() => aggregationSchema.parse({})),
-});
+export const configurationSchema = z
+  .object({
+    network: networkSchema.default(() => networkSchema.parse({})),
+    scrape: scrapeSchema.default(() => scrapeSchema.parse({})),
+    naming: namingSchema.default(() => namingSchema.parse({})),
+    translate: translateSchema.default(() => translateSchema.parse({})),
+    download: downloadSchema.default(() => downloadSchema.parse({})),
+    server: serverSchema.default(() => serverSchema.parse({})),
+    shortcuts: shortcutsSchema.default(() => shortcutsSchema.parse({})),
+    ui: uiSchema.default(() => uiSchema.parse({})),
+    paths: pathsSchema.default(() => pathsSchema.parse({})),
+    behavior: behaviorSchema.default(() => behaviorSchema.parse({})),
+    aggregation: aggregationSchema.default(() => aggregationSchema.parse({})),
+  })
+  .superRefine((data, ctx) => {
+    if (data.behavior.successFileMove && !data.naming.folderTemplate.includes("{number}")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["naming", "folderTemplate"],
+        message: "开启成功后移动文件时，文件夹模板必须包含 {number}",
+      });
+    }
+  });
 
 export type Configuration = z.infer<typeof configurationSchema>;
 
