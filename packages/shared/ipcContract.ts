@@ -22,6 +22,27 @@ export type TranslateTestLlmInput = {
   llmTemperature?: number;
 };
 
+export type JellyfinCheckKey = "server" | "auth" | "peopleRead" | "peopleWrite";
+export type JellyfinCheckStatus = "ok" | "error" | "skipped";
+
+export type JellyfinCheckStep = {
+  key: JellyfinCheckKey;
+  label: string;
+  status: JellyfinCheckStatus;
+  message: string;
+  code?: string;
+};
+
+export type JellyfinConnectionCheckResult = {
+  success: boolean;
+  steps: JellyfinCheckStep[];
+  serverInfo?: {
+    serverName?: string;
+    version?: string;
+  };
+  personCount?: number;
+};
+
 export type IpcRouterContract = {
   [IpcChannel.App_Info]: IpcProcedure<void, AppInfo>;
   [IpcChannel.App_OpenExternal]: IpcProcedure<{ url: string }, { success: true }>;
@@ -91,7 +112,7 @@ export type IpcRouterContract = {
     },
     { message: string }
   >;
-  [IpcChannel.Tool_ServerCheckConnection]: IpcProcedure<void, { success: true }>;
+  [IpcChannel.Tool_ServerCheckConnection]: IpcProcedure<void, JellyfinConnectionCheckResult>;
   [IpcChannel.Tool_ActorPhotoSync]: IpcProcedure<
     { mode?: "all" | "missing" },
     { processedCount: number; failedCount: number }

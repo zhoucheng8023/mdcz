@@ -80,12 +80,16 @@ const walkDirectory = async (dirPath: string, recursive: boolean, visitedDirs: S
   return files;
 };
 
+export const listFiles = async (dirPath: string, recursive = false): Promise<string[]> => {
+  return walkDirectory(dirPath, recursive, new Set<string>());
+};
+
 export const listVideoFiles = async (
   dirPath: string,
   recursive = false,
   extensions: Set<string> = DEFAULT_VIDEO_EXTENSIONS,
 ): Promise<string[]> => {
-  const files = await walkDirectory(dirPath, recursive, new Set<string>());
+  const files = await listFiles(dirPath, recursive);
   return files.filter((filePath) => extensions.has(extname(filePath).toLowerCase()));
 };
 

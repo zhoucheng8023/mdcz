@@ -4,7 +4,7 @@ import { registerIpcHandlers } from "@main/ipc";
 import { registerLocalFileHandler, registerLocalFileScheme } from "@main/localFileProtocol";
 import { type Configuration, configManager } from "@main/services/config";
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
-import { EmbyActorInfo, EmbyActorPhoto } from "@main/services/emby";
+import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@main/services/jellyfin";
 import { loggerService } from "@main/services/LoggerService";
 import { NetworkClient } from "@main/services/network";
 import { ShortcutService } from "@main/services/ShortcutService";
@@ -53,8 +53,8 @@ const ensureMainWindow = async (): Promise<void> => {
       fetchGateway,
       scraperService: new ScraperService(signalService, networkClient, crawlerProvider),
       crawlerProvider,
-      actorPhotoService: new EmbyActorPhoto({ signalService, networkClient }),
-      actorInfoService: new EmbyActorInfo({ signalService, networkClient }),
+      actorPhotoService: new JellyfinActorPhotoService({ signalService, networkClient }),
+      actorInfoService: new JellyfinActorInfoService({ signalService, networkClient }),
       symlinkService: new SymlinkService({ signalService }),
     };
 

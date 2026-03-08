@@ -1,4 +1,5 @@
 import type { Website } from "@shared/enums";
+import type { JellyfinConnectionCheckResult } from "@shared/ipcContract";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -112,6 +113,14 @@ function formatError(error: unknown) {
   return String(error);
 }
 
+function getFirstDiagnosticError(result: JellyfinConnectionCheckResult) {
+  return result.steps.find((step) => step.status === "error");
+}
+
+function getFirstDiagnosticBlocker(result: JellyfinConnectionCheckResult) {
+  return getFirstDiagnosticError(result) ?? result.steps.find((step) => step.status !== "ok");
+}
+
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -146,6 +155,7 @@ function ToolComponent() {
   const checkServerConnectionMut = useMutation({
     mutationFn: async () => ipc.tool.checkServerConnection(),
   });
+  const [serverCheckResult, setServerCheckResult] = useState<JellyfinConnectionCheckResult | null>(null);
   const [actorInfoMode, setActorInfoMode] = useState<"all" | "missing">("missing");
   const [actorPhotoMode, setActorPhotoMode] = useState<"all" | "missing">("missing");
   const [syncRunning, setSyncRunning] = useState(false);
@@ -281,28 +291,42 @@ function ToolComponent() {
     }
   };
 
-  const runServerConnectionCheck = async (silentSuccess = false): Promise<boolean> => {
+  const runServerConnectionCheck = async (silentSuccess = false): Promise<JellyfinConnectionCheckResult | null> => {
     try {
-      await checkServerConnectionMut.mutateAsync();
-      if (!silentSuccess) {
-        showSuccess("服务器连通性测试通过");
+      const result = await checkServerConnectionMut.mutateAsync();
+      setServerCheckResult(result);
+
+      const firstError = getFirstDiagnosticError(result);
+      if (!firstError) {
+        if (!silentSuccess) {
+          showSuccess("Jellyfin 连接诊断通过");
+        }
+      } else if (!silentSuccess) {
+        showError(`${firstError.label}: ${firstError.message}`);
       }
-      return true;
+      return result;
     } catch (error) {
       showError(`服务器连通性测试失败: ${formatError(error)}`);
-      return false;
+      setServerCheckResult(null);
+      return null;
     }
   };
 
   const handleCheckServerConnection = async () => {
-    showInfo("正在测试 Emby/Jellyfin 连通性...");
+    showInfo("正在诊断 Jellyfin 连接状态...");
     await runServerConnectionCheck();
   };
 
   const handleSyncActorInfo = async () => {
-    showInfo("正在测试服务器连接...");
-    const connected = await runServerConnectionCheck(true);
-    if (!connected) {
+    showInfo("正在诊断 Jellyfin 连接状态...");
+    const diagnostic = await runServerConnectionCheck(true);
+    const peopleRead = diagnostic?.steps.find((step) => step.key === "peopleRead");
+    const peopleWrite = diagnostic?.steps.find((step) => step.key === "peopleWrite");
+    if (!diagnostic || peopleRead?.status !== "ok" || peopleWrite?.status !== "ok") {
+      const blocker = diagnostic ? getFirstDiagnosticBlocker(diagnostic) : undefined;
+      if (blocker) {
+        showError(`${blocker.label}: ${blocker.message}`);
+      }
       return;
     }
 
@@ -322,9 +346,15 @@ function ToolComponent() {
   };
 
   const handleSyncPhotos = async () => {
-    showInfo("正在测试服务器连接...");
-    const connected = await runServerConnectionCheck(true);
-    if (!connected) {
+    showInfo("正在诊断 Jellyfin 连接状态...");
+    const diagnostic = await runServerConnectionCheck(true);
+    const peopleRead = diagnostic?.steps.find((step) => step.key === "peopleRead");
+    const peopleWrite = diagnostic?.steps.find((step) => step.key === "peopleWrite");
+    if (!diagnostic || peopleRead?.status !== "ok" || peopleWrite?.status !== "ok") {
+      const blocker = diagnostic ? getFirstDiagnosticBlocker(diagnostic) : undefined;
+      if (blocker) {
+        showError(`${blocker.label}: ${blocker.message}`);
+      }
       return;
     }
 
@@ -799,8 +829,8 @@ function ToolComponent() {
                         <UserCheck className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <CardTitle className="text-sm font-medium">演员工具</CardTitle>
-                        <CardDescription className="text-xs">同步演员头像与元数据</CardDescription>
+                        <CardTitle className="text-sm font-medium">Jellyfin 人物工具</CardTitle>
+                        <CardDescription className="text-xs">诊断连接状态并同步人物头像与简介</CardDescription>
                       </div>
                     </div>
                     <Button
@@ -809,11 +839,58 @@ function ToolComponent() {
                       disabled={checkServerConnectionMut.isPending || syncRunning}
                       className="rounded-lg shrink-0 h-9 text-sm"
                     >
-                      {checkServerConnectionMut.isPending ? "测试中..." : "测试连通"}
+                      {checkServerConnectionMut.isPending ? "诊断中..." : "连接诊断"}
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {serverCheckResult && (
+                    <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-medium text-muted-foreground">Jellyfin 诊断结果</div>
+                          {(serverCheckResult.serverInfo?.serverName || serverCheckResult.serverInfo?.version) && (
+                            <div className="text-sm">
+                              {[serverCheckResult.serverInfo?.serverName, serverCheckResult.serverInfo?.version]
+                                .filter(Boolean)
+                                .join(" ")}
+                            </div>
+                          )}
+                        </div>
+                        <div
+                          className={cn(
+                            "text-xs font-medium",
+                            serverCheckResult.success ? "text-emerald-600" : "text-amber-600",
+                          )}
+                        >
+                          {serverCheckResult.success ? "可执行人物同步" : "存在阻塞项"}
+                        </div>
+                      </div>
+                      <div className="grid gap-2">
+                        {serverCheckResult.steps.map((step) => (
+                          <div
+                            key={step.key}
+                            className="flex items-start justify-between gap-3 rounded-lg bg-background/70 px-3 py-2"
+                          >
+                            <div>
+                              <div className="text-xs font-medium">{step.label}</div>
+                              <div className="text-xs text-muted-foreground">{step.message}</div>
+                            </div>
+                            <div
+                              className={cn(
+                                "text-[11px] font-medium shrink-0",
+                                step.status === "ok" && "text-emerald-600",
+                                step.status === "error" && "text-red-600",
+                                step.status === "skipped" && "text-muted-foreground",
+                              )}
+                            >
+                              {step.status === "ok" ? "通过" : step.status === "error" ? "失败" : "跳过"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-4">
                     <div className="grid gap-2">
                       <Label className="text-xs font-medium text-muted-foreground">信息同步</Label>

@@ -44,6 +44,10 @@ const buildActorNodes = (actors: string[], profiles: ActorProfile[] | undefined)
         node.altname = profile.aliases[0];
       }
 
+      if (profile?.description) {
+        node.biography = profile.description;
+      }
+
       if (profile?.cover_url) {
         node.thumb = profile.cover_url;
       }

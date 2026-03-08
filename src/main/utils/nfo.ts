@@ -133,6 +133,10 @@ export const parseNfo = (xml: string): CrawlerData => {
 
       return {
         name,
+        aliases: toStringValue((node as Record<string, unknown>).altname)
+          ? [toStringValue((node as Record<string, unknown>).altname) as string]
+          : undefined,
+        description: toStringValue((node as Record<string, unknown>).biography),
         cover_url: toStringValue((node as Record<string, unknown>).thumb),
       };
     })

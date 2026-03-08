@@ -1,6 +1,6 @@
 import type { ServiceContainer } from "@main/container";
 import { configManager, configurationSchema } from "@main/services/config";
-import { checkConnection, EmbyServiceError, parseMode } from "@main/services/emby";
+import { checkConnection, JellyfinServiceError, parseMode } from "@main/services/jellyfin";
 import { loggerService } from "@main/services/LoggerService";
 import { SymlinkServiceError } from "@main/services/tools";
 import { toErrorMessage } from "@main/utils/common";
@@ -39,10 +39,9 @@ export const createToolHandlers = (
     [IpcChannel.Tool_ServerCheckConnection]: t.procedure.action(async () => {
       try {
         const configuration = await ensureServerReady();
-        await checkConnection(networkClient, configuration);
-        return { success: true as const };
+        return await checkConnection(networkClient, configuration);
       } catch (error) {
-        if (error instanceof EmbyServiceError) {
+        if (error instanceof JellyfinServiceError) {
           throw createIpcError(error.code, error.message);
         }
         logger.error(`Tool_ServerCheckConnection failed: ${toErrorMessage(error)}`);
@@ -58,7 +57,7 @@ export const createToolHandlers = (
         const configuration = await ensureServerReady();
         return actorPhotoService.run(configuration, mode);
       } catch (error) {
-        if (error instanceof EmbyServiceError) {
+        if (error instanceof JellyfinServiceError) {
           throw createIpcError(error.code, error.message);
         }
         logger.error(`Tool_ActorPhotoSync failed: ${toErrorMessage(error)}`);
@@ -74,7 +73,7 @@ export const createToolHandlers = (
         const configuration = await ensureServerReady();
         return actorInfoService.run(configuration, mode);
       } catch (error) {
-        if (error instanceof EmbyServiceError) {
+        if (error instanceof JellyfinServiceError) {
           throw createIpcError(error.code, error.message);
         }
         logger.error(`Tool_ActorInfoSync failed: ${toErrorMessage(error)}`);

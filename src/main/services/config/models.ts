@@ -16,6 +16,7 @@ const DEFAULT_ENABLED_SITES: Website[] = [
 ];
 
 const DEFAULT_SITE_ORDER: Website[] = [...DEFAULT_ENABLED_SITES];
+const PERSON_OVERVIEW_SOURCE_OPTIONS = ["local"] as const;
 
 const networkSchema = z.object({
   proxyType: z.enum(ProxyType).default(ProxyType.NONE),
@@ -93,6 +94,8 @@ const serverSchema = z.object({
   apiKey: z.string().default(""),
   userId: z.string().default(""),
   actorPhotoFolder: z.string().default(""),
+  personOverviewSources: z.array(z.enum(PERSON_OVERVIEW_SOURCE_OPTIONS)).default(["local"]),
+  refreshPersonAfterSync: z.boolean().default(true),
 });
 
 const shortcutsSchema = z.object({
@@ -220,6 +223,17 @@ export const configurationSchema = z
         code: "custom",
         path: ["naming", "folderTemplate"],
         message: "开启成功后移动文件时，文件夹模板必须包含 {number}",
+      });
+    }
+
+    if (
+      data.server.userId.trim().length > 0 &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(data.server.userId.trim())
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["server", "userId"],
+        message: "Jellyfin 用户 ID 必须为 UUID，留空则按服务端默认处理",
       });
     }
   });

@@ -65,7 +65,7 @@ const TABS: TabDef[] = [
   { key: "download", label: "下载选项", icon: Download },
   { key: "naming", label: "命名规则", icon: Type },
   { key: "translate", label: "翻译服务", icon: Languages },
-  { key: "server", label: "Emby / Jellyfin", icon: Server },
+  { key: "server", label: "Jellyfin", icon: Server },
   { key: "shortcuts", label: "快捷键", icon: Keyboard },
   { key: "ui", label: "界面设置", icon: Monitor },
   { key: "behavior", label: "文件行为", icon: FileCog },
@@ -77,6 +77,7 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
   { value: "google", label: "Google 翻译（免费）" },
 ];
 const LANGUAGE_OPTIONS = ["zh-CN", "zh-TW", "ja-JP", "en-US"];
+const JELLYFIN_OVERVIEW_SOURCE_OPTIONS = ["local"];
 
 // ── Field registry for search/filter ──
 
@@ -154,6 +155,8 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "server.apiKey", label: "接口密钥", section: "server" },
   { key: "server.userId", label: "用户 ID", section: "server" },
   { key: "server.actorPhotoFolder", label: "演员头像目录", section: "server" },
+  { key: "server.personOverviewSources", label: "人物简介来源", section: "server" },
+  { key: "server.refreshPersonAfterSync", label: "同步后刷新人物", section: "server" },
   // shortcuts
   { key: "shortcuts.startOrStopScrape", label: "开始/停止刮削", section: "shortcuts" },
   { key: "shortcuts.searchByNumber", label: "按番号重刮", section: "shortcuts" },
@@ -187,7 +190,7 @@ const SECTION_DESCRIPTIONS: Record<string, string> = {
   download: "控制缩略图、海报、NFO 等资源的下载与保留",
   naming: "文件和文件夹的命名模板与规则",
   translate: "LLM 翻译引擎配置",
-  server: "服务器连接与演员数据设置",
+  server: "Jellyfin 人物同步连接与数据源设置",
   shortcuts: "自定义快捷键，留空可禁用（工作台快捷键仅在工作台页生效）",
   ui: "调整界面显示选项",
   behavior: "控制刮削后的文件操作行为",
@@ -465,10 +468,30 @@ function TranslateSection(_props: SectionRenderProps) {
 function ServerSection(_props: SectionRenderProps) {
   return (
     <>
-      <UrlField name="server.url" label="服务器地址" />
-      <CookieFieldWrapper name="server.apiKey" label="接口密钥" />
-      <TextField name="server.userId" label="用户 ID" />
-      <PathFieldWrapper name="server.actorPhotoFolder" label="演员头像目录" isDirectory />
+      <UrlField name="server.url" label="Jellyfin 服务器地址" />
+      <CookieFieldWrapper name="server.apiKey" label="Jellyfin API Key" />
+      <TextField
+        name="server.userId"
+        label="Jellyfin 用户 ID"
+        description="必须是 UUID。用于人物列表读取，留空则按服务端默认处理。"
+      />
+      <PathFieldWrapper
+        name="server.actorPhotoFolder"
+        label="演员头像目录"
+        description="人物头像同步时优先从这里读取本地头像。"
+        isDirectory
+      />
+      <ChipArrayFieldWrapper
+        name="server.personOverviewSources"
+        label="人物简介来源顺序"
+        description="按顺序尝试：先本地 NFO，再按你配置的外部来源补人物简介。"
+        options={JELLYFIN_OVERVIEW_SOURCE_OPTIONS}
+      />
+      <BoolField
+        name="server.refreshPersonAfterSync"
+        label="同步后刷新人物"
+        description="同步简介或头像后，额外请求 Jellyfin 刷新人物元数据与图片。"
+      />
     </>
   );
 }

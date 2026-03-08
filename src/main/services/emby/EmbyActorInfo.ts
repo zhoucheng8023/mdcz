@@ -66,10 +66,7 @@ export class EmbyActorInfo {
           continue;
         }
 
-        const nextOverview =
-          overview ??
-          (await this.fetchBiography(person.Name)) ??
-          `${person.Name} - metadata updated by MDCz Emby tool.`;
+        const nextOverview = overview ?? `${person.Name} - metadata updated by MDCz Emby tool.`;
 
         const payload = this.buildUpdatePayload(person, detail, nextOverview);
         const updateUrl = buildApiUrl(configuration, `/Items/${encodeURIComponent(person.Id)}`);
@@ -138,26 +135,5 @@ export class EmbyActorInfo {
       Overview: overview,
       Taglines: taglines,
     };
-  }
-
-  private async fetchBiography(name: string): Promise<string | null> {
-    const summaryUrl = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`;
-
-    try {
-      const response = await this.networkClient.getJson<{ extract?: string }>(summaryUrl, {
-        headers: {
-          accept: "application/json",
-        },
-      });
-
-      if (typeof response.extract === "string" && response.extract.trim().length > 0) {
-        return response.extract.trim();
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.debug(`Wikipedia summary fetch failed for ${name}: ${message}`);
-    }
-
-    return null;
   }
 }

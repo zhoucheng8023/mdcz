@@ -64,6 +64,8 @@ describe("NfoGenerator", () => {
         actor_profiles: [
           {
             name: "Actor A",
+            aliases: ["Alias A"],
+            description: "Actor biography",
             cover_url: "https://img.example.com/actor-a.jpg",
           },
         ],
@@ -87,6 +89,8 @@ describe("NfoGenerator", () => {
     expect(xml).toContain("<trailer>trailer.mp4</trailer>");
     expect(xml).toContain("<releasedate>2024-01-02</releasedate>");
     expect(xml).toContain("<name>Actor A</name>");
+    expect(xml).toContain("<altname>Alias A</altname>");
+    expect(xml).toContain("<biography>Actor biography</biography>");
     expect(xml).toContain("<thumb>https://img.example.com/actor-a.jpg</thumb>");
   });
 
@@ -124,5 +128,30 @@ describe("NfoGenerator", () => {
     expect(parsed.fanart_url).toBe("fanart.jpg");
     expect(parsed.trailer_url).toBe("trailer.mp4");
     expect(parsed.sample_images).toEqual(["samples/scene-001.jpg"]);
+  });
+
+  it("round-trips actor aliases and biography from NFO actor nodes", () => {
+    const xml = new NfoGenerator().buildXml(
+      createCrawlerData({
+        actors: ["Actor A"],
+        actor_profiles: [
+          {
+            name: "Actor A",
+            aliases: ["Alias A"],
+            description: "Actor biography",
+          },
+        ],
+      }),
+    );
+
+    const parsed = parseNfo(xml);
+
+    expect(parsed.actor_profiles).toEqual([
+      expect.objectContaining({
+        name: "Actor A",
+        aliases: ["Alias A"],
+        description: "Actor biography",
+      }),
+    ]);
   });
 });

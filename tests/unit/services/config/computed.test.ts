@@ -80,4 +80,26 @@ describe("buildComputedConfiguration", () => {
       ]),
     );
   });
+
+  it("requires Jellyfin userId to be a UUID when provided", () => {
+    const result = configurationSchema.safeParse({
+      server: {
+        userId: "not-a-uuid",
+      },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+
+    expect(result.error.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ["server", "userId"],
+          message: "Jellyfin 用户 ID 必须为 UUID，留空则按服务端默认处理",
+        }),
+      ]),
+    );
+  });
 });

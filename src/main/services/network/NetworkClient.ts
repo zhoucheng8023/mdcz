@@ -128,6 +128,18 @@ export class NetworkClient {
     return response.json() as Promise<TResponse>;
   }
 
+  async postContent(
+    url: string,
+    body: Uint8Array,
+    init: Omit<ImpitRequestInit, "method" | "body"> = {},
+  ): Promise<void> {
+    await this.request(url, {
+      ...init,
+      method: "POST",
+      body,
+    });
+  }
+
   async download(url: string, outputPath: string, init: Omit<ImpitRequestInit, "method"> = {}): Promise<string> {
     const bytes = await this.getContent(url, init);
 
