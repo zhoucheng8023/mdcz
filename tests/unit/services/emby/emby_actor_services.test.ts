@@ -118,7 +118,10 @@ describe("Emby actor services", () => {
     expect(actorSourceProvider.lookup).toHaveBeenCalledWith(expect.any(Object), "神木麗");
     expect(networkClient.postText).toHaveBeenCalledTimes(1);
     expect(networkClient.postText.mock.calls[0]?.[0]).toContain("/Items/person-1?");
-    expectStructuredActorPayload(readPostedPayload(networkClient), "官方简介\n\n别名：神木れい / かみきれい");
+    expectStructuredActorPayload(
+      readPostedPayload(networkClient),
+      "基本资料\n生日：1999-12-20\n出生地：埼玉県\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n官方简介\n\n别名：神木れい / かみきれい",
+    );
   });
 
   it("fills missing actor tags and summary in missing mode without overwriting the overview", async () => {

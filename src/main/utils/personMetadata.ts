@@ -2,7 +2,9 @@ import { normalizeActorName, toUniqueActorNames } from "@main/utils/actor";
 import type { ActorProfile } from "@shared/types";
 import { normalizeText } from "./normalization";
 
+const PROFILE_SECTION_TITLE = "基本资料";
 const ALIASES_PREFIX = "别名：";
+const PROFILE_FIELD_PREFIXES = ["生日：", "出生地：", "血型：", "身高：", "三围：", "罩杯："] as const;
 
 const normalizeOverview = (value: string | undefined): string | undefined => {
   if (typeof value !== "string") {
@@ -28,8 +30,77 @@ const buildAliasesLine = (profile: Pick<ActorProfile, "name" | "aliases">): stri
   return aliases.length > 0 ? `${ALIASES_PREFIX}${aliases.join(" / ")}` : undefined;
 };
 
+const buildMeasurementsLine = (profile: Pick<ActorProfile, "bust_cm" | "waist_cm" | "hip_cm">): string | undefined => {
+  const parts = [
+    profile.bust_cm !== undefined ? `B${profile.bust_cm}` : undefined,
+    profile.waist_cm !== undefined ? `W${profile.waist_cm}` : undefined,
+    profile.hip_cm !== undefined ? `H${profile.hip_cm}` : undefined,
+  ].filter((entry): entry is string => Boolean(entry));
+
+  return parts.length > 0 ? `三围：${parts.join(" ")}` : undefined;
+};
+
+const buildProfileSummaryBlock = (
+  profile: Pick<
+    ActorProfile,
+    "birth_date" | "birth_place" | "blood_type" | "height_cm" | "bust_cm" | "waist_cm" | "hip_cm" | "cup_size"
+  >,
+): string | undefined => {
+  const lines = [
+    profile.birth_date ? `生日：${profile.birth_date}` : undefined,
+    profile.birth_place ? `出生地：${profile.birth_place}` : undefined,
+    profile.blood_type ? `血型：${profile.blood_type}型` : undefined,
+    profile.height_cm !== undefined ? `身高：${profile.height_cm}cm` : undefined,
+    buildMeasurementsLine(profile),
+    profile.cup_size ? `罩杯：${profile.cup_size}杯` : undefined,
+  ].filter((entry): entry is string => Boolean(entry));
+
+  return lines.length > 0 ? `${PROFILE_SECTION_TITLE}\n${lines.join("\n")}` : undefined;
+};
+
+const isManagedProfileLine = (line: string): boolean => {
+  return PROFILE_FIELD_PREFIXES.some((prefix) => line.startsWith(prefix));
+};
+
+const stripManagedProfileBlock = (overview: string | undefined): string | undefined => {
+  if (!overview) {
+    return undefined;
+  }
+
+  const lines = overview.split("\n");
+  let cursor = 0;
+  while (cursor < lines.length && lines[cursor] === "") {
+    cursor += 1;
+  }
+
+  if (lines[cursor] !== PROFILE_SECTION_TITLE) {
+    return overview;
+  }
+
+  cursor += 1;
+  let detailCount = 0;
+  while (cursor < lines.length && lines[cursor] !== "") {
+    if (!isManagedProfileLine(lines[cursor] ?? "")) {
+      return overview;
+    }
+    detailCount += 1;
+    cursor += 1;
+  }
+
+  if (detailCount === 0) {
+    return overview;
+  }
+
+  while (cursor < lines.length && lines[cursor] === "") {
+    cursor += 1;
+  }
+
+  const strippedOverview = lines.slice(cursor).join("\n").trim();
+  return strippedOverview || undefined;
+};
+
 export const stripManagedPersonOverview = (overview: string | undefined): string | undefined => {
-  const normalizedOverview = normalizeOverview(overview);
+  const normalizedOverview = stripManagedProfileBlock(normalizeOverview(overview));
   if (!normalizedOverview) {
     return undefined;
   }
@@ -55,18 +126,24 @@ export const stripManagedPersonOverview = (overview: string | undefined): string
 
 export const buildPersonOverview = (
   overview: string | undefined,
-  profile: Pick<ActorProfile, "name" | "aliases">,
+  profile: Pick<
+    ActorProfile,
+    | "name"
+    | "aliases"
+    | "birth_date"
+    | "birth_place"
+    | "blood_type"
+    | "height_cm"
+    | "bust_cm"
+    | "waist_cm"
+    | "hip_cm"
+    | "cup_size"
+  >,
 ): string | undefined => {
   const normalizedOverview = normalizeOverview(overview);
+  const profileSummary = buildProfileSummaryBlock(profile);
   const aliasesLine = buildAliasesLine(profile);
 
-  if (!normalizedOverview) {
-    return aliasesLine;
-  }
-
-  if (!aliasesLine) {
-    return normalizedOverview;
-  }
-
-  return `${normalizedOverview}\n\n${aliasesLine}`;
+  const sections = [profileSummary, normalizedOverview, aliasesLine].filter((entry): entry is string => Boolean(entry));
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
 };

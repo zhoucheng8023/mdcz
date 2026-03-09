@@ -110,7 +110,7 @@ describe("DownloadManager keep flags", () => {
       "poster.jpg": "poster",
       "fanart.jpg": "fanart",
       "trailer.mp4": "trailer",
-      "samples/scene-001.jpg": "scene",
+      "extrafanart/fanart1.jpg": "scene",
     });
     const assets = await manager.downloadAll(
       root,
@@ -128,7 +128,7 @@ describe("DownloadManager keep flags", () => {
     expect(assets.poster).toBe(join(root, "poster.jpg"));
     expect(assets.fanart).toBe(join(root, "fanart.jpg"));
     expect(assets.trailer).toBe(join(root, "trailer.mp4"));
-    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
     expect(assets.downloaded).toEqual([]);
     expect(networkClient.probe).not.toHaveBeenCalled();
     expect(networkClient.download).not.toHaveBeenCalled();
@@ -153,13 +153,13 @@ describe("DownloadManager keep flags", () => {
 
     expect(assets.fanart).toBe(join(root, "fanart.jpg"));
     expect(assets.sceneImages).toEqual([
-      join(root, "samples", "scene-001.jpg"),
-      join(root, "samples", "scene-002.jpg"),
+      join(root, "extrafanart", "fanart1.jpg"),
+      join(root, "extrafanart", "fanart2.jpg"),
     ]);
-    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe(
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe(
       "downloaded:https://example.com/scene-001.jpg",
     );
-    await expect(readFile(join(root, "samples", "scene-002.jpg"), "utf8")).resolves.toBe(
+    await expect(readFile(join(root, "extrafanart", "fanart2.jpg"), "utf8")).resolves.toBe(
       "downloaded:https://example.com/scene-002.jpg",
     );
     expect(networkClient.download).toHaveBeenCalledTimes(2);
@@ -202,11 +202,11 @@ describe("DownloadManager keep flags", () => {
     );
 
     expect(assets.fanart).toBe(join(root, "fanart.jpg"));
-    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
     await expect(readFile(join(root, "fanart.jpg"), "utf8")).resolves.toBe(
       "downloaded:https://example.com/scene-001.jpg",
     );
-    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe(
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe(
       "downloaded:https://example.com/scene-002.jpg",
     );
   });
@@ -286,8 +286,8 @@ describe("DownloadManager keep flags", () => {
 
   it("replaces the scene image set when keepSceneImages is disabled", async () => {
     const { root, manager } = await createDownloadSubject({
-      "samples/scene-001.jpg": "old-1",
-      "samples/scene-002.jpg": "old-2",
+      "extrafanart/fanart1.jpg": "old-1",
+      "extrafanart/fanart2.jpg": "old-2",
     });
     mockImageValidation(true);
     const assets = await manager.downloadAll(
@@ -304,17 +304,17 @@ describe("DownloadManager keep flags", () => {
       }),
     );
 
-    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
-    expect(assets.downloaded).toEqual([join(root, "samples", "scene-001.jpg")]);
-    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe(
+    expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
+    expect(assets.downloaded).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe(
       "downloaded:https://example.com/scene-new-1.jpg",
     );
-    await expect(access(join(root, "samples", "scene-002.jpg"))).rejects.toThrow();
+    await expect(access(join(root, "extrafanart", "fanart2.jpg"))).rejects.toThrow();
   });
 
   it("keeps existing scene images when keepSceneImages is disabled but the current scrape has no scene sources", async () => {
     const { root, manager } = await createDownloadSubject({
-      "samples/scene-001.jpg": "old-1",
+      "extrafanart/fanart1.jpg": "old-1",
     });
     const assets = await manager.downloadAll(
       root,
@@ -330,14 +330,14 @@ describe("DownloadManager keep flags", () => {
       }),
     );
 
-    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
     expect(assets.downloaded).toEqual([]);
-    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe("old-1");
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe("old-1");
   });
 
   it("keeps the previous scene image when a refreshed download fails validation", async () => {
     const { root, manager } = await createDownloadSubject({
-      "samples/scene-001.jpg": "old-1",
+      "extrafanart/fanart1.jpg": "old-1",
     });
     mockImageValidation(false);
     const assets = await manager.downloadAll(
@@ -354,8 +354,8 @@ describe("DownloadManager keep flags", () => {
       }),
     );
 
-    expect(assets.sceneImages).toEqual([join(root, "samples", "scene-001.jpg")]);
+    expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
     expect(assets.downloaded).toEqual([]);
-    await expect(readFile(join(root, "samples", "scene-001.jpg"), "utf8")).resolves.toBe("old-1");
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe("old-1");
   });
 });

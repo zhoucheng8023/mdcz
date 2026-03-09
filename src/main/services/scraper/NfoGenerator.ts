@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname, relative } from "node:path";
+import { basename, dirname } from "node:path";
 import { toArray } from "@main/utils/common";
 import { buildManagedMovieTags } from "@main/utils/movieMetadata";
 import type { ActorProfile, CrawlerData, DownloadedAssets, VideoMeta } from "@shared/types";
@@ -106,38 +106,28 @@ const buildVideoNode = (videoMeta: VideoMeta | undefined): Record<string, unknow
   return Object.keys(video).length > 0 ? video : undefined;
 };
 
-const buildRelativeAssetPath = (referenceAssetPath: string | undefined, imagePath: string): string => {
-  return referenceAssetPath
-    ? relative(dirname(referenceAssetPath), imagePath).replaceAll("\\", "/")
-    : imagePath.split("/").slice(-2).join("/");
-};
-
-const buildFanartThumbs = (data: CrawlerData, assets: DownloadedAssets | undefined): Array<Record<string, unknown>> => {
-  const thumbs: Array<Record<string, unknown>> = [];
-
-  if (assets?.fanart) {
-    thumbs.push({ "#text": basename(assets.fanart) });
-  } else {
-    const primaryFanartUrl = data.fanart_url || data.sample_images[0] || data.thumb_url;
-    if (primaryFanartUrl) {
-      thumbs.push({ "#text": primaryFanartUrl });
-    }
+const buildFanartNode = (
+  data: CrawlerData,
+  assets: DownloadedAssets | undefined,
+): Record<string, unknown> | undefined => {
+  // When local fanart/backdrops exist, prefer filesystem-based artwork discovery
+  // so Jellyfin/Emby can pick up `fanart.jpg` plus `extrafanart`/`backdrop*`.
+  if (assets?.fanart || (assets?.sceneImages.length ?? 0) > 0) {
+    return undefined;
   }
 
-  if (assets?.sceneImages && assets.sceneImages.length > 0) {
-    const referenceAssetPath = assets.fanart ?? assets.thumb ?? assets.poster;
-    for (const imagePath of assets.sceneImages) {
-      thumbs.push({ "#text": buildRelativeAssetPath(referenceAssetPath, imagePath) });
-    }
-    return thumbs;
+  const primaryFanartUrl = data.fanart_url || data.sample_images[0] || data.thumb_url;
+  if (!primaryFanartUrl) {
+    return undefined;
   }
 
+  const thumbs: Array<Record<string, unknown>> = [{ "#text": primaryFanartUrl }];
   const extraSampleImages = data.fanart_url ? data.sample_images : data.sample_images.slice(1);
   for (const imageUrl of extraSampleImages.map((value) => value.trim()).filter((value) => value.length > 0)) {
     thumbs.push({ "#text": imageUrl });
   }
 
-  return thumbs;
+  return { thumb: thumbs.length === 1 ? thumbs[0] : thumbs };
 };
 
 export interface NfoOptions {
@@ -213,9 +203,9 @@ export class NfoGenerator {
       movie.thumb = thumbs;
     }
 
-    const fanartThumbs = buildFanartThumbs(data, assets);
-    if (fanartThumbs.length > 0) {
-      movie.fanart = { thumb: fanartThumbs.length === 1 ? fanartThumbs[0] : fanartThumbs };
+    const fanartNode = buildFanartNode(data, assets);
+    if (fanartNode) {
+      movie.fanart = fanartNode;
     }
 
     if (videoNode) {

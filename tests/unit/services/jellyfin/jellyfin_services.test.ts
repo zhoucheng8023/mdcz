@@ -252,7 +252,7 @@ describe("Jellyfin services", () => {
           ...defaultConfiguration.server,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
-          personOverviewSources: ["local"],
+          personOverviewSources: ["official"],
           refreshPersonAfterSync: true,
           lockOverviewAfterSync: true,
         },
@@ -263,7 +263,10 @@ describe("Jellyfin services", () => {
     expect(result).toEqual({ processedCount: 1, failedCount: 0 });
     expect(networkClient.postText).toHaveBeenCalledTimes(2);
     expect(networkClient.postText.mock.calls[0]?.[0]).toContain("/Items/person-1?");
-    expectManagedActorPayload(readPostedPayload(networkClient), "Actor biography\n\n别名：Alias A / Alias B");
+    expectManagedActorPayload(
+      readPostedPayload(networkClient),
+      "基本资料\n生日：2001-02-03\n出生地：東京都\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\nActor biography\n\n别名：Alias A / Alias B",
+    );
     expect(readPostedPayload(networkClient)).toMatchObject({
       LockedFields: ["Overview"],
       LockData: true,
@@ -306,7 +309,7 @@ describe("Jellyfin services", () => {
           ...defaultConfiguration.server,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
-          personOverviewSources: ["local"],
+          personOverviewSources: ["official"],
           refreshPersonAfterSync: false,
         },
       }),
@@ -359,7 +362,7 @@ describe("Jellyfin services", () => {
           ...defaultConfiguration.server,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
-          personOverviewSources: ["local"],
+          personOverviewSources: ["official"],
         },
       }),
       "all",
@@ -406,6 +409,7 @@ describe("Jellyfin services", () => {
           url: "http://127.0.0.1:8096",
           apiKey: "token",
           actorPhotoFolder: root,
+          personImageSources: ["local", "gfriends"],
           refreshPersonAfterSync: true,
         },
       }),

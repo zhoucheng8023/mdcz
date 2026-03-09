@@ -93,8 +93,10 @@ const serverSchema = z.object({
   apiKey: z.string().default(""),
   userId: z.string().default(""),
   actorPhotoFolder: z.string().default(""),
-  personOverviewSources: z.array(z.enum(ACTOR_OVERVIEW_SOURCE_OPTIONS)).default(["local"]),
-  personImageSources: z.array(z.enum(ACTOR_IMAGE_SOURCE_OPTIONS)).default(["local", "gfriends"]),
+  personOverviewSources: z.array(z.enum(ACTOR_OVERVIEW_SOURCE_OPTIONS)).default(["official", "avjoho", "avbase"]),
+  personImageSources: z
+    .array(z.enum(ACTOR_IMAGE_SOURCE_OPTIONS))
+    .default(["local", "official", "gfriends", "avjoho", "avbase"]),
   refreshPersonAfterSync: z.boolean().default(true),
   lockOverviewAfterSync: z.boolean().default(false),
 });
@@ -124,7 +126,7 @@ const pathsSchema = z.object({
   softlinkPath: z.string().default("softlink"),
   successOutputFolder: z.string().default("JAV_output"),
   failedOutputFolder: z.string().default("failed"),
-  sceneImagesFolder: z.string().default("samples"),
+  sceneImagesFolder: z.string().default("extrafanart"),
   configDirectory: z.string().default("config"),
 });
 

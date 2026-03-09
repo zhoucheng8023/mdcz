@@ -73,7 +73,9 @@ describe("person sync planner", () => {
       "productionYear",
       "productionLocations",
     ]);
-    expect(result.overview).toBe("官方简介\n\n别名：神木れい / かみきれい");
+    expect(result.overview).toBe(
+      "基本资料\n生日：1999-12-20\n出生地：埼玉県\n血型：A型\n身高：169cm\n\n官方简介\n\n别名：神木れい / かみきれい",
+    );
     expect(result.tags).toEqual(
       expect.arrayContaining(["favorite", "mdcz:birth_date:1999-12-20", "mdcz:height_cm:169"]),
     );
@@ -104,6 +106,26 @@ describe("person sync planner", () => {
     expect(result.shouldUpdate).toBe(true);
     expect(result.updatedFields).toEqual(["overview"]);
     expect(result.overview).toBe("旧简介\n\n别名：神木れい / かみきれい");
+  });
+
+  it("rebuilds the managed profile block while preserving the existing custom overview", () => {
+    const result = planPersonSync(
+      {
+        name: "神木麗",
+        aliases: ["神木れい"],
+        height_cm: 169,
+      },
+      {
+        overview: "基本资料\n身高：160cm\n\n旧简介\n\n别名：旧别名",
+        tags: ["favorite"],
+        taglines: [],
+      },
+      "all",
+    );
+
+    expect(result.shouldUpdate).toBe(true);
+    expect(result.updatedFields).toEqual(["overview", "tags", "taglines"]);
+    expect(result.overview).toBe("基本资料\n身高：169cm\n\n旧简介\n\n别名：神木れい");
   });
 
   it("detects whether actor info is still missing", () => {

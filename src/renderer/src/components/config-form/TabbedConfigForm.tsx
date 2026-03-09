@@ -77,7 +77,7 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
   { value: "google", label: "Google 翻译（免费）" },
 ];
 const LANGUAGE_OPTIONS = ["zh-CN", "zh-TW", "ja-JP", "en-US"];
-const JELLYFIN_OVERVIEW_SOURCE_OPTIONS = ["local", "official", "avjoho", "avbase"];
+const JELLYFIN_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"];
 const JELLYFIN_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avjoho", "avbase"];
 
 // ── Field registry for search/filter ──
@@ -189,7 +189,7 @@ const SECTION_DESCRIPTIONS: Record<string, string> = {
   paths: "配置媒体库及输出目录路径",
   scrape: "配置刮削行为、站点及并发策略",
   network: "代理、超时、重试及 Cookie 设置",
-  download: "控制缩略图、海报、NFO 等资源的下载与保留",
+  download: "控制缩略图、海报、背景图、剧照与 NFO 的下载与保留",
   naming: "文件和文件夹的命名模板与规则",
   translate: "LLM 翻译引擎配置",
   server: "Jellyfin 人物同步连接与数据源设置",
@@ -480,20 +480,18 @@ function ServerSection(_props: SectionRenderProps) {
         <PathFieldWrapper
           name="server.actorPhotoFolder"
           label="演员头像目录"
-          description="人物头像同步时优先从这里读取本地头像。"
+          description="按演员名匹配本地头像"
           isDirectory
         />
       )}
       <ChipArrayFieldWrapper
         name="server.personOverviewSources"
         label="人物简介来源顺序"
-        description="按顺序尝试已启用的 Jellyfin 简介来源。当前版本支持本地 NFO、official、AVJOHO 与 AVBase。"
         options={JELLYFIN_OVERVIEW_SOURCE_OPTIONS}
       />
       <ChipArrayFieldWrapper
         name="server.personImageSources"
         label="人物头像来源顺序"
-        description="按顺序尝试已启用的 Jellyfin 头像来源。当前版本支持本地目录、official、gfriends、AVJOHO 与 AVBase。"
         options={JELLYFIN_IMAGE_SOURCE_OPTIONS}
       />
       <BoolField

@@ -80,6 +80,24 @@ const toSceneDownloadResult = async (download: Promise<unknown>): Promise<true |
   return (await download) ? true : undefined;
 };
 
+const isExtrafanartFolder = (folderName: string): boolean => {
+  return (
+    folderName
+      .trim()
+      .replace(/[\\/]+$/u, "")
+      .toLowerCase() === "extrafanart"
+  );
+};
+
+const buildSceneImageFileName = (sceneFolder: string, index: number): string => {
+  if (isExtrafanartFolder(sceneFolder)) {
+    return `fanart${index + 1}.jpg`;
+  }
+  return `scene-${String(index + 1).padStart(3, "0")}.jpg`;
+};
+
+const SCENE_IMAGE_FILE_PATTERN = /^(?:scene-\d+|fanart\d+)\.(?:jpe?g|png|webp)$/iu;
+
 export class DownloadManager {
   private readonly logger = loggerService.getLogger("DownloadManager");
 
@@ -151,7 +169,11 @@ export class DownloadManager {
         } else {
           const sceneTasks: SceneImageTask[] = urls.map((url, index) => ({
             url,
-            path: join(outputDir, config.paths.sceneImagesFolder, `scene-${String(index + 1).padStart(3, "0")}.jpg`),
+            path: join(
+              outputDir,
+              config.paths.sceneImagesFolder,
+              buildSceneImageFileName(config.paths.sceneImagesFolder, index),
+            ),
             key: "sceneImages" as const,
           }));
 
@@ -445,7 +467,7 @@ export class DownloadManager {
     try {
       const entries = await readdir(sceneDir, { withFileTypes: true });
       return entries
-        .filter((entry) => entry.isFile() && /^scene-\d+/iu.test(entry.name))
+        .filter((entry) => entry.isFile() && SCENE_IMAGE_FILE_PATTERN.test(entry.name))
         .map((entry) => join(sceneDir, entry.name))
         .sort((a, b) => a.localeCompare(b));
     } catch {

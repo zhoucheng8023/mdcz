@@ -19,13 +19,13 @@ const createAssets = (): DownloadedAssets => ({
   poster: "/tmp/out/poster.jpg",
   fanart: "/tmp/out/fanart.jpg",
   trailer: "/tmp/out/trailer.mp4",
-  sceneImages: ["/tmp/out/samples/scene-001.jpg"],
+  sceneImages: ["/tmp/out/extrafanart/fanart1.jpg"],
   downloaded: [
     "/tmp/out/thumb.jpg",
     "/tmp/out/poster.jpg",
     "/tmp/out/fanart.jpg",
     "/tmp/out/trailer.mp4",
-    "/tmp/out/samples/scene-001.jpg",
+    "/tmp/out/extrafanart/fanart1.jpg",
   ],
 });
 
@@ -85,9 +85,7 @@ describe("NfoGenerator", () => {
 
     expect(xml).toContain('<thumb aspect="poster">poster.jpg</thumb>');
     expect(xml).toContain('<thumb aspect="thumb">thumb.jpg</thumb>');
-    expect(xml).toContain("<fanart>");
-    expect(xml).toContain("<thumb>fanart.jpg</thumb>");
-    expect(xml).toContain("<thumb>samples/scene-001.jpg</thumb>");
+    expect(xml).not.toContain("<fanart>");
     expect(xml).toContain("<trailer>trailer.mp4</trailer>");
     expect(xml).toContain("<releasedate>2024-01-02</releasedate>");
     expect(xml).toContain("<outline>Plot</outline>");
@@ -119,7 +117,7 @@ describe("NfoGenerator", () => {
     expect(parsed.release_date).toBe("2024-01-02");
   });
 
-  it("preserves local poster, cover, fanart, trailer, and sample image references when parsed back", () => {
+  it("preserves local poster, cover, and trailer references when parsed back", () => {
     const xml = new NfoGenerator().buildXml(
       createCrawlerData({
         poster_url: "https://remote.example.com/poster.jpg",
@@ -136,9 +134,9 @@ describe("NfoGenerator", () => {
 
     expect(parsed.poster_url).toBe("poster.jpg");
     expect(parsed.thumb_url).toBe("thumb.jpg");
-    expect(parsed.fanart_url).toBe("fanart.jpg");
     expect(parsed.trailer_url).toBe("trailer.mp4");
-    expect(parsed.sample_images).toEqual(["samples/scene-001.jpg"]);
+    expect(parsed.fanart_url).toBeUndefined();
+    expect(parsed.sample_images).toEqual([]);
   });
 
   it("writes streamdetails when local video metadata is available", () => {
