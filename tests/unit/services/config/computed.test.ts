@@ -83,7 +83,7 @@ describe("buildComputedConfiguration", () => {
 
   it("rejects local as a person overview source", () => {
     const result = configurationSchema.safeParse({
-      server: {
+      personSync: {
         personOverviewSources: ["official", "local"],
       },
     });
@@ -93,7 +93,7 @@ describe("buildComputedConfiguration", () => {
 
   it("requires Jellyfin userId to be a UUID when provided", () => {
     const result = configurationSchema.safeParse({
-      server: {
+      jellyfin: {
         userId: "not-a-uuid",
       },
     });
@@ -106,7 +106,7 @@ describe("buildComputedConfiguration", () => {
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: ["server", "userId"],
+          path: ["jellyfin", "userId"],
           message: "Jellyfin 用户 ID 必须为 UUID，留空则按服务端默认处理",
         }),
       ]),

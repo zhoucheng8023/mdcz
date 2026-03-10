@@ -153,8 +153,8 @@ describe("OfficialActorSource", () => {
           ...defaultConfiguration.paths,
           mediaPath: root,
         },
-        server: {
-          ...defaultConfiguration.server,
+        personSync: {
+          ...defaultConfiguration.personSync,
           personOverviewSources: ["official"],
           personImageSources: ["official", "local"],
         },
@@ -588,8 +588,8 @@ describe("OfficialActorSource", () => {
           ...defaultConfiguration.paths,
           mediaPath: root,
         },
-        server: {
-          ...defaultConfiguration.server,
+        personSync: {
+          ...defaultConfiguration.personSync,
           personImageSources: ["official", "local"],
         },
       }),

@@ -24,12 +24,12 @@ export const buildJellyfinUrl = (
   path: string,
   query: Record<string, string | undefined> = {},
 ): string => {
-  const baseUrl = normalizeBaseUrl(configuration.server.url);
+  const baseUrl = normalizeBaseUrl(configuration.jellyfin.url);
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(`${baseUrl}${normalizedPath}`);
 
-  if (configuration.server.apiKey.trim()) {
-    url.searchParams.set("api_key", configuration.server.apiKey.trim());
+  if (configuration.jellyfin.apiKey.trim()) {
+    url.searchParams.set("api_key", configuration.jellyfin.apiKey.trim());
   }
 
   for (const [key, value] of Object.entries(query)) {
@@ -46,7 +46,7 @@ type JellyfinHeadersInit = Headers | Record<string, string> | Array<[string, str
 
 export const buildJellyfinHeaders = (configuration: Configuration, headers: JellyfinHeadersInit = {}): Headers => {
   const next = new Headers(headers);
-  const apiKey = configuration.server.apiKey.trim();
+  const apiKey = configuration.jellyfin.apiKey.trim();
   const tokenHeader = apiKey.length > 0 ? apiKey : "";
 
   if (tokenHeader) {

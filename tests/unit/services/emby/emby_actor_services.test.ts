@@ -1,6 +1,6 @@
 import type { ActorLookupResult, ActorSourceProvider } from "@main/services/actorSource";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { EmbyActorInfo, EmbyActorPhoto } from "@main/services/emby";
+import { checkConnection, EmbyActorInfo, EmbyActorPhoto } from "@main/services/emby";
 import type { NetworkClient } from "@main/services/network";
 import { SignalService } from "@main/services/SignalService";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +9,21 @@ const createConfig = (overrides: Record<string, unknown> = {}) =>
   configurationSchema.parse({
     ...defaultConfiguration,
     ...overrides,
+  });
+
+const createEmbyConfig = (overrides: { emby?: Record<string, unknown>; personSync?: Record<string, unknown> } = {}) =>
+  createConfig({
+    ...overrides,
+    personSync: {
+      ...defaultConfiguration.personSync,
+      ...(overrides.personSync ?? {}),
+    },
+    emby: {
+      ...defaultConfiguration.emby,
+      url: "http://127.0.0.1:8096",
+      apiKey: "token",
+      ...(overrides.emby ?? {}),
+    },
   });
 
 class FakeNetworkClient {
@@ -31,6 +46,20 @@ class FakeActorSourceProvider {
     }),
   );
 }
+
+const createInfoService = (networkClient: FakeNetworkClient, actorSourceProvider: FakeActorSourceProvider) =>
+  new EmbyActorInfo({
+    signalService: new SignalService(null),
+    networkClient: networkClient as unknown as NetworkClient,
+    actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
+  });
+
+const createPhotoService = (networkClient: FakeNetworkClient, actorSourceProvider: FakeActorSourceProvider) =>
+  new EmbyActorPhoto({
+    signalService: new SignalService(null),
+    networkClient: networkClient as unknown as NetworkClient,
+    actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
+  });
 
 const createStructuredLookupResult = (name = "神木麗"): ActorLookupResult => ({
   profile: {
@@ -81,6 +110,39 @@ const expectStructuredActorPayload = (payload: Record<string, unknown>, overview
 };
 
 describe("Emby actor services", () => {
+  it("returns layered diagnostics and an admin-key hint for a healthy Emby connection", async () => {
+    const networkClient = new FakeNetworkClient();
+    networkClient.getJson.mockImplementation(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/System/Info/Public") {
+        return { ServerName: "Emby", Version: "4.9.0.41" };
+      }
+      if (path === "/Users/Me") {
+        return { Id: "user-1" };
+      }
+      if (path === "/Persons") {
+        return { Items: [{ Id: "person-1", Name: "神木麗", Overview: "" }] };
+      }
+      if (path === "/Items/person-1/MetadataEditor") {
+        return {};
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    const result = await checkConnection(networkClient as unknown as NetworkClient, createEmbyConfig());
+
+    expect(result.success).toBe(true);
+    expect(result.serverInfo).toEqual({ serverName: "Emby", version: "4.9.0.41" });
+    expect(result.steps.map((step) => [step.key, step.status])).toEqual([
+      ["server", "ok"],
+      ["auth", "ok"],
+      ["peopleRead", "ok"],
+      ["peopleWrite", "ok"],
+      ["adminKey", "skipped"],
+    ]);
+    expect(result.steps[4]?.message).toContain("管理员 API Key");
+  });
+
   it("updates actor info from the shared actor source provider", async () => {
     const networkClient = new FakeNetworkClient();
     networkClient.getJson.mockImplementation(async (url: string) => {
@@ -89,7 +151,7 @@ describe("Emby actor services", () => {
         return { Items: [{ Id: "person-1", Name: "神木麗" }] };
       }
       if (parsed.pathname === "/Items/person-1") {
-        return { Id: "person-1", Name: "神木麗", Overview: "" };
+        return { Id: "person-1", Name: "神木麗", Overview: "", DateCreated: "2026-01-01T00:00:00.0000000Z" };
       }
       throw new Error(`Unexpected URL ${url}`);
     });
@@ -97,31 +159,20 @@ describe("Emby actor services", () => {
     const actorSourceProvider = new FakeActorSourceProvider();
     actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
 
-    const service = new EmbyActorInfo({
-      signalService: new SignalService(null),
-      networkClient: networkClient as unknown as NetworkClient,
-      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
-    });
+    const service = createInfoService(networkClient, actorSourceProvider);
 
-    const result = await service.run(
-      createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
-        },
-      }),
-      "all",
-    );
+    const result = await service.run(createEmbyConfig(), "all");
 
     expect(result).toEqual({ processedCount: 1, failedCount: 0 });
     expect(actorSourceProvider.lookup).toHaveBeenCalledWith(expect.any(Object), "神木麗");
-    expect(networkClient.postText).toHaveBeenCalledTimes(1);
+    expect(networkClient.postText).toHaveBeenCalledTimes(2);
     expect(networkClient.postText.mock.calls[0]?.[0]).toContain("/Items/person-1?");
+    expect(networkClient.postText.mock.calls[1]?.[0]).toContain("/Items/person-1/Refresh");
     expectStructuredActorPayload(
       readPostedPayload(networkClient),
       "基本资料\n生日：1999-12-20\n出生地：埼玉県\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n官方简介\n\n别名：神木れい / かみきれい",
     );
+    expect(readPostedPayload(networkClient)).not.toHaveProperty("DateCreated");
   });
 
   it("fills missing actor tags and summary in missing mode without overwriting the overview", async () => {
@@ -140,22 +191,9 @@ describe("Emby actor services", () => {
     const actorSourceProvider = new FakeActorSourceProvider();
     actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
 
-    const service = new EmbyActorInfo({
-      signalService: new SignalService(null),
-      networkClient: networkClient as unknown as NetworkClient,
-      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
-    });
+    const service = createInfoService(networkClient, actorSourceProvider);
 
-    const result = await service.run(
-      createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
-        },
-      }),
-      "missing",
-    );
+    const result = await service.run(createEmbyConfig(), "missing");
 
     expect(result).toEqual({ processedCount: 1, failedCount: 0 });
     expectStructuredActorPayload(readPostedPayload(networkClient), "已有简介");
@@ -186,22 +224,9 @@ describe("Emby actor services", () => {
       warnings: [],
     });
 
-    const service = new EmbyActorInfo({
-      signalService: new SignalService(null),
-      networkClient: networkClient as unknown as NetworkClient,
-      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
-    });
+    const service = createInfoService(networkClient, actorSourceProvider);
 
-    const result = await service.run(
-      createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
-        },
-      }),
-      "all",
-    );
+    const result = await service.run(createEmbyConfig(), "all");
 
     expect(result).toEqual({ processedCount: 1, failedCount: 0 });
     expect(readPostedPayload(networkClient)).toMatchObject({
@@ -232,22 +257,9 @@ describe("Emby actor services", () => {
     const actorSourceProvider = new FakeActorSourceProvider();
     actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
 
-    const service = new EmbyActorInfo({
-      signalService: new SignalService(null),
-      networkClient: networkClient as unknown as NetworkClient,
-      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
-    });
+    const service = createInfoService(networkClient, actorSourceProvider);
 
-    await service.run(
-      createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
-        },
-      }),
-      "all",
-    );
+    await service.run(createEmbyConfig(), "all");
 
     expect(readPostedPayload(networkClient)).toMatchObject({
       PremiereDate: "1999-12-20T00:00:00.0000000Z",
@@ -280,22 +292,9 @@ describe("Emby actor services", () => {
 
     const actorSourceProvider = new FakeActorSourceProvider();
 
-    const service = new EmbyActorInfo({
-      signalService: new SignalService(null),
-      networkClient: networkClient as unknown as NetworkClient,
-      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
-    });
+    const service = createInfoService(networkClient, actorSourceProvider);
 
-    const result = await service.run(
-      createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
-        },
-      }),
-      "missing",
-    );
+    const result = await service.run(createEmbyConfig(), "missing");
 
     expect(result).toEqual({ processedCount: 0, failedCount: 0 });
     expect(actorSourceProvider.lookup).not.toHaveBeenCalled();
@@ -326,18 +325,11 @@ describe("Emby actor services", () => {
       warnings: [],
     });
 
-    const service = new EmbyActorPhoto({
-      signalService: new SignalService(null),
-      networkClient: networkClient as unknown as NetworkClient,
-      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
-    });
+    const service = createPhotoService(networkClient, actorSourceProvider);
 
     const result = await service.run(
-      createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
+      createEmbyConfig({
+        personSync: {
           personImageSources: ["official"],
         },
       }),
@@ -354,7 +346,8 @@ describe("Emby actor services", () => {
         },
       },
     );
-    expect(networkClient.postText).toHaveBeenCalledTimes(1);
+    expect(networkClient.postText).toHaveBeenCalledTimes(2);
     expect(networkClient.postText.mock.calls[0]?.[0]).toContain("/Items/person-1/Images/Primary?");
+    expect(networkClient.postText.mock.calls[1]?.[0]).toContain("/Items/person-1/Refresh");
   });
 });

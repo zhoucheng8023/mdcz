@@ -134,7 +134,7 @@ export class JellyfinActorPhotoService {
         }
 
         await uploadPrimaryImage(this.networkClient, configuration, person.Id, content, contentType);
-        if (configuration.server.refreshPersonAfterSync) {
+        if (configuration.jellyfin.refreshPersonAfterSync) {
           try {
             await refreshPerson(this.networkClient, configuration, person.Id);
           } catch (error) {

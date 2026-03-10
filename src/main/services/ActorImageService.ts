@@ -87,7 +87,7 @@ export class ActorImageService {
   }
 
   async resolveLocalImage(configuration: Configuration, actorNames: string[]): Promise<string | undefined> {
-    const root = configuration.server.actorPhotoFolder.trim();
+    const root = configuration.personSync.actorPhotoFolder.trim();
     if (!root) return undefined;
     return this.getMutex(root).add(() => this.resolveLocalImageUnsafe(configuration, actorNames));
   }
@@ -96,7 +96,7 @@ export class ActorImageService {
     configuration: Configuration,
     actorNames: string[],
   ): Promise<string | undefined> {
-    const layout = await this.ensureLayout(configuration.server.actorPhotoFolder.trim());
+    const layout = await this.ensureLayout(configuration.personSync.actorPhotoFolder.trim());
     if (!layout) {
       return undefined;
     }
@@ -131,13 +131,13 @@ export class ActorImageService {
   }
 
   async enqueue(configuration: Configuration, input: EnqueueActorImageInput): Promise<void> {
-    const root = configuration.server.actorPhotoFolder.trim();
+    const root = configuration.personSync.actorPhotoFolder.trim();
     if (!root) return;
     await this.getMutex(root).add(() => this.enqueueUnsafe(configuration, input));
   }
 
   private async enqueueUnsafe(configuration: Configuration, input: EnqueueActorImageInput): Promise<void> {
-    const layout = await this.ensureLayout(configuration.server.actorPhotoFolder.trim());
+    const layout = await this.ensureLayout(configuration.personSync.actorPhotoFolder.trim());
     if (!layout) {
       return;
     }

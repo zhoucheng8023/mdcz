@@ -175,8 +175,8 @@ describe("Actor source local and gfriends", () => {
           ...defaultConfiguration.paths,
           mediaPath: root,
         },
-        server: {
-          ...defaultConfiguration.server,
+        personSync: {
+          ...defaultConfiguration.personSync,
           personImageSources: ["local", "gfriends"],
         },
       }),

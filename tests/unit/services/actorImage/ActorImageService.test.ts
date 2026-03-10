@@ -16,8 +16,8 @@ const createTempDir = async (): Promise<string> => {
 const createConfig = (root: string) =>
   configurationSchema.parse({
     ...defaultConfiguration,
-    server: {
-      ...defaultConfiguration.server,
+    personSync: {
+      ...defaultConfiguration.personSync,
       actorPhotoFolder: root,
     },
   });

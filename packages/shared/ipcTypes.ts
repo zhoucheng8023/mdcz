@@ -18,13 +18,19 @@ export type TranslateTestLlmInput = {
   llmTemperature?: number;
 };
 
+export type ConnectionCheckStatus = "ok" | "error" | "skipped";
+export type ConnectionServerInfo = {
+  serverName?: string;
+  version?: string;
+};
+
 export type JellyfinCheckKey = "server" | "auth" | "peopleRead" | "peopleWrite";
-export type JellyfinCheckStatus = "ok" | "error" | "skipped";
+export type EmbyCheckKey = "server" | "auth" | "peopleRead" | "peopleWrite" | "adminKey";
 
 export type JellyfinCheckStep = {
   key: JellyfinCheckKey;
   label: string;
-  status: JellyfinCheckStatus;
+  status: ConnectionCheckStatus;
   message: string;
   code?: string;
 };
@@ -32,10 +38,22 @@ export type JellyfinCheckStep = {
 export type JellyfinConnectionCheckResult = {
   success: boolean;
   steps: JellyfinCheckStep[];
-  serverInfo?: {
-    serverName?: string;
-    version?: string;
-  };
+  serverInfo?: ConnectionServerInfo;
+  personCount?: number;
+};
+
+export type EmbyCheckStep = {
+  key: EmbyCheckKey;
+  label: string;
+  status: ConnectionCheckStatus;
+  message: string;
+  code?: string;
+};
+
+export type EmbyConnectionCheckResult = {
+  success: boolean;
+  steps: EmbyCheckStep[];
+  serverInfo?: ConnectionServerInfo;
   personCount?: number;
 };
 

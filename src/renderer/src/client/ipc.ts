@@ -101,9 +101,12 @@ export const ipc = {
       copyFiles?: boolean;
       copy_files?: boolean;
     }) => client[IpcChannel.Tool_CreateSymlink](payload),
-    checkServerConnection: () => client[IpcChannel.Tool_ServerCheckConnection](undefined),
-    syncActorPhoto: (mode: "all" | "missing") => client[IpcChannel.Tool_ActorPhotoSync]({ mode }),
-    syncActorInfo: (mode: "all" | "missing") => client[IpcChannel.Tool_ActorInfoSync]({ mode }),
+    checkJellyfinConnection: () => client[IpcChannel.Tool_JellyfinServerCheckConnection](undefined),
+    syncJellyfinActorPhoto: (mode: "all" | "missing") => client[IpcChannel.Tool_JellyfinActorPhotoSync]({ mode }),
+    syncJellyfinActorInfo: (mode: "all" | "missing") => client[IpcChannel.Tool_JellyfinActorInfoSync]({ mode }),
+    checkEmbyConnection: () => client[IpcChannel.Tool_EmbyServerCheckConnection](undefined),
+    syncEmbyActorPhoto: (mode: "all" | "missing") => client[IpcChannel.Tool_EmbyActorPhotoSync]({ mode }),
+    syncEmbyActorInfo: (mode: "all" | "missing") => client[IpcChannel.Tool_EmbyActorInfoSync]({ mode }),
     amazonPosterScan: (directory: string) => client[IpcChannel.Tool_AmazonPosterScan]({ directory }),
     amazonPosterLookup: (nfoPath: string, title: string) =>
       client[IpcChannel.Tool_AmazonPosterLookup]({ nfoPath, title }),

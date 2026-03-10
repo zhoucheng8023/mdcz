@@ -65,7 +65,7 @@ const TABS: TabDef[] = [
   { key: "download", label: "下载选项", icon: Download },
   { key: "naming", label: "命名规则", icon: Type },
   { key: "translate", label: "翻译服务", icon: Languages },
-  { key: "server", label: "Jellyfin", icon: Server },
+  { key: "personSync", label: "人物同步", icon: Server },
   { key: "shortcuts", label: "快捷键", icon: Keyboard },
   { key: "ui", label: "界面设置", icon: Monitor },
   { key: "behavior", label: "文件行为", icon: FileCog },
@@ -150,15 +150,19 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "translate.enableGoogleFallback", label: "启用 Google 翻译回退", section: "translate" },
   { key: "translate.titleLanguage", label: "标题目标语言", section: "translate" },
   { key: "translate.plotLanguage", label: "简介目标语言", section: "translate" },
-  // server
-  { key: "server.url", label: "服务器地址", section: "server" },
-  { key: "server.apiKey", label: "接口密钥", section: "server" },
-  { key: "server.userId", label: "用户 ID", section: "server" },
-  { key: "server.actorPhotoFolder", label: "演员头像库目录", section: "server" },
-  { key: "server.personOverviewSources", label: "人物简介来源", section: "server" },
-  { key: "server.personImageSources", label: "人物头像来源", section: "server" },
-  { key: "server.refreshPersonAfterSync", label: "同步后刷新人物", section: "server" },
-  { key: "server.lockOverviewAfterSync", label: "锁定人物简介", section: "server" },
+  // person sync
+  { key: "personSync.actorPhotoFolder", label: "演员头像库目录", section: "personSync" },
+  { key: "personSync.personOverviewSources", label: "人物简介来源", section: "personSync" },
+  { key: "personSync.personImageSources", label: "人物头像来源", section: "personSync" },
+  { key: "jellyfin.url", label: "Jellyfin 服务器地址", section: "personSync" },
+  { key: "jellyfin.apiKey", label: "Jellyfin API Key", section: "personSync" },
+  { key: "jellyfin.userId", label: "Jellyfin 用户 ID", section: "personSync" },
+  { key: "jellyfin.refreshPersonAfterSync", label: "Jellyfin 同步后刷新人物", section: "personSync" },
+  { key: "jellyfin.lockOverviewAfterSync", label: "Jellyfin 锁定人物简介", section: "personSync" },
+  { key: "emby.url", label: "Emby 服务器地址", section: "personSync" },
+  { key: "emby.apiKey", label: "Emby API Key", section: "personSync" },
+  { key: "emby.userId", label: "Emby 用户 ID", section: "personSync" },
+  { key: "emby.refreshPersonAfterSync", label: "Emby 同步后刷新人物", section: "personSync" },
   // shortcuts
   { key: "shortcuts.startOrStopScrape", label: "开始/停止刮削", section: "shortcuts" },
   { key: "shortcuts.searchByNumber", label: "按番号重刮", section: "shortcuts" },
@@ -192,7 +196,7 @@ const SECTION_DESCRIPTIONS: Record<string, string> = {
   download: "控制缩略图、海报、背景图、剧照与 NFO 的下载与保留",
   naming: "文件和文件夹的命名模板与规则",
   translate: "LLM 翻译引擎配置",
-  server: "Jellyfin 人物同步连接与数据源设置",
+  personSync: "共享人物来源、Jellyfin 与 Emby 的人物同步设置",
   shortcuts: "自定义快捷键，留空可禁用（工作台快捷键仅在工作台页生效）",
   ui: "调整界面显示选项",
   behavior: "控制刮削后的文件操作行为",
@@ -462,42 +466,74 @@ function TranslateSection(_props: SectionRenderProps) {
   );
 }
 
-function ServerSection(_props: SectionRenderProps) {
+function PersonSyncSection(_props: SectionRenderProps) {
   return (
     <>
-      <UrlField name="server.url" label="Jellyfin 服务器地址" />
-      <CookieFieldWrapper name="server.apiKey" label="Jellyfin API Key" />
-      <TextField
-        name="server.userId"
-        label="Jellyfin 用户 ID"
-        description="必须是 UUID。用于人物列表读取，留空则按服务端默认处理。"
-      />
-      <PathFieldWrapper
-        name="server.actorPhotoFolder"
-        label="演员头像库目录"
-        description="演员头像库根目录；用于手工头像、自动缓存和影片 NFO 演员缩略图导出。"
-        isDirectory
-      />
-      <ChipArrayFieldWrapper
-        name="server.personOverviewSources"
-        label="人物简介来源顺序"
-        options={JELLYFIN_OVERVIEW_SOURCE_OPTIONS}
-      />
-      <ChipArrayFieldWrapper
-        name="server.personImageSources"
-        label="人物头像来源顺序"
-        options={JELLYFIN_IMAGE_SOURCE_OPTIONS}
-      />
-      <BoolField
-        name="server.refreshPersonAfterSync"
-        label="同步后刷新人物"
-        description="同步简介或头像后，额外请求 Jellyfin 刷新人物元数据与图片。"
-      />
-      <BoolField
-        name="server.lockOverviewAfterSync"
-        label="同步后锁定人物简介"
-        description="写入简介后把 Overview 加入 LockedFields，降低被 Jellyfin 元数据刷新覆盖的概率。"
-      />
+      <div className="space-y-4 rounded-xl border bg-muted/10 p-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">共享人物资料源</h3>
+          <p className="text-xs text-muted-foreground">
+            这部分同时服务 Jellyfin 和 Emby，包括本地头像库、人物简介来源顺序和人物头像来源顺序。
+          </p>
+        </div>
+        <PathFieldWrapper
+          name="personSync.actorPhotoFolder"
+          label="演员头像库目录"
+          description="演员头像库根目录；用于手工头像、自动缓存和影片 NFO 演员缩略图导出。"
+          isDirectory
+        />
+        <ChipArrayFieldWrapper
+          name="personSync.personOverviewSources"
+          label="人物简介来源顺序"
+          options={JELLYFIN_OVERVIEW_SOURCE_OPTIONS}
+        />
+        <ChipArrayFieldWrapper
+          name="personSync.personImageSources"
+          label="人物头像来源顺序"
+          options={JELLYFIN_IMAGE_SOURCE_OPTIONS}
+        />
+      </div>
+
+      <div className="space-y-4 rounded-xl border bg-muted/10 p-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Jellyfin</h3>
+          <p className="text-xs text-muted-foreground">用于 Jellyfin 人物信息和头像同步。</p>
+        </div>
+        <UrlField name="jellyfin.url" label="Jellyfin 服务器地址" />
+        <CookieFieldWrapper name="jellyfin.apiKey" label="Jellyfin API Key" />
+        <TextField
+          name="jellyfin.userId"
+          label="Jellyfin 用户 ID"
+          description="必须是 UUID。用于人物列表读取，留空则按服务端默认处理。"
+        />
+        <BoolField
+          name="jellyfin.refreshPersonAfterSync"
+          label="同步后刷新人物"
+          description="同步简介或头像后，额外请求 Jellyfin 刷新人物元数据与图片。"
+        />
+        <BoolField
+          name="jellyfin.lockOverviewAfterSync"
+          label="同步后锁定人物简介"
+          description="写入简介后把 Overview 加入 LockedFields，降低被 Jellyfin 元数据刷新覆盖的概率。"
+        />
+      </div>
+
+      <div className="space-y-4 rounded-xl border bg-muted/10 p-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Emby</h3>
+          <p className="text-xs text-muted-foreground">
+            用于 Emby 人物信息和头像同步。头像上传按官方接口要求通常需要管理员 API Key。
+          </p>
+        </div>
+        <UrlField name="emby.url" label="Emby 服务器地址" />
+        <CookieFieldWrapper name="emby.apiKey" label="Emby API Key" />
+        <TextField name="emby.userId" label="Emby 用户 ID" description="用于人物列表读取，留空则按服务端默认处理。" />
+        <BoolField
+          name="emby.refreshPersonAfterSync"
+          label="同步后刷新人物"
+          description="同步简介或头像后，额外请求 Emby 刷新人物元数据与图片。"
+        />
+      </div>
     </>
   );
 }
@@ -549,7 +585,7 @@ const SECTION_COMPONENTS: Record<string, (props: SectionRenderProps) => React.JS
   download: DownloadSection,
   naming: NamingSection,
   translate: TranslateSection,
-  server: ServerSection,
+  personSync: PersonSyncSection,
   shortcuts: ShortcutsSection,
   ui: UiSection,
   behavior: BehaviorSection,

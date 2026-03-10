@@ -88,17 +88,27 @@ const downloadSchema = z.object({
   keepNfo: z.boolean().default(true),
 });
 
-const serverSchema = z.object({
-  url: z.url().or(z.literal("")).default("http://127.0.0.1:8096"),
-  apiKey: z.string().default(""),
-  userId: z.string().default(""),
+const personSyncSchema = z.object({
   actorPhotoFolder: z.string().default(""),
   personOverviewSources: z.array(z.enum(ACTOR_OVERVIEW_SOURCE_OPTIONS)).default(["official", "avjoho", "avbase"]),
   personImageSources: z
     .array(z.enum(ACTOR_IMAGE_SOURCE_OPTIONS))
     .default(["local", "official", "gfriends", "avjoho", "avbase"]),
+});
+
+const jellyfinSchema = z.object({
+  url: z.url().or(z.literal("")).default("http://127.0.0.1:8096"),
+  apiKey: z.string().default(""),
+  userId: z.string().default(""),
   refreshPersonAfterSync: z.boolean().default(true),
   lockOverviewAfterSync: z.boolean().default(false),
+});
+
+const embySchema = z.object({
+  url: z.url().or(z.literal("")).default(""),
+  apiKey: z.string().default(""),
+  userId: z.string().default(""),
+  refreshPersonAfterSync: z.boolean().default(true),
 });
 
 const shortcutsSchema = z.object({
@@ -213,7 +223,9 @@ export const configurationSchema = z
     naming: namingSchema.default(() => namingSchema.parse({})),
     translate: translateSchema.default(() => translateSchema.parse({})),
     download: downloadSchema.default(() => downloadSchema.parse({})),
-    server: serverSchema.default(() => serverSchema.parse({})),
+    personSync: personSyncSchema.default(() => personSyncSchema.parse({})),
+    jellyfin: jellyfinSchema.default(() => jellyfinSchema.parse({})),
+    emby: embySchema.default(() => embySchema.parse({})),
     shortcuts: shortcutsSchema.default(() => shortcutsSchema.parse({})),
     ui: uiSchema.default(() => uiSchema.parse({})),
     paths: pathsSchema.default(() => pathsSchema.parse({})),
@@ -230,12 +242,12 @@ export const configurationSchema = z
     }
 
     if (
-      data.server.userId.trim().length > 0 &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(data.server.userId.trim())
+      data.jellyfin.userId.trim().length > 0 &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(data.jellyfin.userId.trim())
     ) {
       ctx.addIssue({
         code: "custom",
-        path: ["server", "userId"],
+        path: ["jellyfin", "userId"],
         message: "Jellyfin 用户 ID 必须为 UUID，留空则按服务端默认处理",
       });
     }

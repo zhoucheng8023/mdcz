@@ -143,7 +143,7 @@ export const fetchPersons = async (
     fields?: string[];
   } = {},
 ): Promise<JellyfinPerson[]> => {
-  const trimmedUserId = configuration.server.userId.trim();
+  const trimmedUserId = configuration.jellyfin.userId.trim();
   if (trimmedUserId && !isUuid(trimmedUserId)) {
     throw new JellyfinServiceError("JELLYFIN_INVALID_USER_ID", "Jellyfin userId 必须为 UUID");
   }
@@ -218,8 +218,14 @@ export const fetchPersonDetail = async (
     throw toJellyfinServiceError(
       error,
       {
-        401: { code: "JELLYFIN_AUTH_FAILED", message: `读取人物详情失败：${person.Name} 的凭据无效` },
-        403: { code: "JELLYFIN_PERMISSION_DENIED", message: `读取人物详情失败：没有 ${person.Name} 的访问权限` },
+        401: {
+          code: "JELLYFIN_AUTH_FAILED",
+          message: `读取人物详情失败：Jellyfin API Key 无效，无法访问 ${person.Name}`,
+        },
+        403: {
+          code: "JELLYFIN_PERMISSION_DENIED",
+          message: `读取人物详情失败：当前 Jellyfin API Key 无权访问 ${person.Name}`,
+        },
         404: { code: "JELLYFIN_NOT_FOUND", message: `Jellyfin 中不存在人物 ${person.Name}` },
       },
       {
@@ -249,11 +255,11 @@ export const fetchMetadataEditorInfo = async (
       {
         401: { code: "JELLYFIN_AUTH_FAILED", message: "Jellyfin 凭据无效，无法校验人物写权限" },
         403: { code: "JELLYFIN_PERMISSION_DENIED", message: "当前 Jellyfin 凭据没有人物写入权限" },
-        404: { code: "JELLYFIN_NOT_FOUND", message: "Jellyfin 无法获取人物元数据编辑信息" },
+        404: { code: "JELLYFIN_NOT_FOUND", message: "Jellyfin 无法获取人物元数据编辑页信息" },
       },
       {
         code: "JELLYFIN_UNREACHABLE",
-        message: "读取 Jellyfin MetadataEditor 信息失败",
+        message: "读取 Jellyfin 人物元数据编辑页信息失败",
       },
     );
   }
@@ -382,9 +388,9 @@ export class JellyfinActorInfoService {
         }
 
         await updatePersonInfo(this.networkClient, configuration, person, detail, synced, {
-          lockOverview: configuration.server.lockOverviewAfterSync,
+          lockOverview: configuration.jellyfin.lockOverviewAfterSync,
         });
-        if (configuration.server.refreshPersonAfterSync) {
+        if (configuration.jellyfin.refreshPersonAfterSync) {
           try {
             await refreshPerson(this.networkClient, configuration, person.Id);
           } catch (error) {

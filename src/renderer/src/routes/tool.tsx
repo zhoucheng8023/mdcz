@@ -1,5 +1,5 @@
 import type { Website } from "@shared/enums";
-import type { AmazonPosterScanItem, JellyfinConnectionCheckResult } from "@shared/ipcTypes";
+import type { AmazonPosterScanItem, EmbyConnectionCheckResult, JellyfinConnectionCheckResult } from "@shared/ipcTypes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -63,6 +63,9 @@ interface CleanupCandidate {
   lastModified: string | null;
 }
 
+type SyncMode = "all" | "missing";
+type ConnectionCheckResult = JellyfinConnectionCheckResult | EmbyConnectionCheckResult;
+
 const CLEANUP_PRESET_EXTENSIONS = [".html", ".url", ".txt", ".nfo", ".jpg", ".png", ".torrent", ".ass", ".srt"];
 const CLEANUP_MAX_SCANNED_DIRECTORIES = 50000;
 
@@ -115,12 +118,30 @@ function formatError(error: unknown) {
   return String(error);
 }
 
-function getFirstDiagnosticError(result: JellyfinConnectionCheckResult) {
+function getFirstDiagnosticError(result: ConnectionCheckResult) {
   return result.steps.find((step) => step.status === "error");
 }
 
-function getFirstDiagnosticBlocker(result: JellyfinConnectionCheckResult) {
+function getFirstDiagnosticBlocker(result: ConnectionCheckResult) {
   return getFirstDiagnosticError(result) ?? result.steps.find((step) => step.status !== "ok");
+}
+
+function canRunPersonSync(result: ConnectionCheckResult | null): result is ConnectionCheckResult {
+  return Boolean(result?.success);
+}
+
+function getDiagnosticHeadline(result: ConnectionCheckResult) {
+  if (!result.success) {
+    return "存在阻塞项";
+  }
+  if (result.personCount === 0) {
+    return "人物库为空";
+  }
+  return "可以执行人物同步";
+}
+
+function getEmptyPersonLibraryMessage(serverName: "Jellyfin" | "Emby", targetLabel: "人物信息" | "人物头像") {
+  return `${serverName} 人物库为空。已确认连接与权限状态正常，当前无法执行${targetLabel}同步。请先在 ${serverName} 中生成人物条目后重试。`;
 }
 
 function formatBytes(bytes: number) {
@@ -133,6 +154,190 @@ function formatBytes(bytes: number) {
     index += 1;
   }
   return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+}
+
+interface PersonToolCardProps {
+  title: string;
+  description: string;
+  diagnosticLabel: string;
+  checkResult: ConnectionCheckResult | null;
+  checkPending: boolean;
+  busy: boolean;
+  syncRunning: boolean;
+  syncProgress: number;
+  infoMode: SyncMode;
+  photoMode: SyncMode;
+  infoMissingText: string;
+  infoAllText: string;
+  photoMissingText: string;
+  photoAllText: string;
+  photoNotice?: string;
+  onCheck: () => void;
+  onInfoModeChange: (value: SyncMode) => void;
+  onPhotoModeChange: (value: SyncMode) => void;
+  onSyncInfo: () => void;
+  onSyncPhoto: () => void;
+}
+
+function PersonToolCard({
+  title,
+  description,
+  diagnosticLabel,
+  checkResult,
+  checkPending,
+  busy,
+  syncRunning,
+  syncProgress,
+  infoMode,
+  photoMode,
+  infoMissingText,
+  infoAllText,
+  photoMissingText,
+  photoAllText,
+  photoNotice,
+  onCheck,
+  onInfoModeChange,
+  onPhotoModeChange,
+  onSyncInfo,
+  onSyncPhoto,
+}: PersonToolCardProps) {
+  return (
+    <Card className="rounded-xl border shadow-sm">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-primary/8 rounded-lg">
+              <UserCheck className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-medium">{title}</CardTitle>
+              <CardDescription className="text-xs">{description}</CardDescription>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={onCheck}
+            disabled={checkPending || busy}
+            className="rounded-lg shrink-0 h-9 text-sm"
+          >
+            {checkPending ? "诊断中..." : "连接诊断"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {checkResult && (
+          <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium text-muted-foreground">{diagnosticLabel}</div>
+                {(checkResult.serverInfo?.serverName || checkResult.serverInfo?.version) && (
+                  <div className="text-sm">
+                    {[checkResult.serverInfo?.serverName, checkResult.serverInfo?.version].filter(Boolean).join(" ")}
+                  </div>
+                )}
+              </div>
+              <div
+                className={cn(
+                  "text-xs font-medium",
+                  !checkResult.success && "text-amber-600",
+                  checkResult.success && checkResult.personCount === 0 && "text-muted-foreground",
+                  checkResult.success && checkResult.personCount !== 0 && "text-emerald-600",
+                )}
+              >
+                {getDiagnosticHeadline(checkResult)}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              {checkResult.steps.map((step) => (
+                <div
+                  key={step.key}
+                  className="flex items-start justify-between gap-3 rounded-lg bg-background/70 px-3 py-2"
+                >
+                  <div>
+                    <div className="text-xs font-medium">{step.label}</div>
+                    <div className="text-xs text-muted-foreground">{step.message}</div>
+                  </div>
+                  <div
+                    className={cn(
+                      "text-[11px] font-medium shrink-0",
+                      step.status === "ok" && "text-emerald-600",
+                      step.status === "error" && "text-red-600",
+                      step.status === "skipped" && "text-muted-foreground",
+                    )}
+                  >
+                    {step.status === "ok" ? "通过" : step.status === "error" ? "失败" : "跳过"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div className="grid gap-2">
+            <Label className="text-xs font-medium text-muted-foreground">演员资料同步</Label>
+            <div className="flex gap-2">
+              <Select value={infoMode} onValueChange={(value) => onInfoModeChange(value as SyncMode)}>
+                <SelectTrigger className="h-9 bg-muted/30 rounded-lg border-none focus:ring-2 flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="missing">仅补全空白资料</SelectItem>
+                  <SelectItem value="all">更新已有资料</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="secondary"
+                onClick={onSyncInfo}
+                disabled={busy || checkPending}
+                className="flex-1 rounded-lg h-9 text-sm"
+              >
+                {syncRunning ? "同步中..." : "同步信息"}
+              </Button>
+            </div>
+            <div className="text-[11px] leading-relaxed text-muted-foreground">
+              {infoMode === "missing" ? infoMissingText : infoAllText}
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <div className="flex justify-between text-xs text-muted-foreground font-medium">
+              <span>任务进度</span>
+              <span>{Math.round(syncProgress)}%</span>
+            </div>
+            <Progress value={syncProgress} className="h-2 bg-muted/30" />
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-xs font-medium text-muted-foreground">演员头像同步</Label>
+            <div className="flex gap-2">
+              <Select value={photoMode} onValueChange={(value) => onPhotoModeChange(value as SyncMode)}>
+                <SelectTrigger className="h-9 bg-muted/30 rounded-lg border-none focus:ring-2 flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="missing">仅补全缺失头像</SelectItem>
+                  <SelectItem value="all">重新同步头像</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="secondary"
+                onClick={onSyncPhoto}
+                disabled={busy || checkPending}
+                className="flex-1 rounded-lg h-9 text-sm"
+              >
+                {syncRunning ? "同步中..." : "同步头像"}
+              </Button>
+            </div>
+            <div className="text-[11px] leading-relaxed text-muted-foreground">
+              {photoMode === "missing" ? photoMissingText : photoAllText}
+            </div>
+            {photoNotice && <div className="text-[11px] leading-relaxed text-amber-700">{photoNotice}</div>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function ToolComponent() {
@@ -154,14 +359,23 @@ function ToolComponent() {
   });
 
   // 演员相关
-  const checkServerConnectionMut = useMutation({
-    mutationFn: async () => ipc.tool.checkServerConnection(),
+  const checkJellyfinConnectionMut = useMutation({
+    mutationFn: async () => ipc.tool.checkJellyfinConnection(),
   });
-  const [serverCheckResult, setServerCheckResult] = useState<JellyfinConnectionCheckResult | null>(null);
-  const [actorInfoMode, setActorInfoMode] = useState<"all" | "missing">("missing");
-  const [actorPhotoMode, setActorPhotoMode] = useState<"all" | "missing">("missing");
-  const [syncRunning, setSyncRunning] = useState(false);
-  const [syncProgress, setSyncProgress] = useState(0);
+  const checkEmbyConnectionMut = useMutation({
+    mutationFn: async () => ipc.tool.checkEmbyConnection(),
+  });
+  const [jellyfinCheckResult, setJellyfinCheckResult] = useState<JellyfinConnectionCheckResult | null>(null);
+  const [embyCheckResult, setEmbyCheckResult] = useState<EmbyConnectionCheckResult | null>(null);
+  const [jellyfinActorInfoMode, setJellyfinActorInfoMode] = useState<SyncMode>("missing");
+  const [jellyfinActorPhotoMode, setJellyfinActorPhotoMode] = useState<SyncMode>("missing");
+  const [embyActorInfoMode, setEmbyActorInfoMode] = useState<SyncMode>("missing");
+  const [embyActorPhotoMode, setEmbyActorPhotoMode] = useState<SyncMode>("missing");
+  const [jellyfinSyncRunning, setJellyfinSyncRunning] = useState(false);
+  const [embySyncRunning, setEmbySyncRunning] = useState(false);
+  const [jellyfinSyncProgress, setJellyfinSyncProgress] = useState(0);
+  const [embySyncProgress, setEmbySyncProgress] = useState(0);
+  const anyPersonSyncRunning = jellyfinSyncRunning || embySyncRunning;
 
   // 缺番查找
   const [missingPrefix, setMissingPrefix] = useState("");
@@ -260,6 +474,18 @@ function ToolComponent() {
     return () => el.removeEventListener("wheel", onWheelNative);
   }, []);
 
+  useEffect(() => {
+    return ipc.on.progress((payload) => {
+      if (jellyfinSyncRunning) {
+        setJellyfinSyncProgress(payload.value);
+        return;
+      }
+      if (embySyncRunning) {
+        setEmbySyncProgress(payload.value);
+      }
+    });
+  }, [embySyncRunning, jellyfinSyncRunning]);
+
   const handleScrapeSingleFile = async () => {
     if (!singleFilePath) {
       showError("请输入文件路径");
@@ -297,10 +523,10 @@ function ToolComponent() {
     }
   };
 
-  const runServerConnectionCheck = async (silentSuccess = false): Promise<JellyfinConnectionCheckResult | null> => {
+  const runJellyfinConnectionCheck = async (silentSuccess = false): Promise<JellyfinConnectionCheckResult | null> => {
     try {
-      const result = await checkServerConnectionMut.mutateAsync();
-      setServerCheckResult(result);
+      const result = await checkJellyfinConnectionMut.mutateAsync();
+      setJellyfinCheckResult(result);
 
       const firstError = getFirstDiagnosticError(result);
       if (!firstError) {
@@ -312,70 +538,165 @@ function ToolComponent() {
       }
       return result;
     } catch (error) {
-      showError(`服务器连通性测试失败: ${formatError(error)}`);
-      setServerCheckResult(null);
+      showError(`Jellyfin 连通性测试失败: ${formatError(error)}`);
+      setJellyfinCheckResult(null);
       return null;
     }
   };
 
-  const handleCheckServerConnection = async () => {
-    showInfo("正在诊断 Jellyfin 连接状态...");
-    await runServerConnectionCheck();
+  const runEmbyConnectionCheck = async (silentSuccess = false): Promise<EmbyConnectionCheckResult | null> => {
+    try {
+      const result = await checkEmbyConnectionMut.mutateAsync();
+      setEmbyCheckResult(result);
+
+      const firstError = getFirstDiagnosticError(result);
+      if (!firstError) {
+        if (!silentSuccess) {
+          showSuccess("Emby 连接诊断通过");
+        }
+      } else if (!silentSuccess) {
+        showError(`${firstError.label}: ${firstError.message}`);
+      }
+      return result;
+    } catch (error) {
+      showError(`Emby 连通性测试失败: ${formatError(error)}`);
+      setEmbyCheckResult(null);
+      return null;
+    }
   };
 
-  const handleSyncActorInfo = async () => {
+  const handleCheckJellyfinConnection = async () => {
     showInfo("正在诊断 Jellyfin 连接状态...");
-    const diagnostic = await runServerConnectionCheck(true);
-    const peopleRead = diagnostic?.steps.find((step) => step.key === "peopleRead");
-    const peopleWrite = diagnostic?.steps.find((step) => step.key === "peopleWrite");
-    if (!diagnostic || peopleRead?.status !== "ok" || peopleWrite?.status !== "ok") {
+    await runJellyfinConnectionCheck();
+  };
+
+  const handleCheckEmbyConnection = async () => {
+    showInfo("正在诊断 Emby 连接状态...");
+    await runEmbyConnectionCheck();
+  };
+
+  const handleSyncJellyfinActorInfo = async () => {
+    showInfo("正在诊断 Jellyfin 连接状态...");
+    const diagnostic = await runJellyfinConnectionCheck(true);
+    if (!canRunPersonSync(diagnostic)) {
       const blocker = diagnostic ? getFirstDiagnosticBlocker(diagnostic) : undefined;
       if (blocker) {
         showError(`${blocker.label}: ${blocker.message}`);
       }
       return;
     }
+    if (diagnostic.personCount === 0) {
+      showInfo(getEmptyPersonLibraryMessage("Jellyfin", "人物信息"));
+      return;
+    }
 
-    setSyncRunning(true);
-    setSyncProgress(5);
-    showInfo("正在同步演员信息...");
+    setJellyfinSyncRunning(true);
+    setJellyfinSyncProgress(5);
+    showInfo("正在同步 Jellyfin 演员信息...");
     try {
-      const result = await ipc.tool.syncActorInfo(actorInfoMode);
-      setSyncProgress(100);
-      showSuccess(`演员信息同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+      const result = await ipc.tool.syncJellyfinActorInfo(jellyfinActorInfoMode);
+      setJellyfinSyncProgress(100);
+      showSuccess(`Jellyfin 演员信息同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
     } catch (error) {
-      showError(`演员信息同步失败: ${formatError(error)}`);
+      showError(`Jellyfin 演员信息同步失败: ${formatError(error)}`);
     } finally {
-      setSyncRunning(false);
-      window.setTimeout(() => setSyncProgress(0), 1200);
+      setJellyfinSyncRunning(false);
+      window.setTimeout(() => setJellyfinSyncProgress(0), 1200);
     }
   };
 
-  const handleSyncPhotos = async () => {
+  const handleSyncJellyfinPhotos = async () => {
     showInfo("正在诊断 Jellyfin 连接状态...");
-    const diagnostic = await runServerConnectionCheck(true);
-    const peopleRead = diagnostic?.steps.find((step) => step.key === "peopleRead");
-    const peopleWrite = diagnostic?.steps.find((step) => step.key === "peopleWrite");
-    if (!diagnostic || peopleRead?.status !== "ok" || peopleWrite?.status !== "ok") {
+    const diagnostic = await runJellyfinConnectionCheck(true);
+    if (!canRunPersonSync(diagnostic)) {
       const blocker = diagnostic ? getFirstDiagnosticBlocker(diagnostic) : undefined;
       if (blocker) {
         showError(`${blocker.label}: ${blocker.message}`);
       }
       return;
     }
+    if (diagnostic.personCount === 0) {
+      showInfo(getEmptyPersonLibraryMessage("Jellyfin", "人物头像"));
+      return;
+    }
 
-    setSyncRunning(true);
-    setSyncProgress(5);
-    showInfo("正在同步演员头像...");
+    setJellyfinSyncRunning(true);
+    setJellyfinSyncProgress(5);
+    showInfo("正在同步 Jellyfin 演员头像...");
     try {
-      const result = await ipc.tool.syncActorPhoto(actorPhotoMode);
-      setSyncProgress(100);
-      showSuccess(`头像同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+      const result = await ipc.tool.syncJellyfinActorPhoto(jellyfinActorPhotoMode);
+      setJellyfinSyncProgress(100);
+      showSuccess(`Jellyfin 头像同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
     } catch (error) {
-      showError(`头像同步失败: ${formatError(error)}`);
+      showError(`Jellyfin 头像同步失败: ${formatError(error)}`);
     } finally {
-      setSyncRunning(false);
-      window.setTimeout(() => setSyncProgress(0), 1200);
+      setJellyfinSyncRunning(false);
+      window.setTimeout(() => setJellyfinSyncProgress(0), 1200);
+    }
+  };
+
+  const handleSyncEmbyActorInfo = async () => {
+    showInfo("正在诊断 Emby 连接状态...");
+    const diagnostic = await runEmbyConnectionCheck(true);
+    if (!canRunPersonSync(diagnostic)) {
+      const blocker = diagnostic ? getFirstDiagnosticBlocker(diagnostic) : undefined;
+      if (blocker) {
+        showError(`${blocker.label}: ${blocker.message}`);
+      }
+      return;
+    }
+    if (diagnostic.personCount === 0) {
+      showInfo(getEmptyPersonLibraryMessage("Emby", "人物信息"));
+      return;
+    }
+
+    setEmbySyncRunning(true);
+    setEmbySyncProgress(5);
+    showInfo("正在同步 Emby 演员信息...");
+    try {
+      const result = await ipc.tool.syncEmbyActorInfo(embyActorInfoMode);
+      setEmbySyncProgress(100);
+      showSuccess(`Emby 演员信息同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+    } catch (error) {
+      showError(`Emby 演员信息同步失败: ${formatError(error)}`);
+    } finally {
+      setEmbySyncRunning(false);
+      window.setTimeout(() => setEmbySyncProgress(0), 1200);
+    }
+  };
+
+  const handleSyncEmbyPhotos = async () => {
+    showInfo("正在诊断 Emby 连接状态...");
+    const diagnostic = await runEmbyConnectionCheck(true);
+    if (!canRunPersonSync(diagnostic)) {
+      const blocker = diagnostic ? getFirstDiagnosticBlocker(diagnostic) : undefined;
+      if (blocker) {
+        showError(`${blocker.label}: ${blocker.message}`);
+      }
+      return;
+    }
+    if (diagnostic.personCount === 0) {
+      showInfo(getEmptyPersonLibraryMessage("Emby", "人物头像"));
+      return;
+    }
+
+    const adminKeyStep = diagnostic.steps.find((step) => step.key === "adminKey");
+    if (adminKeyStep?.message) {
+      showInfo(adminKeyStep.message);
+    }
+
+    setEmbySyncRunning(true);
+    setEmbySyncProgress(5);
+    showInfo("正在同步 Emby 演员头像...");
+    try {
+      const result = await ipc.tool.syncEmbyActorPhoto(embyActorPhotoMode);
+      setEmbySyncProgress(100);
+      showSuccess(`Emby 头像同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+    } catch (error) {
+      showError(`Emby 头像同步失败: ${formatError(error)}`);
+    } finally {
+      setEmbySyncRunning(false);
+      window.setTimeout(() => setEmbySyncProgress(0), 1200);
     }
   };
 
@@ -905,144 +1226,50 @@ function ToolComponent() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-              {/* 演员工具 */}
-              <Card className="rounded-xl border shadow-sm md:col-span-2">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 bg-primary/8 rounded-lg">
-                        <UserCheck className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-sm font-medium">Jellyfin 人物工具</CardTitle>
-                        <CardDescription className="text-xs">诊断连接状态并同步人物头像与简介</CardDescription>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={handleCheckServerConnection}
-                      disabled={checkServerConnectionMut.isPending || syncRunning}
-                      className="rounded-lg shrink-0 h-9 text-sm"
-                    >
-                      {checkServerConnectionMut.isPending ? "诊断中..." : "连接诊断"}
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {serverCheckResult && (
-                    <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-medium text-muted-foreground">Jellyfin 诊断结果</div>
-                          {(serverCheckResult.serverInfo?.serverName || serverCheckResult.serverInfo?.version) && (
-                            <div className="text-sm">
-                              {[serverCheckResult.serverInfo?.serverName, serverCheckResult.serverInfo?.version]
-                                .filter(Boolean)
-                                .join(" ")}
-                            </div>
-                          )}
-                        </div>
-                        <div
-                          className={cn(
-                            "text-xs font-medium",
-                            serverCheckResult.success ? "text-emerald-600" : "text-amber-600",
-                          )}
-                        >
-                          {serverCheckResult.success ? "可执行人物同步" : "存在阻塞项"}
-                        </div>
-                      </div>
-                      <div className="grid gap-2">
-                        {serverCheckResult.steps.map((step) => (
-                          <div
-                            key={step.key}
-                            className="flex items-start justify-between gap-3 rounded-lg bg-background/70 px-3 py-2"
-                          >
-                            <div>
-                              <div className="text-xs font-medium">{step.label}</div>
-                              <div className="text-xs text-muted-foreground">{step.message}</div>
-                            </div>
-                            <div
-                              className={cn(
-                                "text-[11px] font-medium shrink-0",
-                                step.status === "ok" && "text-emerald-600",
-                                step.status === "error" && "text-red-600",
-                                step.status === "skipped" && "text-muted-foreground",
-                              )}
-                            >
-                              {step.status === "ok" ? "通过" : step.status === "error" ? "失败" : "跳过"}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="space-y-4">
-                    <div className="grid gap-2">
-                      <Label className="text-xs font-medium text-muted-foreground">演员资料同步</Label>
-                      <div className="flex gap-2">
-                        <Select value={actorInfoMode} onValueChange={(v) => setActorInfoMode(v as "all" | "missing")}>
-                          <SelectTrigger className="h-9 bg-muted/30 rounded-lg border-none focus:ring-2 flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="missing">仅补全空白资料</SelectItem>
-                            <SelectItem value="all">更新已有资料</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="secondary"
-                          onClick={handleSyncActorInfo}
-                          disabled={syncRunning || checkServerConnectionMut.isPending}
-                          className="flex-1 rounded-lg h-9 text-sm"
-                        >
-                          {syncRunning ? "同步中..." : "同步信息"}
-                        </Button>
-                      </div>
-                      <div className="text-[11px] leading-relaxed text-muted-foreground">
-                        {actorInfoMode === "missing"
-                          ? "只补充还没有的演员简介、资料标签和摘要。"
-                          : "按当前抓取结果刷新演员简介、资料标签和摘要。"}
-                      </div>
-                    </div>
+              <PersonToolCard
+                title="Jellyfin 人物工具"
+                description="诊断连接状态并同步人物头像与简介"
+                diagnosticLabel="Jellyfin 诊断结果"
+                checkResult={jellyfinCheckResult}
+                checkPending={checkJellyfinConnectionMut.isPending}
+                busy={anyPersonSyncRunning}
+                syncRunning={jellyfinSyncRunning}
+                syncProgress={jellyfinSyncProgress}
+                infoMode={jellyfinActorInfoMode}
+                photoMode={jellyfinActorPhotoMode}
+                infoMissingText="仅补全缺失的演员简介、资料标签和摘要。"
+                infoAllText="按当前抓取结果更新演员简介、资料标签和摘要。"
+                photoMissingText="仅为缺少头像的演员补充头像。"
+                photoAllText="按当前抓取结果重新同步演员头像。"
+                onCheck={handleCheckJellyfinConnection}
+                onInfoModeChange={setJellyfinActorInfoMode}
+                onPhotoModeChange={setJellyfinActorPhotoMode}
+                onSyncInfo={handleSyncJellyfinActorInfo}
+                onSyncPhoto={handleSyncJellyfinPhotos}
+              />
 
-                    <div className="grid gap-2">
-                      <div className="flex justify-between text-xs text-muted-foreground font-medium">
-                        <span>任务进度</span>
-                        <span>{Math.round(syncProgress)}%</span>
-                      </div>
-                      <Progress value={syncProgress} className="h-2 bg-muted/30" />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label className="text-xs font-medium text-muted-foreground">演员头像同步</Label>
-                      <div className="flex gap-2">
-                        <Select value={actorPhotoMode} onValueChange={(v) => setActorPhotoMode(v as "all" | "missing")}>
-                          <SelectTrigger className="h-9 bg-muted/30 rounded-lg border-none focus:ring-2 flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="missing">仅补全缺失头像</SelectItem>
-                            <SelectItem value="all">重新同步头像</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="secondary"
-                          onClick={handleSyncPhotos}
-                          disabled={syncRunning || checkServerConnectionMut.isPending}
-                          className="flex-1 rounded-lg h-9 text-sm"
-                        >
-                          {syncRunning ? "同步中..." : "同步头像"}
-                        </Button>
-                      </div>
-                      <div className="text-[11px] leading-relaxed text-muted-foreground">
-                        {actorPhotoMode === "missing"
-                          ? "只给没有头像的演员补充头像。"
-                          : "按当前抓取结果重新同步演员头像。"}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <PersonToolCard
+                title="Emby 人物工具"
+                description="诊断连接状态并同步人物头像与简介"
+                diagnosticLabel="Emby 诊断结果"
+                checkResult={embyCheckResult}
+                checkPending={checkEmbyConnectionMut.isPending}
+                busy={anyPersonSyncRunning}
+                syncRunning={embySyncRunning}
+                syncProgress={embySyncProgress}
+                infoMode={embyActorInfoMode}
+                photoMode={embyActorPhotoMode}
+                infoMissingText="仅补全缺失的演员简介、资料标签和摘要，并保留未变更字段。"
+                infoAllText="按当前抓取结果更新演员简介、资料标签和摘要，并按同步字段写回 Emby。"
+                photoMissingText="仅为缺少头像的演员补充头像。"
+                photoAllText="按当前抓取结果重新同步演员头像。"
+                photoNotice="人物头像上传通常需要管理员 API Key。若返回 401 或 403，请改用管理员 API Key 后重试。"
+                onCheck={handleCheckEmbyConnection}
+                onInfoModeChange={setEmbyActorInfoMode}
+                onPhotoModeChange={setEmbyActorPhotoMode}
+                onSyncInfo={handleSyncEmbyActorInfo}
+                onSyncPhoto={handleSyncEmbyPhotos}
+              />
 
               <Card className="rounded-xl border shadow-sm md:col-span-2">
                 <CardHeader>

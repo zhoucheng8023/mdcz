@@ -84,8 +84,8 @@ describe("FileScraper actor image library", () => {
         ...defaultConfiguration.download,
         downloadNfo: true,
       },
-      server: {
-        ...defaultConfiguration.server,
+      personSync: {
+        ...defaultConfiguration.personSync,
         actorPhotoFolder: actorLibraryDir,
       },
     });

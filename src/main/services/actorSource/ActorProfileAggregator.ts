@@ -38,7 +38,9 @@ export class ActorProfileAggregator {
 
     for (const field of ACTOR_PROFILE_METADATA_FIELDS) {
       const order: readonly ActorSourceName[] =
-        field === "photo_url" ? configuration.server.personImageSources : configuration.server.personOverviewSources;
+        field === "photo_url"
+          ? configuration.personSync.personImageSources
+          : configuration.personSync.personOverviewSources;
       const picked = pickProfileField(results, order, field);
       if (!hasActorProfileFieldValue(picked.value)) {
         continue;

@@ -6,6 +6,7 @@ import type {
   AmazonPosterLookupResult,
   AmazonPosterScanItem,
   AppInfo,
+  EmbyConnectionCheckResult,
   IpcProcedure,
   JellyfinConnectionCheckResult,
   TranslateTestLlmInput,
@@ -88,12 +89,21 @@ export type IpcRouterContract = {
     },
     { message: string }
   >;
-  [IpcChannel.Tool_ServerCheckConnection]: IpcProcedure<void, JellyfinConnectionCheckResult>;
-  [IpcChannel.Tool_ActorPhotoSync]: IpcProcedure<
+  [IpcChannel.Tool_JellyfinServerCheckConnection]: IpcProcedure<void, JellyfinConnectionCheckResult>;
+  [IpcChannel.Tool_JellyfinActorPhotoSync]: IpcProcedure<
     { mode?: "all" | "missing" },
     { processedCount: number; failedCount: number }
   >;
-  [IpcChannel.Tool_ActorInfoSync]: IpcProcedure<
+  [IpcChannel.Tool_JellyfinActorInfoSync]: IpcProcedure<
+    { mode?: "all" | "missing" },
+    { processedCount: number; failedCount: number }
+  >;
+  [IpcChannel.Tool_EmbyServerCheckConnection]: IpcProcedure<void, EmbyConnectionCheckResult>;
+  [IpcChannel.Tool_EmbyActorPhotoSync]: IpcProcedure<
+    { mode?: "all" | "missing" },
+    { processedCount: number; failedCount: number }
+  >;
+  [IpcChannel.Tool_EmbyActorInfoSync]: IpcProcedure<
     { mode?: "all" | "missing" },
     { processedCount: number; failedCount: number }
   >;

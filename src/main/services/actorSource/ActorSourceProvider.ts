@@ -21,10 +21,10 @@ const toErrorMessage = (error: unknown): string => {
 const uniqueSourceNames = (configuration: Configuration): ActorSourceName[] => {
   const selected = new Set<ActorSourceName>();
 
-  for (const source of configuration.server.personOverviewSources) {
+  for (const source of configuration.personSync.personOverviewSources) {
     selected.add(source);
   }
-  for (const source of configuration.server.personImageSources) {
+  for (const source of configuration.personSync.personImageSources) {
     selected.add(source);
   }
 
@@ -157,9 +157,9 @@ export class ActorSourceProvider {
       aliases: query.aliases ?? [],
       sourceHints: normalizeHintsForCache(query.sourceHints),
       mediaPath: configuration.paths.mediaPath.trim(),
-      actorPhotoFolder: configuration.server.actorPhotoFolder.trim(),
-      personOverviewSources: configuration.server.personOverviewSources,
-      personImageSources: configuration.server.personImageSources,
+      actorPhotoFolder: configuration.personSync.actorPhotoFolder.trim(),
+      personOverviewSources: configuration.personSync.personOverviewSources,
+      personImageSources: configuration.personSync.personImageSources,
     });
   }
 }

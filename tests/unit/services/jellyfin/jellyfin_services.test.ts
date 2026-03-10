@@ -142,8 +142,8 @@ describe("Jellyfin services", () => {
     const result = await checkConnection(
       networkClient as unknown as NetworkClient,
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
         },
@@ -176,8 +176,8 @@ describe("Jellyfin services", () => {
     const result = await checkConnection(
       networkClient as unknown as NetworkClient,
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
         },
@@ -209,8 +209,8 @@ describe("Jellyfin services", () => {
     const result = await checkConnection(
       networkClient as unknown as NetworkClient,
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
         },
@@ -248,11 +248,14 @@ describe("Jellyfin services", () => {
 
     const result = await service.run(
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
-          personOverviewSources: ["official"],
           refreshPersonAfterSync: true,
           lockOverviewAfterSync: true,
         },
@@ -305,11 +308,14 @@ describe("Jellyfin services", () => {
 
     const result = await service.run(
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
-          personOverviewSources: ["official"],
           refreshPersonAfterSync: false,
         },
       }),
@@ -358,11 +364,14 @@ describe("Jellyfin services", () => {
 
     const result = await service.run(
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
-          personOverviewSources: ["official"],
         },
       }),
       "all",
@@ -404,12 +413,15 @@ describe("Jellyfin services", () => {
 
     const result = await service.run(
       createConfig({
-        server: {
-          ...defaultConfiguration.server,
-          url: "http://127.0.0.1:8096",
-          apiKey: "token",
+        personSync: {
+          ...defaultConfiguration.personSync,
           actorPhotoFolder: root,
           personImageSources: ["local", "gfriends"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
+          url: "http://127.0.0.1:8096",
+          apiKey: "token",
           refreshPersonAfterSync: true,
         },
       }),

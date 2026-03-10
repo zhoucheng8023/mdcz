@@ -14,6 +14,7 @@ import {
 } from "@main/services/actorSource";
 import { type Configuration, configManager } from "@main/services/config";
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
+import { EmbyActorInfoService, EmbyActorPhotoService } from "@main/services/emby";
 import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@main/services/jellyfin";
 import { loggerService } from "@main/services/LoggerService";
 import { NetworkClient } from "@main/services/network";
@@ -77,8 +78,10 @@ const ensureMainWindow = async (): Promise<void> => {
       crawlerProvider,
       actorSourceProvider,
       actorImageService,
-      actorPhotoService: new JellyfinActorPhotoService({ signalService, networkClient, actorSourceProvider }),
-      actorInfoService: new JellyfinActorInfoService({ signalService, networkClient, actorSourceProvider }),
+      jellyfinActorPhotoService: new JellyfinActorPhotoService({ signalService, networkClient, actorSourceProvider }),
+      jellyfinActorInfoService: new JellyfinActorInfoService({ signalService, networkClient, actorSourceProvider }),
+      embyActorPhotoService: new EmbyActorPhotoService({ signalService, networkClient, actorSourceProvider }),
+      embyActorInfoService: new EmbyActorInfoService({ signalService, networkClient, actorSourceProvider }),
       symlinkService: new SymlinkService({ signalService }),
       amazonPosterToolService: new AmazonPosterToolService(networkClient, amazonJpImageService),
     };
