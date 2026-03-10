@@ -172,6 +172,8 @@ interface PersonToolCardProps {
   photoMissingText: string;
   photoAllText: string;
   photoNotice?: string;
+  headerExtra?: React.ReactNode;
+  className?: string;
   onCheck: () => void;
   onInfoModeChange: (value: SyncMode) => void;
   onPhotoModeChange: (value: SyncMode) => void;
@@ -195,6 +197,8 @@ function PersonToolCard({
   photoMissingText,
   photoAllText,
   photoNotice,
+  headerExtra,
+  className,
   onCheck,
   onInfoModeChange,
   onPhotoModeChange,
@@ -202,26 +206,29 @@ function PersonToolCard({
   onSyncPhoto,
 }: PersonToolCardProps) {
   return (
-    <Card className="rounded-xl border shadow-sm">
+    <Card className={cn("rounded-xl border shadow-sm", className)}>
       <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
             <div className="p-1.5 bg-primary/8 rounded-lg">
               <UserCheck className="h-5 w-5 text-primary" />
             </div>
-            <div>
+            <div className="min-w-0">
               <CardTitle className="text-sm font-medium">{title}</CardTitle>
               <CardDescription className="text-xs">{description}</CardDescription>
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={onCheck}
-            disabled={checkPending || busy}
-            className="rounded-lg shrink-0 h-9 text-sm"
-          >
-            {checkPending ? "诊断中..." : "连接诊断"}
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {headerExtra}
+            <Button
+              variant="outline"
+              onClick={onCheck}
+              disabled={checkPending || busy}
+              className="rounded-lg shrink-0 h-9 text-sm"
+            >
+              {checkPending ? "诊断中..." : "连接诊断"}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -301,14 +308,6 @@ function PersonToolCard({
           </div>
 
           <div className="grid gap-2">
-            <div className="flex justify-between text-xs text-muted-foreground font-medium">
-              <span>任务进度</span>
-              <span>{Math.round(syncProgress)}%</span>
-            </div>
-            <Progress value={syncProgress} className="h-2 bg-muted/30" />
-          </div>
-
-          <div className="grid gap-2">
             <Label className="text-xs font-medium text-muted-foreground">演员头像同步</Label>
             <div className="flex gap-2">
               <Select value={photoMode} onValueChange={(value) => onPhotoModeChange(value as SyncMode)}>
@@ -334,6 +333,16 @@ function PersonToolCard({
             </div>
             {photoNotice && <div className="text-[11px] leading-relaxed text-amber-700">{photoNotice}</div>}
           </div>
+
+          {syncProgress > 0 && (
+            <div className="grid gap-2">
+              <div className="flex justify-between text-xs text-muted-foreground font-medium">
+                <span>任务进度</span>
+                <span>{Math.round(syncProgress)}%</span>
+              </div>
+              <Progress value={syncProgress} className="h-2 bg-muted/30" />
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -376,6 +385,8 @@ function ToolComponent() {
   const [jellyfinSyncProgress, setJellyfinSyncProgress] = useState(0);
   const [embySyncProgress, setEmbySyncProgress] = useState(0);
   const anyPersonSyncRunning = jellyfinSyncRunning || embySyncRunning;
+  const anyPersonCheckPending = checkJellyfinConnectionMut.isPending || checkEmbyConnectionMut.isPending;
+  const [selectedPersonServer, setSelectedPersonServer] = useState<"jellyfin" | "emby">("jellyfin");
 
   // 缺番查找
   const [missingPrefix, setMissingPrefix] = useState("");
@@ -946,6 +957,47 @@ function ToolComponent() {
   const cleanupPreviewRows = cleanupCandidates.slice(0, 400);
   const missingPreviewRows = missingRows.slice(0, 300);
 
+  const personToolProps =
+    selectedPersonServer === "jellyfin"
+      ? {
+          diagnosticLabel: "Jellyfin 诊断结果",
+          checkResult: jellyfinCheckResult,
+          checkPending: checkJellyfinConnectionMut.isPending,
+          syncRunning: jellyfinSyncRunning,
+          syncProgress: jellyfinSyncProgress,
+          infoMode: jellyfinActorInfoMode,
+          photoMode: jellyfinActorPhotoMode,
+          infoMissingText: "仅补全缺失的演员简介、资料标签和摘要。",
+          infoAllText: "按当前抓取结果更新演员简介、资料标签和摘要。",
+          photoMissingText: "仅为缺少头像的演员补充头像。",
+          photoAllText: "按当前抓取结果重新同步演员头像。",
+          photoNotice: undefined as string | undefined,
+          onCheck: handleCheckJellyfinConnection,
+          onInfoModeChange: setJellyfinActorInfoMode,
+          onPhotoModeChange: setJellyfinActorPhotoMode,
+          onSyncInfo: handleSyncJellyfinActorInfo,
+          onSyncPhoto: handleSyncJellyfinPhotos,
+        }
+      : {
+          diagnosticLabel: "Emby 诊断结果",
+          checkResult: embyCheckResult,
+          checkPending: checkEmbyConnectionMut.isPending,
+          syncRunning: embySyncRunning,
+          syncProgress: embySyncProgress,
+          infoMode: embyActorInfoMode,
+          photoMode: embyActorPhotoMode,
+          infoMissingText: "仅补全缺失的演员简介、资料标签和摘要，并保留未变更字段。",
+          infoAllText: "按当前抓取结果更新演员简介、资料标签和摘要，并按同步字段写回 Emby。",
+          photoMissingText: "仅为缺少头像的演员补充头像。",
+          photoAllText: "按当前抓取结果重新同步演员头像。",
+          photoNotice: "人物头像上传通常需要管理员 API Key。若返回 401 或 403，请改用管理员 API Key 后重试。",
+          onCheck: handleCheckEmbyConnection,
+          onInfoModeChange: setEmbyActorInfoMode,
+          onPhotoModeChange: setEmbyActorPhotoMode,
+          onSyncInfo: handleSyncEmbyActorInfo,
+          onSyncPhoto: handleSyncEmbyPhotos,
+        };
+
   return (
     <div className="h-full w-full overflow-y-auto relative scroll-smooth">
       <div className="sticky top-0 z-10 bg-background/60 backdrop-blur-xl border-b">
@@ -1227,48 +1279,26 @@ function ToolComponent() {
 
             <div className="grid gap-6 md:grid-cols-2">
               <PersonToolCard
-                title="Jellyfin 人物工具"
+                title="人物工具"
                 description="诊断连接状态并同步人物头像与简介"
-                diagnosticLabel="Jellyfin 诊断结果"
-                checkResult={jellyfinCheckResult}
-                checkPending={checkJellyfinConnectionMut.isPending}
+                headerExtra={
+                  <Select
+                    value={selectedPersonServer}
+                    onValueChange={(v) => setSelectedPersonServer(v as "jellyfin" | "emby")}
+                    disabled={anyPersonSyncRunning || anyPersonCheckPending}
+                  >
+                    <SelectTrigger className="h-9 w-[140px] rounded-lg">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="jellyfin">Jellyfin</SelectItem>
+                      <SelectItem value="emby">Emby</SelectItem>
+                    </SelectContent>
+                  </Select>
+                }
+                {...personToolProps}
                 busy={anyPersonSyncRunning}
-                syncRunning={jellyfinSyncRunning}
-                syncProgress={jellyfinSyncProgress}
-                infoMode={jellyfinActorInfoMode}
-                photoMode={jellyfinActorPhotoMode}
-                infoMissingText="仅补全缺失的演员简介、资料标签和摘要。"
-                infoAllText="按当前抓取结果更新演员简介、资料标签和摘要。"
-                photoMissingText="仅为缺少头像的演员补充头像。"
-                photoAllText="按当前抓取结果重新同步演员头像。"
-                onCheck={handleCheckJellyfinConnection}
-                onInfoModeChange={setJellyfinActorInfoMode}
-                onPhotoModeChange={setJellyfinActorPhotoMode}
-                onSyncInfo={handleSyncJellyfinActorInfo}
-                onSyncPhoto={handleSyncJellyfinPhotos}
-              />
-
-              <PersonToolCard
-                title="Emby 人物工具"
-                description="诊断连接状态并同步人物头像与简介"
-                diagnosticLabel="Emby 诊断结果"
-                checkResult={embyCheckResult}
-                checkPending={checkEmbyConnectionMut.isPending}
-                busy={anyPersonSyncRunning}
-                syncRunning={embySyncRunning}
-                syncProgress={embySyncProgress}
-                infoMode={embyActorInfoMode}
-                photoMode={embyActorPhotoMode}
-                infoMissingText="仅补全缺失的演员简介、资料标签和摘要，并保留未变更字段。"
-                infoAllText="按当前抓取结果更新演员简介、资料标签和摘要，并按同步字段写回 Emby。"
-                photoMissingText="仅为缺少头像的演员补充头像。"
-                photoAllText="按当前抓取结果重新同步演员头像。"
-                photoNotice="人物头像上传通常需要管理员 API Key。若返回 401 或 403，请改用管理员 API Key 后重试。"
-                onCheck={handleCheckEmbyConnection}
-                onInfoModeChange={setEmbyActorInfoMode}
-                onPhotoModeChange={setEmbyActorPhotoMode}
-                onSyncInfo={handleSyncEmbyActorInfo}
-                onSyncPhoto={handleSyncEmbyPhotos}
+                className="md:col-span-2"
               />
 
               <Card className="rounded-xl border shadow-sm md:col-span-2">
