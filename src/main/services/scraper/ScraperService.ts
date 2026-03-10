@@ -1,3 +1,4 @@
+import { ActorImageService } from "@main/services/ActorImageService";
 import { type Configuration, configManager, configurationSchema } from "@main/services/config";
 import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
@@ -136,6 +137,7 @@ export class ScraperService {
     private readonly signalService: SignalService,
     networkClient: NetworkClient,
     crawlerProvider: CrawlerProvider,
+    private readonly actorImageService = new ActorImageService(),
   ) {
     this.sharedNetworkClient = networkClient;
     this.sharedCrawlerProvider = crawlerProvider;
@@ -321,6 +323,7 @@ export class ScraperService {
       downloadManager: new DownloadManager(this.sharedNetworkClient),
       fileOrganizer: new FileOrganizer(),
       signalService: this.signalService,
+      actorImageService: this.actorImageService,
     };
   }
 

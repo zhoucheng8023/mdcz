@@ -108,6 +108,37 @@ describe("Actor source local and gfriends", () => {
     });
   });
 
+  it("ignores remote actor thumbs from NFO when building local actor sources", async () => {
+    const root = await createTempDir();
+    const movieDir = join(root, "Actor A", "ABC-123");
+    await mkdir(movieDir, { recursive: true });
+
+    const xml = new NfoGenerator().buildXml(
+      createCrawlerData({
+        actor_profiles: [
+          {
+            name: "Actor A",
+            photo_url: "https://img.example.com/actor-a.jpg",
+          },
+        ],
+      }),
+    );
+    await writeFile(join(movieDir, "ABC-123.nfo"), xml, "utf8");
+
+    const sources = await buildLocalActorIndex(
+      createConfig({
+        paths: {
+          ...defaultConfiguration.paths,
+          mediaPath: root,
+        },
+      }),
+    );
+
+    expect(sources.get("actora")).toMatchObject({
+      name: "Actor A",
+      photo_url: undefined,
+    });
+  });
   it("uses exact local names to resolve gfriends image matches through the provider", async () => {
     const root = await createTempDir();
     const movieDir = join(root, "Actor A", "ABC-123");

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join } from "node:path";
+import { ActorImageService } from "@main/services/ActorImageService";
 import type { Configuration } from "@main/services/config";
 import { normalizeActorName } from "@main/utils/actor";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
@@ -10,7 +11,6 @@ import { mergeActorSourceHints } from "../sourceHints";
 import type { ActorLookupQuery, ActorSourceHint, ActorSourceResult, BaseActorSource } from "../types";
 
 const INDEX_CACHE_TTL_MS = 5 * 60 * 1000;
-const PHOTO_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
 type IndexedActorProfile = ActorProfile & {
   aliases: string[];
@@ -70,48 +70,12 @@ const createSourceHints = (parsed: ReturnType<typeof parseNfo>): ActorSourceHint
 };
 
 const resolveActorPhotoUrl = async (nfoPath: string, profile: ActorProfile): Promise<string | undefined> => {
-  if (!profile.photo_url) {
+  if (!profile.photo_url || isRemoteUrl(profile.photo_url)) {
     return undefined;
-  }
-  if (isRemoteUrl(profile.photo_url)) {
-    return profile.photo_url;
   }
 
   const absolutePath = isAbsolute(profile.photo_url) ? profile.photo_url : join(dirname(nfoPath), profile.photo_url);
   return (await pathExists(absolutePath)) ? absolutePath : undefined;
-};
-
-const resolveLocalPhotoPath = async (
-  configuration: Configuration,
-  actorNames: string[],
-): Promise<string | undefined> => {
-  const photoFolder = configuration.server.actorPhotoFolder.trim();
-  if (!photoFolder) {
-    return undefined;
-  }
-
-  const candidates = Array.from(
-    new Set(
-      actorNames
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
-        .flatMap((actorName) =>
-          PHOTO_EXTENSIONS.flatMap((extension) => [
-            `${actorName}${extension}`,
-            `${actorName.replaceAll(" ", "")}${extension}`,
-          ]),
-        ),
-    ),
-  );
-
-  for (const fileName of candidates) {
-    const filePath = join(photoFolder, fileName);
-    if (await pathExists(filePath)) {
-      return filePath;
-    }
-  }
-
-  return undefined;
 };
 
 const buildLocalActorRecordIndex = async (configuration: Configuration): Promise<Map<string, IndexedActorRecord>> => {
@@ -196,13 +160,15 @@ export class LocalActorSource implements BaseActorSource {
 
   private indexBucket = "";
 
+  constructor(private readonly actorImageService = new ActorImageService()) {}
+
   async lookup(configuration: Configuration, query: ActorLookupQuery): Promise<ActorSourceResult> {
     try {
       const index = await this.loadIndex(configuration);
       const indexed = index.get(normalizeActorName(query.name));
       const profile = indexed?.profile;
       const aliases = profile?.aliases ?? [];
-      const localPhotoPath = await resolveLocalPhotoPath(configuration, [
+      const localPhotoPath = await this.actorImageService.resolveLocalImage(configuration, [
         query.name,
         ...(query.aliases ?? []),
         ...aliases,

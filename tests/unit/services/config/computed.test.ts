@@ -81,6 +81,16 @@ describe("buildComputedConfiguration", () => {
     );
   });
 
+  it("rejects local as a person overview source", () => {
+    const result = configurationSchema.safeParse({
+      server: {
+        personOverviewSources: ["official", "local"],
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("requires Jellyfin userId to be a UUID when provided", () => {
     const result = configurationSchema.safeParse({
       server: {

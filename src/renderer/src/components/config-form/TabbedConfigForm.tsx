@@ -154,7 +154,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "server.url", label: "服务器地址", section: "server" },
   { key: "server.apiKey", label: "接口密钥", section: "server" },
   { key: "server.userId", label: "用户 ID", section: "server" },
-  { key: "server.actorPhotoFolder", label: "演员头像目录", section: "server" },
+  { key: "server.actorPhotoFolder", label: "演员头像库目录", section: "server" },
   { key: "server.personOverviewSources", label: "人物简介来源", section: "server" },
   { key: "server.personImageSources", label: "人物头像来源", section: "server" },
   { key: "server.refreshPersonAfterSync", label: "同步后刷新人物", section: "server" },
@@ -463,10 +463,6 @@ function TranslateSection(_props: SectionRenderProps) {
 }
 
 function ServerSection(_props: SectionRenderProps) {
-  const form = useFormContext<FieldValues>();
-  const imageSources = toStringArray(form.watch("server.personImageSources"));
-  const showActorPhotoFolder = imageSources.includes("local");
-
   return (
     <>
       <UrlField name="server.url" label="Jellyfin 服务器地址" />
@@ -476,14 +472,12 @@ function ServerSection(_props: SectionRenderProps) {
         label="Jellyfin 用户 ID"
         description="必须是 UUID。用于人物列表读取，留空则按服务端默认处理。"
       />
-      {showActorPhotoFolder && (
-        <PathFieldWrapper
-          name="server.actorPhotoFolder"
-          label="演员头像目录"
-          description="按演员名匹配本地头像"
-          isDirectory
-        />
-      )}
+      <PathFieldWrapper
+        name="server.actorPhotoFolder"
+        label="演员头像库目录"
+        description="演员头像库根目录；用于手工头像、自动缓存和影片 NFO 演员缩略图导出。"
+        isDirectory
+      />
       <ChipArrayFieldWrapper
         name="server.personOverviewSources"
         label="人物简介来源顺序"

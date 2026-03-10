@@ -2,6 +2,7 @@ import { bootstrap } from "@main/bootstrap";
 import type { ServiceContainer } from "@main/container";
 import { registerIpcHandlers } from "@main/ipc";
 import { registerLocalFileHandler, registerLocalFileScheme } from "@main/localFileProtocol";
+import { ActorImageService } from "@main/services/ActorImageService";
 import {
   ActorSourceProvider,
   ActorSourceRegistry,
@@ -56,9 +57,10 @@ const ensureMainWindow = async (): Promise<void> => {
       fetchGateway,
     });
     const amazonJpImageService = new AmazonJpImageService(networkClient);
+    const actorImageService = new ActorImageService();
     const actorSourceProvider = new ActorSourceProvider({
       registry: new ActorSourceRegistry([
-        new LocalActorSource(),
+        new LocalActorSource(actorImageService),
         new OfficialActorSource({ networkClient }),
         new GfriendsActorSource({ networkClient }),
         new AvjohoActorSource({ networkClient }),
@@ -71,9 +73,10 @@ const ensureMainWindow = async (): Promise<void> => {
       windowService,
       networkClient,
       fetchGateway,
-      scraperService: new ScraperService(signalService, networkClient, crawlerProvider),
+      scraperService: new ScraperService(signalService, networkClient, crawlerProvider, actorImageService),
       crawlerProvider,
       actorSourceProvider,
+      actorImageService,
       actorPhotoService: new JellyfinActorPhotoService({ signalService, networkClient, actorSourceProvider }),
       actorInfoService: new JellyfinActorInfoService({ signalService, networkClient, actorSourceProvider }),
       symlinkService: new SymlinkService({ signalService }),

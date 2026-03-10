@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ActorImageService } from "@main/services/ActorImageService";
 import type { Configuration } from "@main/services/config";
 import { configurationSchema } from "@main/services/config";
 import type { ConfigManager } from "@main/services/config/ConfigManager";
@@ -22,6 +23,7 @@ export interface FileScraperDependencies {
   downloadManager: DownloadManager;
   fileOrganizer: FileOrganizer;
   signalService: SignalService;
+  actorImageService?: ActorImageService;
 }
 
 export interface FileScrapeProgress {
@@ -32,7 +34,11 @@ export interface FileScrapeProgress {
 export class FileScraper {
   private readonly logger = loggerService.getLogger("FileScraper");
 
-  constructor(private readonly deps: FileScraperDependencies) {}
+  private readonly actorImageService: ActorImageService;
+
+  constructor(private readonly deps: FileScraperDependencies) {
+    this.actorImageService = deps.actorImageService ?? new ActorImageService();
+  }
 
   async scrapeFile(
     filePath: string,
@@ -105,12 +111,23 @@ export class FileScraper {
       );
       this.setProgress(progress, 75);
 
+      let preparedData = translated;
       let savedNfoPath: string | undefined;
       if (configuration.download.downloadNfo) {
         if (configuration.download.keepNfo && (await pathExists(plan.nfoPath))) {
           savedNfoPath = plan.nfoPath;
         } else {
-          savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, translated, {
+          const actorProfiles = await this.actorImageService.prepareActorProfilesForMovie(configuration, {
+            movieDir: plan.outputDir,
+            nfoPath: plan.nfoPath,
+            actors: translated.actors,
+            actorProfiles: translated.actor_profiles,
+          });
+          preparedData = {
+            ...translated,
+            actor_profiles: actorProfiles,
+          };
+          savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedData, {
             assets,
             sources: aggregationResult.sources,
             videoMeta,
@@ -121,7 +138,7 @@ export class FileScraper {
 
       this.deps.signalService.showScrapeInfo({
         fileInfo,
-        site: translated.website,
+        site: preparedData.website,
         step: "organize",
       });
 
@@ -135,7 +152,7 @@ export class FileScraper {
           filePath: outputVideoPath,
         },
         status: "success",
-        crawlerData: translated,
+        crawlerData: preparedData,
         videoMeta,
         outputPath: plan.outputDir,
         nfoPath: savedNfoPath,

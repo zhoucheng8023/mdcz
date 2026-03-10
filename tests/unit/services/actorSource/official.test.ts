@@ -155,7 +155,7 @@ describe("OfficialActorSource", () => {
         },
         server: {
           ...defaultConfiguration.server,
-          personOverviewSources: ["official", "local"],
+          personOverviewSources: ["official"],
           personImageSources: ["official", "local"],
         },
       }),
