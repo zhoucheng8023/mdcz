@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { Website } from "@shared/enums";
 
 import { IpcChannel } from "@shared/IpcChannel";
-import type { FileInfo, ScrapeResult } from "@shared/types";
+import type { FileInfo, MaintenanceItemResult, ScrapeResult } from "@shared/types";
 import type { BrowserWindow } from "electron";
 import { type LoggerEventPayload, loggerService } from "./LoggerService";
 
@@ -85,6 +85,10 @@ export class SignalService extends EventEmitter {
     };
 
     this.send(IpcChannel.Event_ButtonStatus, payload);
+  }
+
+  showMaintenanceItemResult(payload: MaintenanceItemResult): void {
+    this.send(IpcChannel.Event_MaintenanceItemResult, payload);
   }
 
   private send<TPayload>(channel: IpcChannel, payload: TPayload): void {
