@@ -36,7 +36,7 @@ export function DetailPanel() {
   const [nfoLoading, setNfoLoading] = useState(false);
   const [nfoSaving, setNfoSaving] = useState(false);
   const [posterSrc, setPosterSrc] = useState("");
-  const [fanartSrc, setFanartSrc] = useState("");
+  const [thumbSrc, setThumbSrc] = useState("");
 
   const selectedItem = results.find((r) => r.id === selectedResultId);
   const posterCandidates = buildImageSourceCandidates({
@@ -45,17 +45,20 @@ export function DetailPanel() {
     outputPath: selectedItem?.output_path,
     fileName: "poster.jpg",
   });
-  const fanartCandidates = buildImageSourceCandidates({
-    remotePath: selectedItem?.fanart_url ?? selectedItem?.thumb_url,
+  const thumbCandidates = buildImageSourceCandidates({
+    remotePath: selectedItem?.thumb_url,
     filePath: selectedItem?.path,
     outputPath: selectedItem?.output_path,
-    fileName: "fanart.jpg",
+    fileName: "thumb.jpg",
   });
 
   useEffect(() => {
     setPosterSrc(toRenderableSrc(posterCandidates.primary));
-    setFanartSrc(toRenderableSrc(fanartCandidates.primary));
-  }, [fanartCandidates.primary, posterCandidates.primary]);
+  }, [posterCandidates.primary]);
+
+  useEffect(() => {
+    setThumbSrc(toRenderableSrc(thumbCandidates.primary));
+  }, [thumbCandidates.primary]);
 
   const handlePlay = () => {
     if (!selectedItem?.path) {
@@ -124,10 +127,10 @@ export function DetailPanel() {
     }
   };
 
-  const handleFanartError = () => {
-    const localFanart = toRenderableSrc(fanartCandidates.fallback);
-    if (localFanart && localFanart !== fanartSrc) {
-      setFanartSrc(localFanart);
+  const handleThumbError = () => {
+    const localThumb = toRenderableSrc(thumbCandidates.fallback);
+    if (localThumb && localThumb !== thumbSrc) {
+      setThumbSrc(localThumb);
     }
   };
 
@@ -292,14 +295,14 @@ export function DetailPanel() {
           <Separator />
 
           {/* Fanart / Backdrop */}
-          {fanartSrc && (
+          {thumbSrc && (
             <div className="bg-black/5 rounded-xl overflow-hidden border">
-              <div className="flex max-h-[28rem] items-center justify-center bg-muted/10 p-3">
+              <div className="flex max-h-112 items-center justify-center bg-muted/10 p-3">
                 <img
-                  src={fanartSrc}
-                  alt="Fanart"
-                  className="max-h-[25rem] max-w-full object-contain"
-                  onError={handleFanartError}
+                  src={thumbSrc}
+                  alt="Thumb artwork"
+                  className="max-h-100 max-w-full object-contain"
+                  onError={handleThumbError}
                 />
               </div>
             </div>

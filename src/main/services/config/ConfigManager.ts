@@ -163,6 +163,7 @@ export class ConfigManager extends EventEmitter {
   private activeProfileName = "default";
 
   async listProfiles(): Promise<{ profiles: string[]; active: string }> {
+    await this.ensureLoaded();
     const dataDir = this.getDataDirectory();
     await mkdir(dataDir, { recursive: true });
     const entries = await readdir(dataDir);
@@ -177,6 +178,7 @@ export class ConfigManager extends EventEmitter {
   }
 
   async createProfile(name: string): Promise<void> {
+    await this.ensureLoaded();
     const profileName = normalizeProfileName(name);
     const filePath = join(this.getDataDirectory(), `${profileName}.json`);
     if (existsSync(filePath)) throw new Error(`Profile "${profileName}" already exists`);
@@ -186,6 +188,7 @@ export class ConfigManager extends EventEmitter {
   }
 
   async switchProfile(name: string): Promise<void> {
+    await this.ensureLoaded();
     const profileName = normalizeProfileName(name);
     const filePath = join(this.getDataDirectory(), `${profileName}.json`);
     if (!existsSync(filePath)) throw new Error(`Profile "${profileName}" not found`);
@@ -198,6 +201,7 @@ export class ConfigManager extends EventEmitter {
   }
 
   async deleteProfile(name: string): Promise<void> {
+    await this.ensureLoaded();
     const profileName = normalizeProfileName(name);
     if (profileName === this.activeProfileName) throw new Error("Cannot delete the active profile");
     const filePath = join(this.getDataDirectory(), `${profileName}.json`);

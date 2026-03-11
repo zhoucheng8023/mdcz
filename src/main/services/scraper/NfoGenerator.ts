@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { toArray } from "@main/utils/common";
 import { buildManagedMovieTags } from "@main/utils/movieMetadata";
 import type { ActorProfile, CrawlerData, DownloadedAssets, VideoMeta } from "@shared/types";
@@ -14,6 +14,7 @@ const builder = new XMLBuilder({
 });
 
 const OUTLINE_MAX_CHARS = 200;
+const JELLYFIN_MOVIE_NFO_NAME = "movie.nfo";
 
 const normalizeActorKey = (value: string): string =>
   value
@@ -75,7 +76,6 @@ const buildMovieTags = (data: CrawlerData): string[] => {
       ...buildStringNodes(toArray(data.genres)),
       ...buildManagedMovieTags({
         contentType: data.content_type,
-        publisher: data.publisher,
       }),
     ]),
   );
@@ -168,7 +168,8 @@ export class NfoGenerator {
     movie.rating = data.rating;
     movie.studio = data.studio;
     movie.director = data.director;
-    movie.mpaa = "XXX";
+    movie.publisher = data.publisher;
+    movie.mpaa = "JP-18+";
     movie.set = data.series;
 
     if (assets?.trailer) {
@@ -224,6 +225,7 @@ export class NfoGenerator {
     const xml = this.buildXml(data, options);
     await mkdir(dirname(nfoPath), { recursive: true });
     await writeFile(nfoPath, xml, "utf8");
+    await writeFile(join(dirname(nfoPath), JELLYFIN_MOVIE_NFO_NAME), xml, "utf8");
     return nfoPath;
   }
 }
