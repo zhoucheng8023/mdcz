@@ -52,6 +52,8 @@ const resolveSingleAsset = async ({
 export interface DownloadCallbacks {
   /** Called after each scene image completes (success or fail). */
   onSceneProgress?: (downloaded: number, total: number) => void;
+  /** Force a primary image to refresh even when its keep flag is enabled. */
+  forceReplace?: Partial<Record<PrimaryImageKey, boolean>>;
 }
 
 type PrimaryImageKey = keyof Pick<DownloadedAssets, "thumb" | "poster" | "fanart">;
@@ -115,6 +117,7 @@ export class DownloadManager {
       downloaded: [],
     };
 
+    const forceReplace = callbacks?.forceReplace ?? {};
     const primaryTasks = this.buildPrimaryImageTasks(outputDir, data, config, imageAlternatives);
     const pendingPrimaryTasks: PrimaryImageTask[] = [];
     const primaryFanartSampleUrl = getPrimaryFanartSampleUrl(data);
@@ -122,7 +125,7 @@ export class DownloadManager {
 
     for (const task of primaryTasks) {
       const existingAsset = await resolveExistingAsset(task.path);
-      if (task.keepExisting && existingAsset) {
+      if (task.keepExisting && existingAsset && !forceReplace[task.key]) {
         assets[task.key] = existingAsset;
         continue;
       }

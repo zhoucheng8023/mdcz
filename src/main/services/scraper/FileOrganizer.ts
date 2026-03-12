@@ -12,11 +12,16 @@ import {
 } from "@main/utils/file";
 import { buildSafePath, sanitizePathSegment } from "@main/utils/path";
 import type { CrawlerData, FileInfo } from "@shared/types";
+import { isGeneratedSidecarVideo } from "./sidecars";
 
 export interface OrganizePlan {
   outputDir: string;
   targetVideoPath: string;
   nfoPath: string;
+}
+
+interface ResolveOutputPlanOptions {
+  createDirectories?: boolean;
 }
 
 const UNCENSORED_NUMBER_PATTERNS = [/^FC2-\d+/iu, /^HEYZO-\d+/iu, /^(?:1PON|10MU|CARIB|PACO|MURA|KIN8)[-_]?\d+/iu];
@@ -135,8 +140,6 @@ const truncatePathSegments = (value: string, maxLength: number): string => {
     .join("/");
 };
 
-const isGeneratedSidecarVideo = (filePath: string): boolean => parse(filePath).name.toLowerCase() === "trailer";
-
 export class FileOrganizer {
   private readonly logger = loggerService.getLogger("FileOrganizer");
 
@@ -179,7 +182,18 @@ export class FileOrganizer {
   }
 
   async ensureOutputReady(plan: OrganizePlan, sourceFilePath: string): Promise<OrganizePlan> {
-    await ensureParentDirectory(plan.targetVideoPath);
+    return this.resolveOutputPlan(plan, sourceFilePath, { createDirectories: true });
+  }
+
+  async resolveOutputPlan(
+    plan: OrganizePlan,
+    sourceFilePath: string,
+    options: ResolveOutputPlanOptions = {},
+  ): Promise<OrganizePlan> {
+    if (options.createDirectories) {
+      await ensureParentDirectory(plan.targetVideoPath);
+    }
+
     const outputRoot = dirname(plan.targetVideoPath);
     const sourceDir = resolve(dirname(sourceFilePath));
     const sameDirectoryOutput = sourceDir === resolve(outputRoot);
@@ -196,7 +210,8 @@ export class FileOrganizer {
 
     if (!sameDirectoryOutput) {
       const stats = await stat(sourceFilePath);
-      const ok = await hasEnoughDiskSpace(outputRoot, stats.size);
+      const diskCheckPath = options.createDirectories ? outputRoot : await this.resolveExistingDirectory(outputRoot);
+      const ok = await hasEnoughDiskSpace(diskCheckPath, stats.size);
       if (!ok) {
         throw new Error(`Not enough disk space to move file to ${outputRoot}`);
       }
@@ -249,6 +264,27 @@ export class FileOrganizer {
     const mediaRoot = config.paths.mediaPath.trim();
     const base = mediaRoot.length > 0 ? mediaRoot : dirname(fileInfo.filePath);
     return join(base, config.paths.successOutputFolder);
+  }
+
+  private async resolveExistingDirectory(dirPath: string): Promise<string> {
+    let current = resolve(dirPath);
+
+    while (true) {
+      try {
+        const info = await stat(current);
+        if (info.isDirectory()) {
+          return current;
+        }
+      } catch {
+        // Keep walking up to the nearest existing directory.
+      }
+
+      const parent = dirname(current);
+      if (parent === current) {
+        return current;
+      }
+      current = parent;
+    }
   }
 
   /**

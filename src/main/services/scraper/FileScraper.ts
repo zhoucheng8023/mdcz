@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { Configuration } from "@main/services/config";
 import { configurationSchema } from "@main/services/config";
@@ -14,6 +13,7 @@ import type { AggregationService } from "./aggregation";
 import type { DownloadManager } from "./DownloadManager";
 import type { FileOrganizer } from "./FileOrganizer";
 import type { NfoGenerator } from "./NfoGenerator";
+import { prepareCrawlerDataForNfo } from "./prepareCrawlerDataForNfo";
 import type { TranslateService } from "./TranslateService";
 
 export interface FileScraperDependencies {
@@ -118,16 +118,11 @@ export class FileScraper {
         if (configuration.download.keepNfo && (await pathExists(plan.nfoPath))) {
           savedNfoPath = plan.nfoPath;
         } else {
-          const actorProfiles = await this.actorImageService.prepareActorProfilesForMovie(configuration, {
+          const preparedNfoData = await prepareCrawlerDataForNfo(this.actorImageService, configuration, translated, {
             movieDir: plan.outputDir,
-            actors: translated.actors,
-            actorProfiles: translated.actor_profiles,
-            actorPhotoBaseDir: dirname(fileInfo.filePath),
+            sourceVideoPath: fileInfo.filePath,
           });
-          preparedData = {
-            ...translated,
-            actor_profiles: actorProfiles,
-          };
+          preparedData = preparedNfoData.data;
           savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedData, {
             assets,
             sources: aggregationResult.sources,

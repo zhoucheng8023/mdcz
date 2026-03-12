@@ -76,7 +76,7 @@ const ensureMainWindow = async (): Promise<void> => {
       networkClient,
       fetchGateway,
       scraperService: new ScraperService(signalService, networkClient, crawlerProvider, actorImageService),
-      maintenanceService: new MaintenanceService(signalService, networkClient, crawlerProvider),
+      maintenanceService: new MaintenanceService(signalService, networkClient, crawlerProvider, actorImageService),
       crawlerProvider,
       actorSourceProvider,
       actorImageService,

@@ -13,8 +13,8 @@ interface PageHeaderProps {
 export function PageHeader({ title, subtitle, icon: Icon, extra, className }: PageHeaderProps) {
   return (
     <div className={cn("px-8 pt-6 pb-4", className)}>
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           {Icon && (
             <div className="p-2 bg-primary/8 rounded-xl flex-none">
               <Icon className="h-6 w-6 text-primary" />
@@ -25,7 +25,7 @@ export function PageHeader({ title, subtitle, icon: Icon, extra, className }: Pa
             {subtitle && <div className="text-sm text-muted-foreground mt-1">{subtitle}</div>}
           </div>
         </div>
-        {extra && <div className="flex items-center gap-3 flex-none">{extra}</div>}
+        {extra && <div className="flex max-w-full flex-wrap items-center justify-end gap-3 flex-none">{extra}</div>}
       </div>
     </div>
   );

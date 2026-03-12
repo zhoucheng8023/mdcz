@@ -358,4 +358,38 @@ describe("DownloadManager keep flags", () => {
     expect(assets.downloaded).toEqual([]);
     await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe("old-1");
   });
+
+  it("refreshes a selected primary image even when the keep flag stays enabled", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject({
+      "thumb.jpg": "old-thumb",
+    });
+    mockImageValidation(true);
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        thumb_url: "https://example.com/thumb-new.jpg",
+      }),
+      createDownloadConfig({
+        keepThumb: true,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadSceneImages: false,
+        downloadTrailer: false,
+      }),
+      {},
+      {
+        forceReplace: {
+          thumb: true,
+        },
+      },
+    );
+
+    expect(assets.thumb).toBe(join(root, "thumb.jpg"));
+    expect(assets.downloaded).toEqual([join(root, "thumb.jpg")]);
+    await expect(readFile(join(root, "thumb.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/thumb-new.jpg",
+    );
+    expect(networkClient.probe).toHaveBeenCalledTimes(1);
+    expect(networkClient.download).toHaveBeenCalledTimes(1);
+  });
 });

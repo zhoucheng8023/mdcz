@@ -1,4 +1,4 @@
-import type { ActorProfile, CrawlerData, FieldDiff } from "@shared/types";
+import type { CrawlerData, FieldDiff } from "@shared/types";
 
 interface DiffableField {
   key: keyof CrawlerData;
@@ -35,13 +35,6 @@ const isEqual = (a: unknown, b: unknown): boolean => {
   return false;
 };
 
-/** Compare actor_profiles by name + photo_url only (NFO-level fields). */
-const actorProfilesEqual = (a: ActorProfile[] | undefined, b: ActorProfile[] | undefined): boolean => {
-  const normalize = (profiles: ActorProfile[] | undefined) =>
-    (profiles ?? []).map((p) => `${p.name}\0${p.photo_url ?? ""}`);
-  return isEqual(normalize(a), normalize(b));
-};
-
 /**
  * Compute field-level diffs between old (local NFO) and new (network) CrawlerData.
  * Only includes fields that have changed.
@@ -71,17 +64,6 @@ export function diffCrawlerData(oldData: CrawlerData, newData: CrawlerData): Fie
     if (!isEqual(oldArr, newArr)) {
       diffs.push({ field: key, label, oldValue: oldArr, newValue: newArr, changed: true });
     }
-  }
-
-  // actor_profiles: compare name + photo_url only
-  if (!actorProfilesEqual(oldData.actor_profiles, newData.actor_profiles)) {
-    diffs.push({
-      field: "actor_profiles",
-      label: "演员缩略图",
-      oldValue: oldData.actor_profiles,
-      newValue: newData.actor_profiles,
-      changed: true,
-    });
   }
 
   return diffs;

@@ -6,6 +6,7 @@ import { listVideoFiles } from "@main/utils/file";
 import { parseNfo } from "@main/utils/nfo";
 import { parseFileInfo } from "@main/utils/number";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry } from "@shared/types";
+import { isGeneratedSidecarVideo } from "../sidecars";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const TRAILER_EXTENSIONS = new Set([".mp4", ".mkv", ".webm"]);
@@ -65,7 +66,7 @@ export class LocalScanService {
   async scan(dirPath: string, sceneImagesFolder: string): Promise<LocalScanEntry[]> {
     this.logger.info(`Scanning directory: ${dirPath}`);
 
-    const videoFiles = await listVideoFiles(dirPath, true);
+    const videoFiles = (await listVideoFiles(dirPath, true)).filter((videoPath) => !isGeneratedSidecarVideo(videoPath));
     this.logger.info(`Found ${videoFiles.length} video file(s)`);
 
     const entries: LocalScanEntry[] = [];
@@ -91,6 +92,7 @@ export class LocalScanService {
 
     const assets = await this.discoverAssets(dir, fileInfo.fileName, sceneImagesFolder);
     let crawlerData: CrawlerData | undefined;
+    let scanError: string | undefined;
 
     if (assets.nfo) {
       try {
@@ -98,6 +100,7 @@ export class LocalScanService {
         crawlerData = parseNfo(nfoContent);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        scanError = `NFO 解析失败: ${message}`;
         this.logger.warn(`Failed to parse NFO at ${assets.nfo}: ${message}`);
       }
     }
@@ -108,6 +111,7 @@ export class LocalScanService {
       fileInfo,
       nfoPath: assets.nfo,
       crawlerData,
+      scanError,
       assets,
       currentDir: dir,
     };

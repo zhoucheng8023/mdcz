@@ -17,6 +17,7 @@ export interface ImageOptionCardProps {
   empty?: boolean;
   emptyText?: string;
   imageContainerClassName?: string;
+  stacked?: boolean;
 }
 
 function formatBytes(bytes: number | null | undefined): string {
@@ -55,6 +56,7 @@ export function ImageOptionCard({
   empty = false,
   emptyText = "暂无图片",
   imageContainerClassName,
+  stacked = false,
 }: ImageOptionCardProps) {
   const [naturalSize, setNaturalSize] = useState<{ src: string; width: number; height: number } | null>(null);
 
@@ -78,7 +80,7 @@ export function ImageOptionCard({
   );
 
   const content = (
-    <div className="flex flex-col gap-4 sm:flex-row">
+    <div className={cn("flex gap-4", stacked ? "flex-col" : "flex-col sm:flex-row")}>
       <div
         className={cn(
           "relative w-full shrink-0 overflow-hidden rounded-lg bg-muted/20",
@@ -125,15 +127,15 @@ export function ImageOptionCard({
             <div className="flex items-center gap-2">
               <Badge variant={selected ? "default" : "secondary"}>{label}</Badge>
             </div>
-            <div className="text-sm text-foreground">
+            <div className="text-sm text-foreground wrap-anywhere">
               <span className="text-muted-foreground">尺寸: </span>
               <span>{formatDimensions(resolvedWidth, resolvedHeight)}</span>
             </div>
-            <div className="text-sm text-foreground">
+            <div className="text-sm text-foreground wrap-anywhere">
               <span className="text-muted-foreground">大小: </span>
               <span>{formatBytes(fileSize)}</span>
             </div>
-            {subtitle && <div className="break-all text-sm text-muted-foreground">{subtitle}</div>}
+            {subtitle && <div className="text-sm text-muted-foreground wrap-anywhere">{subtitle}</div>}
           </>
         )}
       </div>
