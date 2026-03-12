@@ -1,6 +1,6 @@
 import { Website } from "@shared/enums";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildNfoReadCandidates, readNfo } from "@/api/manual";
+import { buildNfoReadCandidates, readNfo, resolveNfoWritePath, updateNfo } from "@/api/manual";
 import { ipc } from "@/client/ipc";
 
 vi.mock("@/client/ipc", () => ({
@@ -11,6 +11,9 @@ vi.mock("@/client/ipc", () => ({
     },
   },
 }));
+
+const nfoRead = vi.mocked(ipc.file.nfoRead);
+const nfoWrite = vi.mocked(ipc.file.nfoWrite);
 
 describe("buildNfoReadCandidates", () => {
   it("prefers basename nfo before movie.nfo for video paths", () => {
@@ -30,7 +33,6 @@ describe("buildNfoReadCandidates", () => {
 });
 
 describe("readNfo", () => {
-  const nfoRead = vi.mocked(ipc.file.nfoRead);
   const crawlerData = {
     title: "Movie Title",
     number: "ABC-123",
@@ -42,6 +44,7 @@ describe("readNfo", () => {
 
   beforeEach(() => {
     nfoRead.mockReset();
+    nfoWrite.mockReset();
   });
 
   it("falls back to movie.nfo only when the primary nfo is missing", async () => {
@@ -68,5 +71,36 @@ describe("readNfo", () => {
       code: "PARSE_ERROR",
     });
     expect(nfoRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resolveNfoWritePath", () => {
+  it("canonicalizes movie.nfo saves back to the video basename when video context exists", () => {
+    expect(resolveNfoWritePath("/media/movie.nfo", "/media/ABC-123.mp4")).toBe("/media/ABC-123.nfo");
+  });
+
+  it("keeps movie.nfo when no video context exists", () => {
+    expect(resolveNfoWritePath("/media/movie.nfo")).toBe("/media/movie.nfo");
+  });
+});
+
+describe("updateNfo", () => {
+  it("reuses the canonical basename nfo path before invoking the double-write backend", async () => {
+    nfoWrite.mockResolvedValue({ success: true });
+
+    await updateNfo(
+      "/media/movie.nfo",
+      JSON.stringify({
+        title: "Movie Title",
+        number: "ABC-123",
+        actors: [],
+        genres: [],
+        sample_images: [],
+        website: Website.DMM,
+      }),
+      "/media/ABC-123.mp4",
+    );
+
+    expect(nfoWrite).toHaveBeenCalledWith("/media/ABC-123.nfo", expect.any(Object));
   });
 });

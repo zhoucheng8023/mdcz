@@ -12,6 +12,7 @@ import {
 } from "@main/utils/file";
 import { buildSafePath, sanitizePathSegment } from "@main/utils/path";
 import type { CrawlerData, FileInfo } from "@shared/types";
+import { isGeneratedSidecarVideo } from "./sidecars";
 
 export interface OrganizePlan {
   outputDir: string;
@@ -138,8 +139,6 @@ const truncatePathSegments = (value: string, maxLength: number): string => {
     .filter((segment) => segment.length > 0)
     .join("/");
 };
-
-const isGeneratedSidecarVideo = (filePath: string): boolean => parse(filePath).name.toLowerCase() === "trailer";
 
 export class FileOrganizer {
   private readonly logger = loggerService.getLogger("FileOrganizer");

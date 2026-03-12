@@ -74,7 +74,7 @@ export function useDetailViewController(item?: DetailViewItem | null) {
   const handleSaveNfo = useCallback(async () => {
     try {
       setNfoSaving(true);
-      await updateNfo(nfoPath, nfoContent);
+      await updateNfo(nfoPath, nfoContent, item?.path);
       toast.success("NFO 已保存");
       setNfoOpen(false);
     } catch {
@@ -82,7 +82,7 @@ export function useDetailViewController(item?: DetailViewItem | null) {
     } finally {
       setNfoSaving(false);
     }
-  }, [nfoContent, nfoPath]);
+  }, [item?.path, nfoContent, nfoPath]);
 
   const handlePlay = useCallback(() => {
     if (!item?.path) {

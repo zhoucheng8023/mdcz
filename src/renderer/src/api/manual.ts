@@ -173,8 +173,22 @@ export const readNfo = async (path: string) => {
   throw lastError ?? new Error("NFO path is required");
 };
 
-export const updateNfo = async (path: string, content: string) => {
+export const resolveNfoWritePath = (path: string, videoPath?: string): string => {
   const nfoPath = asNfoPath(path);
+  if (!nfoPath.toLowerCase().endsWith("movie.nfo")) {
+    return nfoPath;
+  }
+
+  const normalizedVideoPath = videoPath?.trim();
+  if (!normalizedVideoPath) {
+    return nfoPath;
+  }
+
+  return asNfoPath(normalizedVideoPath);
+};
+
+export const updateNfo = async (path: string, content: string, videoPath?: string) => {
+  const nfoPath = resolveNfoWritePath(path, videoPath);
   const crawlerData = parseCrawlerData(content);
   const data = await ipc.file.nfoWrite(nfoPath, crawlerData);
   return { data };
