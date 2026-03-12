@@ -1,4 +1,5 @@
 import { ACTOR_IMAGE_SOURCE_OPTIONS, ACTOR_OVERVIEW_SOURCE_OPTIONS } from "@main/services/actorSource/types";
+import { CURRENT_CONFIG_VERSION } from "@main/services/config/migrator";
 import { ProxyType, ThemeMode, TranslateEngine, UiLanguage, Website } from "@shared/enums";
 import { z } from "zod";
 
@@ -225,6 +226,7 @@ const aggregationSchema = z
 
 export const configurationSchema = z
   .object({
+    configVersion: z.number().int().default(CURRENT_CONFIG_VERSION),
     network: networkSchema.default(() => networkSchema.parse({})),
     scrape: scrapeSchema.default(() => scrapeSchema.parse({})),
     naming: namingSchema.default(() => namingSchema.parse({})),
