@@ -44,10 +44,17 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
 const createAggregationResult = (data: CrawlerData) => ({
   data,
   sources: {},
+  imageAlternatives: {
+    thumb_url: [],
+    poster_url: [],
+    fanart_url: [],
+    sample_images: [],
+  },
   stats: {
     totalSites: 1,
     successCount: 1,
     failedCount: 0,
+    skippedCount: 0,
     siteResults: [],
     totalElapsedMs: 1,
   },

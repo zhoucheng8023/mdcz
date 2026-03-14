@@ -75,6 +75,22 @@ const toNonEmptyString = (value: unknown): string | undefined => {
   return normalized || undefined;
 };
 
+const resolveUrl = (baseUrl: string, value: string | undefined): string | undefined => {
+  const normalized = toNonEmptyString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (/^https?:\/\//iu.test(normalized)) {
+    return normalized;
+  }
+  if (normalized.startsWith("//")) {
+    return `https:${normalized}`;
+  }
+
+  return new URL(normalized, baseUrl).toString();
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
@@ -143,9 +159,9 @@ const buildDescription = (profile: unknown, meta: unknown): string | undefined =
   return parts.length > 0 ? parts.join("\n") : undefined;
 };
 
-const pickActorPhoto = (actors: AvbaseTalentActor[]): string | undefined => {
+const pickActorPhoto = (baseUrl: string, actors: AvbaseTalentActor[]): string | undefined => {
   for (const actor of actors) {
-    const imageUrl = toNonEmptyString(actor.image_url);
+    const imageUrl = resolveUrl(baseUrl, toNonEmptyString(actor.image_url));
     if (imageUrl) {
       return imageUrl;
     }
@@ -204,6 +220,7 @@ export class AvbaseActorSource implements BaseActorSource {
         const actors = [detail.primary, ...(detail.actors ?? [])].filter((actor): actor is AvbaseTalentActor =>
           Boolean(actor),
         );
+        const sourceUrl = resolveUrl(this.baseUrl, toNonEmptyString(detail.primary?.url));
         const aliases = toUniqueActorNames(
           actors.flatMap((actor) => [actor.ruby ?? undefined, actor.note ?? undefined]),
           toNonEmptyString,
@@ -224,13 +241,13 @@ export class AvbaseActorSource implements BaseActorSource {
             waist_cm: parseActorMetricCm(getMetaString(detail.meta, ["basic_info.waist", "waist"])),
             hip_cm: parseActorMetricCm(getMetaString(detail.meta, ["basic_info.hip", "hip"])),
             cup_size: parseActorCupSize(getMetaString(detail.meta, ["basic_info.cup", "cup"])),
-            photo_url: pickActorPhoto(actors),
+            photo_url: pickActorPhoto(this.baseUrl, actors),
           },
           warnings: [],
           sourceHints: mergeActorSourceHints([
             {
               agency: getMetaString(detail.meta, ["所属事務所", "所属プロダクション", "所属", "agency"]),
-              sourceUrl: toNonEmptyString(detail.primary?.url),
+              sourceUrl,
               studio: getMetaString(detail.meta, ["専属メーカー", "メーカー", "studio"]),
             },
           ]),

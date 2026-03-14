@@ -59,7 +59,7 @@ describe("Actor source local and gfriends", () => {
     );
   });
 
-  it("builds local actor sources from standard actor nodes and relative thumbs", async () => {
+  it("ignores movie-local actor thumbs when building the shared local actor index", async () => {
     const root = await createTempDir();
     const movieDir = join(root, "Actor A", "ABC-123");
     const thumbPath = join(movieDir, "thumbs", "actor-a.jpg");
@@ -80,7 +80,7 @@ describe("Actor source local and gfriends", () => {
 
     expect(sources.get("actora")).toMatchObject({
       name: "Actor A",
-      photo_url: thumbPath,
+      photo_url: undefined,
     });
     expect(sources.get("aliasa")).toBeUndefined();
   });

@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { Configuration } from "@main/services/config";
+import { resolveActorPhotoFolderPath } from "@main/services/config/actorPhotoPath";
 import { normalizeActorName } from "@main/utils/actor";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
 import { listFiles, pathExists } from "@main/utils/file";
@@ -69,13 +70,38 @@ const createSourceHints = (parsed: ReturnType<typeof parseNfo>): ActorSourceHint
   ]);
 };
 
-const resolveActorPhotoUrl = async (nfoPath: string, profile: ActorProfile): Promise<string | undefined> => {
+const isPathInside = (rootPath: string, candidatePath: string): boolean => {
+  const normalizedRoot = resolve(rootPath)
+    .replace(/[\\/]+$/u, "")
+    .toLowerCase();
+  const normalizedCandidate = resolve(candidatePath).toLowerCase();
+  return (
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(`${normalizedRoot}\\`) ||
+    normalizedCandidate.startsWith(`${normalizedRoot}/`)
+  );
+};
+
+const resolveActorPhotoUrl = async (
+  configuration: Configuration,
+  nfoPath: string,
+  profile: ActorProfile,
+): Promise<string | undefined> => {
   if (!profile.photo_url || isRemoteUrl(profile.photo_url)) {
     return undefined;
   }
 
   const absolutePath = isAbsolute(profile.photo_url) ? profile.photo_url : join(dirname(nfoPath), profile.photo_url);
-  return (await pathExists(absolutePath)) ? absolutePath : undefined;
+  if (!(await pathExists(absolutePath))) {
+    return undefined;
+  }
+
+  const actorPhotoRoot = resolveActorPhotoFolderPath(configuration);
+  if (!actorPhotoRoot || !isPathInside(actorPhotoRoot, absolutePath)) {
+    return undefined;
+  }
+
+  return absolutePath;
 };
 
 const buildLocalActorRecordIndex = async (configuration: Configuration): Promise<Map<string, IndexedActorRecord>> => {
@@ -124,7 +150,7 @@ const buildLocalActorRecordIndex = async (configuration: Configuration): Promise
         const nextProfile = mergeProfiles(profilesByName.get(key), {
           name,
           aliases: [],
-          photo_url: await resolveActorPhotoUrl(nfoPath, profile),
+          photo_url: await resolveActorPhotoUrl(configuration, nfoPath, profile),
         });
         profilesByName.set(key, nextProfile);
       }

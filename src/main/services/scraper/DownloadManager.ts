@@ -2,6 +2,7 @@ import { copyFile, mkdir, readdir, rename, rm, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { Configuration } from "@main/services/config";
+import { type CooldownFailurePolicy, PersistentCooldownStore } from "@main/services/cooldown/PersistentCooldownStore";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient, ProbeResult } from "@main/services/network";
 import { pathExists } from "@main/utils/file";
@@ -33,10 +34,12 @@ const resolveExistingAsset = async (assetPath: string): Promise<string | undefin
 const resolveSingleAsset = async ({
   targetPath,
   keepExisting,
+  fallbackToExistingOnFailure = true,
   create,
 }: {
   targetPath: string;
   keepExisting: boolean;
+  fallbackToExistingOnFailure?: boolean;
   create: () => Promise<string | null>;
 }): Promise<{ assetPath?: string; createdPath?: string }> => {
   const existingPath = await resolveExistingAsset(targetPath);
@@ -49,7 +52,7 @@ const resolveSingleAsset = async ({
     return { assetPath: createdPath, createdPath };
   }
 
-  return { assetPath: existingPath };
+  return fallbackToExistingOnFailure ? { assetPath: existingPath } : {};
 };
 
 /** Optional callbacks for download progress reporting. */
@@ -64,9 +67,19 @@ export interface DownloadCallbacks {
 
 type PrimaryImageKey = keyof Pick<DownloadedAssets, "thumb" | "poster" | "fanart">;
 type PrimaryImageTask = { key: PrimaryImageKey; candidates: string[]; path: string; keepExisting: boolean };
-type SceneImageTask = { key: "sceneImages"; path: string; url: string };
 type ParallelResult<K extends string, TValue> = { key: K; path: string; success: boolean; value?: TValue };
 type ProbedImageCandidate = ProbeResult & { index: number; url: string };
+interface DownloadManagerOptions {
+  imageHostCooldownStore?: PersistentCooldownStore;
+}
+
+const IMAGE_HOST_COOLDOWN_MS = 5 * 60 * 1000;
+const SCENE_IMAGE_ATTEMPT_TIMEOUT_MS = 1_500;
+const IMAGE_HOST_FAILURE_POLICY: CooldownFailurePolicy = {
+  threshold: 2,
+  windowMs: IMAGE_HOST_COOLDOWN_MS,
+  cooldownMs: IMAGE_HOST_COOLDOWN_MS,
+};
 
 const getPrimaryFanartFallbackUrl = (data: CrawlerData): string | undefined => {
   if (data.fanart_url) {
@@ -91,16 +104,67 @@ const getPrimaryFanartAlternativeUrls = (
   ].filter((item): item is string => typeof item === "string");
 };
 
-const getSceneImageUrls = (data: CrawlerData, maxSceneImages: number): string[] => {
-  return data.sample_images
-    .map((item) => normalizeUrl(item))
-    .filter((item): item is string => !!item)
-    .slice(0, maxSceneImages);
+const getNormalizedSceneImageUrls = (values: string[]): string[] => {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const item of values) {
+    const normalized = normalizeUrl(item);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    urls.push(normalized);
+  }
+
+  return urls;
 };
 
-const toSceneDownloadResult = async (download: Promise<unknown>): Promise<true | undefined> => {
-  return (await download) ? true : undefined;
+const getSceneImageSets = (
+  data: CrawlerData,
+  imageAlternatives: Partial<ImageAlternatives>,
+  maxSceneImages: number,
+): string[][] => {
+  if (maxSceneImages <= 0) {
+    return [];
+  }
+
+  const seenSets = new Set<string>();
+  const sets: string[][] = [];
+  for (const values of [data.sample_images, ...(imageAlternatives.sample_images ?? [])]) {
+    const urls = getNormalizedSceneImageUrls(Array.isArray(values) ? values : []).slice(0, maxSceneImages);
+    if (urls.length === 0) {
+      continue;
+    }
+
+    const signature = JSON.stringify(urls);
+    if (seenSets.has(signature)) {
+      continue;
+    }
+
+    seenSets.add(signature);
+    sets.push(urls);
+  }
+
+  return sets;
 };
+
+const getUrlHost = (url: string): string | null => {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+const createFailedProbeCandidate = (url: string, index: number): ProbedImageCandidate => ({
+  url,
+  index,
+  ok: false,
+  contentLength: null,
+  status: 0,
+  resolvedUrl: url,
+});
 
 const isExtrafanartFolder = (folderName: string): boolean => {
   return (
@@ -118,12 +182,30 @@ const buildSceneImageFileName = (sceneFolder: string, index: number): string => 
   return `scene-${String(index + 1).padStart(3, "0")}.jpg`;
 };
 
+const buildSceneImageTempFileName = (index: number): string =>
+  `.scene-candidate-${String(index + 1).padStart(3, "0")}.jpg`;
+
+const formatCooldownDetails = (cooldownUntil: number, remainingMs: number): string =>
+  `${remainingMs}ms remaining until ${new Date(cooldownUntil).toISOString()}`;
+
 const SCENE_IMAGE_FILE_PATTERN = /^(?:scene-\d+|fanart\d+)\.(?:jpe?g|png|webp)$/iu;
 
 export class DownloadManager {
   private readonly logger = loggerService.getLogger("DownloadManager");
 
-  constructor(private readonly networkClient: NetworkClient) {}
+  private readonly imageHostCooldownStore: PersistentCooldownStore;
+
+  constructor(
+    private readonly networkClient: NetworkClient,
+    options: DownloadManagerOptions = {},
+  ) {
+    this.imageHostCooldownStore =
+      options.imageHostCooldownStore ??
+      new PersistentCooldownStore({
+        fileName: "image-host-cooldowns.json",
+        loggerName: "ImageHostCooldownStore",
+      });
+  }
 
   async downloadAll(
     outputDir: string,
@@ -198,55 +280,56 @@ export class DownloadManager {
       if (keepSceneImages && existingSceneImages.length > 0) {
         assets.sceneImages.push(...existingSceneImages);
       } else {
-        const urls = getSceneImageUrls(data, config.aggregation.behavior.maxSceneImages);
+        const targetSceneCount = Math.max(0, config.aggregation.behavior.maxSceneImages);
+        const sceneImageSets = getSceneImageSets(data, imageAlternatives, targetSceneCount);
 
-        if (urls.length === 0) {
+        if (sceneImageSets.length === 0) {
           if (forceReplaceSceneImages && existingSceneImages.length > 0) {
             await this.removeStaleSceneImages(existingSceneImages, [], sceneDir);
           } else {
             assets.sceneImages.push(...existingSceneImages);
           }
         } else {
-          const sceneTasks: SceneImageTask[] = urls.map((url, index) => ({
-            url,
-            path: join(
+          const successfulTempPaths = await this.downloadSceneImageSets(
+            outputDir,
+            config.paths.sceneImagesFolder,
+            sceneImageSets,
+            targetSceneCount,
+            config.download.sceneImageConcurrency,
+            callbacks,
+          );
+
+          const finalizedSceneCount = Math.min(targetSceneCount, successfulTempPaths.length);
+          for (let index = 0; index < finalizedSceneCount; index += 1) {
+            const tempPath = successfulTempPaths[index];
+            if (!tempPath) {
+              continue;
+            }
+
+            const finalPath = join(
               outputDir,
               config.paths.sceneImagesFolder,
               buildSceneImageFileName(config.paths.sceneImagesFolder, index),
-            ),
-            key: "sceneImages" as const,
-          }));
+            );
 
-          let sceneCompleted = 0;
-          const sceneResults = await this.runParallel(
-            sceneTasks,
-            config.download.sceneImageConcurrency,
-            async (task) => toSceneDownloadResult(this.downloadAndValidateImage(task.url, task.path)),
-            () => {
-              sceneCompleted++;
-              callbacks?.onSceneProgress?.(sceneCompleted, sceneTasks.length);
-            },
-          );
-
-          const existingSceneSet = new Set(existingSceneImages);
-          for (const [index, result] of sceneResults.entries()) {
-            const task = sceneTasks[index];
-            if (!task) {
-              continue;
+            await mkdir(dirname(finalPath), { recursive: true });
+            await unlink(finalPath).catch(() => undefined);
+            if (tempPath !== finalPath) {
+              await rename(tempPath, finalPath);
             }
-
-            if (result?.success) {
-              assets.sceneImages.push(result.path);
-              assets.downloaded.push(result.path);
-              continue;
-            }
-
-            if (existingSceneSet.has(task.path)) {
-              assets.sceneImages.push(task.path);
-            }
+            assets.sceneImages.push(finalPath);
+            assets.downloaded.push(finalPath);
           }
 
-          if (assets.sceneImages.length > 0) {
+          for (let index = finalizedSceneCount; index < successfulTempPaths.length; index += 1) {
+            await unlink(successfulTempPaths[index] ?? "").catch(() => undefined);
+          }
+
+          if (!forceReplaceSceneImages && finalizedSceneCount === 0) {
+            assets.sceneImages.push(...existingSceneImages.slice(0, targetSceneCount));
+          }
+
+          if (assets.sceneImages.length > 0 || forceReplaceSceneImages) {
             await this.removeStaleSceneImages(existingSceneImages, assets.sceneImages, sceneDir);
           }
         }
@@ -272,9 +355,16 @@ export class DownloadManager {
     if (config.download.downloadTrailer) {
       const trailerPath = join(outputDir, "trailer.mp4");
       const url = normalizeUrl(data.trailer_url);
+      const keepTrailer =
+        assetDecisions.trailer === "preserve"
+          ? true
+          : assetDecisions.trailer === "replace"
+            ? false
+            : config.download.keepTrailer;
       const trailerResult = await resolveSingleAsset({
         targetPath: trailerPath,
-        keepExisting: config.download.keepTrailer,
+        keepExisting: keepTrailer,
+        fallbackToExistingOnFailure: assetDecisions.trailer !== "replace",
         create: async () => (url ? this.safeDownload(url, trailerPath) : null),
       });
       if (trailerResult.assetPath) {
@@ -286,6 +376,96 @@ export class DownloadManager {
     }
 
     return assets;
+  }
+
+  private async downloadSceneImageSets(
+    outputDir: string,
+    sceneFolder: string,
+    sceneImageSets: string[][],
+    targetSceneCount: number,
+    maxConcurrent: number,
+    callbacks?: DownloadCallbacks,
+  ): Promise<string[]> {
+    if (targetSceneCount <= 0 || sceneImageSets.length === 0) {
+      return [];
+    }
+
+    for (const [setIndex, urls] of sceneImageSets.entries()) {
+      const attemptedUrls = urls.slice(0, targetSceneCount);
+      this.logger.info(
+        `Trying scene image set ${setIndex + 1}/${sceneImageSets.length} with ${attemptedUrls.length} image(s)`,
+      );
+
+      const downloadedPaths = await this.downloadSceneImageSet(
+        outputDir,
+        sceneFolder,
+        attemptedUrls,
+        maxConcurrent,
+        callbacks,
+      );
+      if (downloadedPaths) {
+        return downloadedPaths;
+      }
+
+      callbacks?.onSceneProgress?.(0, attemptedUrls.length);
+      this.logger.info(`Scene image set ${setIndex + 1}/${sceneImageSets.length} failed; trying next set`);
+    }
+
+    return [];
+  }
+
+  private async downloadSceneImageSet(
+    outputDir: string,
+    sceneFolder: string,
+    urls: string[],
+    maxConcurrent: number,
+    callbacks?: DownloadCallbacks,
+  ): Promise<string[] | null> {
+    if (urls.length === 0) {
+      return [];
+    }
+
+    const results: Array<string | null> = new Array(urls.length).fill(null);
+    const temporaryPaths = new Set<string>();
+    const state = {
+      nextIndex: 0,
+      failed: false,
+    };
+
+    const workerCount = Math.min(urls.length, Math.max(1, maxConcurrent));
+    const runWorker = async (): Promise<void> => {
+      while (!state.failed) {
+        const candidateIndex = state.nextIndex++;
+        const url = urls[candidateIndex];
+        if (!url) {
+          return;
+        }
+
+        const tempPath = join(outputDir, sceneFolder, buildSceneImageTempFileName(candidateIndex));
+        const downloadedPath = await this.downloadAndValidateImage(url, tempPath, {
+          timeoutMs: SCENE_IMAGE_ATTEMPT_TIMEOUT_MS,
+        });
+        if (!downloadedPath) {
+          state.failed = true;
+          return;
+        }
+
+        temporaryPaths.add(downloadedPath);
+        results[candidateIndex] = downloadedPath;
+        callbacks?.onSceneProgress?.(results.filter((item): item is string => Boolean(item)).length, urls.length);
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    const downloadedPaths = results.filter((item): item is string => Boolean(item));
+    if (state.failed || downloadedPaths.length !== urls.length) {
+      for (const filePath of temporaryPaths) {
+        await unlink(filePath).catch(() => undefined);
+      }
+      return null;
+    }
+
+    return downloadedPaths;
   }
 
   private buildPrimaryImageTasks(
@@ -368,48 +548,40 @@ export class DownloadManager {
     onItemComplete?: () => void,
   ): Promise<Array<ParallelResult<K, TValue>>> {
     const results: Array<ParallelResult<K, TValue>> = new Array(tasks.length);
-    let completed = 0;
-    let running = 0;
+    if (tasks.length === 0) {
+      return results;
+    }
+
     let nextIndex = 0;
-
-    if (tasks.length === 0) return results;
-
-    return new Promise((resolve) => {
-      const tryLaunchNext = (): void => {
-        while (running < maxConcurrent && nextIndex < tasks.length) {
-          const taskIndex = nextIndex++;
-          const task = tasks[taskIndex];
-          running++;
-
-          runner(task)
-            .then((value) => {
-              results[taskIndex] = {
-                key: task.key,
-                path: task.path,
-                success: value !== undefined,
-                value,
-              };
-            })
-            .catch((error) => {
-              const message = error instanceof Error ? error.message : String(error);
-              this.logger.warn(`Parallel task failed for ${task.path}: ${message}`);
-              results[taskIndex] = { key: task.key, path: task.path, success: false };
-            })
-            .finally(() => {
-              completed += 1;
-              running--;
-              onItemComplete?.();
-              if (completed === tasks.length) {
-                resolve(results);
-              } else {
-                tryLaunchNext();
-              }
-            });
+    const workerCount = Math.min(tasks.length, Math.max(1, maxConcurrent));
+    const runWorker = async (): Promise<void> => {
+      while (true) {
+        const taskIndex = nextIndex++;
+        const task = tasks[taskIndex];
+        if (!task) {
+          return;
         }
-      };
 
-      tryLaunchNext();
-    });
+        try {
+          const value = await runner(task);
+          results[taskIndex] = {
+            key: task.key,
+            path: task.path,
+            success: value !== undefined,
+            value,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Parallel task failed for ${task.path}: ${message}`);
+          results[taskIndex] = { key: task.key, path: task.path, success: false };
+        } finally {
+          onItemComplete?.();
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    return results;
   }
 
   private async downloadBestImage(candidates: string[], outputPath: string): Promise<string | undefined> {
@@ -427,9 +599,13 @@ export class DownloadManager {
     return undefined;
   }
 
-  private async downloadAndValidateImage(url: string, outputPath: string): Promise<string | null> {
+  private async downloadAndValidateImage(
+    url: string,
+    outputPath: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<string | null> {
     const tempPath = `${outputPath}.part`;
-    const downloadedPath = await this.safeDownload(url, tempPath);
+    const downloadedPath = await this.safeDownload(url, tempPath, options);
     if (!downloadedPath) {
       return null;
     }
@@ -464,18 +640,20 @@ export class DownloadManager {
   }
 
   private async probeImageCandidate(url: string, index: number): Promise<ProbedImageCandidate> {
+    if (this.isHostCoolingDown(url)) {
+      return createFailedProbeCandidate(url, index);
+    }
+
     try {
       const result = await this.networkClient.probe(url);
+      if (!result.ok) {
+        this.recordImageHostFailure(url, `HTTP ${result.status}`);
+      }
       return { ...result, index, url };
-    } catch {
-      return {
-        url,
-        index,
-        ok: false,
-        contentLength: null,
-        status: 0,
-        resolvedUrl: url,
-      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.recordImageHostFailure(url, message);
+      return createFailedProbeCandidate(url, index);
     }
   }
 
@@ -491,13 +669,71 @@ export class DownloadManager {
     }
   }
 
-  private async safeDownload(url: string, outputPath: string): Promise<string | null> {
+  private async safeDownload(
+    url: string,
+    outputPath: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<string | null> {
+    if (this.isHostCoolingDown(url)) {
+      return null;
+    }
+
     try {
-      return await this.networkClient.download(url, outputPath);
+      const downloadedPath = await this.networkClient.download(url, outputPath, {
+        timeout: options.timeoutMs,
+      });
+      this.resetImageHostFailure(url);
+      return downloadedPath;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.recordImageHostFailure(url, message);
       this.logger.warn(`Download failed for ${url}: ${message}`);
       return null;
+    }
+  }
+
+  private isHostCoolingDown(url: string): boolean {
+    const host = getUrlHost(url);
+    if (!host) {
+      return false;
+    }
+
+    const activeCooldown = this.imageHostCooldownStore.getActiveCooldown(host);
+    if (activeCooldown) {
+      this.logger.info(
+        `Skipping ${url}: image host cooldown active for ${host} (${formatCooldownDetails(
+          activeCooldown.cooldownUntil,
+          activeCooldown.remainingMs,
+        )})`,
+      );
+    }
+    return Boolean(activeCooldown);
+  }
+
+  private resetImageHostFailure(url: string): void {
+    const host = getUrlHost(url);
+    if (!host) {
+      return;
+    }
+
+    this.imageHostCooldownStore.reset(host);
+  }
+
+  private recordImageHostFailure(url: string, reason?: string): void {
+    const host = getUrlHost(url);
+    if (!host) {
+      return;
+    }
+
+    const state = this.imageHostCooldownStore.recordFailure(host, IMAGE_HOST_FAILURE_POLICY);
+
+    if (state?.cooldownUntil) {
+      this.logger.warn(
+        `Image host cooldown opened for ${host} for ${IMAGE_HOST_COOLDOWN_MS}ms (${formatCooldownDetails(
+          state.cooldownUntil,
+          Math.max(0, state.cooldownUntil - Date.now()),
+        )}) after ${state.failureCount} failures (${reason ?? "request failed"})`,
+      );
     }
   }
 

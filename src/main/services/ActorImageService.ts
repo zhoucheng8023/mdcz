@@ -27,6 +27,7 @@ type ActorImageIndexEntry = {
   aliases: string[];
   publicFileName?: string;
   blobRelativePath?: string;
+  sourceUrl?: string;
 };
 
 type ActorImageIndex = {
@@ -46,6 +47,7 @@ export interface ActorImageServiceDependencies {
 
 type ActorImageLookupOptions = {
   fallbackBaseDir?: string;
+  expectedRemoteUrl?: string;
 };
 
 const createEmptyIndex = (): ActorImageIndex => ({
@@ -137,10 +139,14 @@ export class ActorImageService {
   ): Promise<string | undefined> {
     const root = resolveActorPhotoFolderPath(configuration, options);
     if (!root) return undefined;
-    return this.resolveLocalImageUnsafe(root, actorNames);
+    return this.resolveLocalImageUnsafe(root, actorNames, options);
   }
 
-  private async resolveLocalImageUnsafe(root: string, actorNames: string[]): Promise<string | undefined> {
+  private async resolveLocalImageUnsafe(
+    root: string,
+    actorNames: string[],
+    options: ActorImageLookupOptions = {},
+  ): Promise<string | undefined> {
     const layout = await this.ensureLayout(root);
     if (!layout) {
       return undefined;
@@ -164,7 +170,7 @@ export class ActorImageService {
       return discoveredPath;
     }
 
-    const restoredPath = await this.resolveExistingEntry(layout, existing);
+    const restoredPath = await this.resolveExistingEntry(layout, existing, options.expectedRemoteUrl);
     if (restoredPath && existing) {
       await this.upsertEntry(layout, names, (current) => {
         if (!current) {
@@ -245,6 +251,7 @@ export class ActorImageService {
       let lookupNames = toUniqueActorNames([actorName, existingProfile?.name, ...(existingProfile?.aliases ?? [])]);
       let localImagePath = await this.resolveLocalImage(configuration, lookupNames, {
         fallbackBaseDir: input.actorPhotoBaseDir,
+        expectedRemoteUrl: isRemoteUrl(existingProfile?.photo_url ?? "") ? existingProfile?.photo_url : undefined,
       });
 
       if (!localImagePath) {
@@ -258,6 +265,7 @@ export class ActorImageService {
         lookupNames = toUniqueActorNames([actorName, existingProfile?.name, ...(existingProfile?.aliases ?? [])]);
         localImagePath = await this.resolveLocalImage(configuration, lookupNames, {
           fallbackBaseDir: input.actorPhotoBaseDir,
+          expectedRemoteUrl: isRemoteUrl(existingProfile?.photo_url ?? "") ? existingProfile?.photo_url : undefined,
         });
       }
 
@@ -265,6 +273,32 @@ export class ActorImageService {
         localImagePath = await this.cacheProfileImage(configuration, lookupNames, existingProfile?.photo_url, {
           fallbackBaseDir: input.actorPhotoBaseDir,
         });
+      }
+
+      if (!localImagePath) {
+        const refreshedProfile = await this.resolveActorProfile(
+          configuration,
+          actorName,
+          existingProfile,
+          input.actorSourceProvider,
+          input.sourceHints,
+          { forceLookup: true },
+        );
+
+        if (refreshedProfile?.photo_url && refreshedProfile.photo_url !== existingProfile?.photo_url) {
+          existingProfile = refreshedProfile;
+          lookupNames = toUniqueActorNames([actorName, existingProfile.name, ...(existingProfile.aliases ?? [])]);
+          localImagePath = await this.resolveLocalImage(configuration, lookupNames, {
+            fallbackBaseDir: input.actorPhotoBaseDir,
+            expectedRemoteUrl: isRemoteUrl(existingProfile.photo_url ?? "") ? existingProfile.photo_url : undefined,
+          });
+
+          if (!localImagePath) {
+            localImagePath = await this.cacheProfileImage(configuration, lookupNames, existingProfile.photo_url, {
+              fallbackBaseDir: input.actorPhotoBaseDir,
+            });
+          }
+        }
       }
 
       if (!localImagePath) {
@@ -293,22 +327,31 @@ export class ActorImageService {
     existingProfile: ActorProfile | undefined,
     actorSourceProvider?: ActorSourceProvider,
     sourceHints?: ActorSourceHint[],
+    options: { forceLookup?: boolean } = {},
   ): Promise<ActorProfile | undefined> {
-    if (hasActorPhoto(existingProfile) || !actorSourceProvider) {
+    if ((!options.forceLookup && hasActorPhoto(existingProfile)) || !actorSourceProvider) {
       return existingProfile;
     }
 
     const lookup = await actorSourceProvider.lookup(configuration, {
       name: actorName,
       aliases: existingProfile?.aliases,
+      requiredField: "photo_url",
       sourceHints,
     });
 
+    if (lookup.profile.photo_url) {
+      this.logger.info(
+        `Resolved actor photo for ${actorName} from ${lookup.profileSources.photo_url ?? "unknown"}: ${lookup.profile.photo_url}`,
+      );
+    }
+
     return (
       mergeActorProfiles(
-        [{ name: actorName, aliases: existingProfile?.aliases }, existingProfile, lookup.profile].filter(
-          (profile): profile is ActorProfile => Boolean(profile),
-        ),
+        [
+          { name: actorName, aliases: existingProfile?.aliases },
+          ...(options.forceLookup ? [lookup.profile, existingProfile] : [existingProfile, lookup.profile]),
+        ].filter((profile): profile is ActorProfile => Boolean(profile)),
       ) ?? existingProfile
     );
   }
@@ -369,8 +412,9 @@ export class ActorImageService {
     const index = await this.readIndex(layout.indexPath);
     const existing = this.findEntry(index, names);
     const existingBlobPath = existing?.blobRelativePath && join(layout.cacheRoot, existing.blobRelativePath);
+    const normalizedRemoteUrl = remoteUrl.trim();
 
-    if (existingBlobPath && (await pathExists(existingBlobPath))) {
+    if (existingBlobPath && existing?.sourceUrl === normalizedRemoteUrl && (await pathExists(existingBlobPath))) {
       await this.upsertEntry(layout, names, (current) => {
         if (!current) {
           return existing;
@@ -378,6 +422,7 @@ export class ActorImageService {
         return this.createOrMergeEntry(current, names, {
           publicFileName: current.publicFileName,
           blobRelativePath: current.blobRelativePath,
+          sourceUrl: current.sourceUrl,
         });
       });
       return existingBlobPath;
@@ -410,10 +455,11 @@ export class ActorImageService {
           const current = this.findEntry(currentIndex, names);
           const currentBlobPath = current?.blobRelativePath && join(layout.cacheRoot, current.blobRelativePath);
 
-          if (currentBlobPath && (await pathExists(currentBlobPath))) {
+          if (currentBlobPath && current?.sourceUrl === normalizedRemoteUrl && (await pathExists(currentBlobPath))) {
             const nextEntry = this.createOrMergeEntry(current, names, {
               publicFileName: current.publicFileName,
               blobRelativePath: current.blobRelativePath,
+              sourceUrl: current.sourceUrl,
             });
             await this.writeEntryIfChanged(layout.indexPath, currentIndex, current, nextEntry);
             return currentBlobPath;
@@ -427,6 +473,7 @@ export class ActorImageService {
           const nextEntry = this.createOrMergeEntry(current, names, {
             publicFileName: current?.publicFileName,
             blobRelativePath,
+            sourceUrl: normalizedRemoteUrl,
           });
           await this.writeEntryIfChanged(layout.indexPath, currentIndex, current, nextEntry);
           return blobPath;
@@ -501,6 +548,7 @@ export class ActorImageService {
   private async resolveExistingEntry(
     layout: ActorImageLayout,
     entry: ActorImageIndexEntry | undefined,
+    expectedRemoteUrl?: string,
   ): Promise<string | undefined> {
     if (entry?.publicFileName) {
       const publicPath = join(layout.root, entry.publicFileName);
@@ -515,6 +563,10 @@ export class ActorImageService {
 
     const blobPath = join(layout.cacheRoot, entry.blobRelativePath);
     if (!(await pathExists(blobPath))) {
+      return undefined;
+    }
+
+    if (expectedRemoteUrl && entry.sourceUrl !== expectedRemoteUrl.trim()) {
       return undefined;
     }
 
@@ -546,7 +598,7 @@ export class ActorImageService {
   private createOrMergeEntry(
     existing: ActorImageIndexEntry | undefined,
     names: string[],
-    next: Pick<ActorImageIndexEntry, "publicFileName" | "blobRelativePath">,
+    next: Pick<ActorImageIndexEntry, "publicFileName" | "blobRelativePath" | "sourceUrl">,
   ): ActorImageIndexEntry {
     const canonicalName = existing?.displayName ?? names[0] ?? "";
     const normalizedName = existing?.normalizedName ?? normalizeActorName(canonicalName);
@@ -560,6 +612,7 @@ export class ActorImageService {
       aliases,
       publicFileName: next.publicFileName ?? existing?.publicFileName,
       blobRelativePath: next.blobRelativePath ?? existing?.blobRelativePath,
+      sourceUrl: next.sourceUrl ?? existing?.sourceUrl,
     };
   }
 
@@ -602,6 +655,7 @@ export class ActorImageService {
       left.displayName === right.displayName &&
       left.publicFileName === right.publicFileName &&
       left.blobRelativePath === right.blobRelativePath &&
+      left.sourceUrl === right.sourceUrl &&
       left.aliases.length === right.aliases.length &&
       left.aliases.every((alias, index) => alias === right.aliases[index])
     );

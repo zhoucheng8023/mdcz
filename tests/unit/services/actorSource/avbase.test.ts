@@ -72,7 +72,6 @@ describe("AvbaseActorSource", () => {
 
       throw new Error(`Unexpected URL ${url}`);
     });
-
     const source = new AvbaseActorSource({
       networkClient: networkClient as unknown as NetworkClient,
     });
@@ -132,7 +131,8 @@ describe("AvbaseActorSource", () => {
             id: 49045,
             name: "北川美玖",
             ruby: "きたがわみく",
-            image_url: "",
+            url: "https://www.avbase.net/actors/49045",
+            image_url: "https://cdn.example.com/actor.jpg",
             note: null,
           },
           actors: [],
@@ -151,6 +151,7 @@ describe("AvbaseActorSource", () => {
     expect(result.success).toBe(true);
     expect(result.profile?.name).toBe("北川美玖");
     expect(result.profile?.aliases).toContain("きたがわみく");
+    expect(result.profile?.photo_url).toBe("https://cdn.example.com/actor.jpg");
   });
 
   it("does not fall back to the first unrelated candidate when multiple results exist", async () => {

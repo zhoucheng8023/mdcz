@@ -78,7 +78,7 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
 ];
 const LANGUAGE_OPTIONS = ["zh-CN", "zh-TW", "ja-JP", "en-US"];
 const ACTOR_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"];
-const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avjoho", "avbase"];
+const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avbase"];
 
 // ── Field registry for search/filter ──
 

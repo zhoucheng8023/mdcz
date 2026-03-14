@@ -143,7 +143,7 @@ export class DmmCrawler extends BaseDmmCrawler {
     }
     const title = baseData.title;
 
-    baseData = await this.optimizeAwsImages(baseData, context.number00, context.numberNo00);
+    baseData = await this.optimizeAwsImages(baseData, context, context.number00, context.numberNo00);
 
     return {
       title,

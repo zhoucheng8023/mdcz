@@ -20,7 +20,7 @@ import type {
 import type { SourceMap } from "../aggregation/types";
 import type { OrganizePlan } from "../FileOrganizer";
 import type { FileScrapeProgress, FileScraperDependencies } from "../FileScraper";
-import { prepareCrawlerDataForNfo } from "../prepareCrawlerDataForNfo";
+import { prepareCrawlerDataForMovieOutput } from "../prepareCrawlerDataForMovieOutput";
 import { partitionCrawlerDataWithOptions } from "./diffCrawlerData";
 import { diffPaths } from "./diffPaths";
 import type { MaintenancePreset } from "./presets";
@@ -102,8 +102,19 @@ export class MaintenanceFileScraper {
           });
       const { crawlerData, fieldDiffs, unchangedFieldDiffs, aggregationSources, imageAlternatives, plan, pathDiff } =
         prepared;
-      let preparedCrawlerData = crawlerData;
-      let preparedActorPhotoPaths: string[] = [];
+      const preparedOutputData = crawlerData
+        ? await prepareCrawlerDataForMovieOutput(this.actorImageService, config, crawlerData, {
+            enabled: Boolean(plan && (steps.generateNfo || steps.download)),
+            movieDir: plan?.outputDir,
+            sourceVideoPath: fileInfo.filePath,
+            actorSourceProvider: this.deps.actorSourceProvider,
+          })
+        : {
+            data: crawlerData,
+            actorPhotoPaths: [],
+          };
+      const preparedCrawlerData = preparedOutputData.data;
+      const preparedActorPhotoPaths = preparedOutputData.actorPhotoPaths;
 
       // Step 4: Download assets (if enabled)
       let assets: DownloadedAssets = {
@@ -115,23 +126,29 @@ export class MaintenanceFileScraper {
         downloaded: [],
       };
 
-      if (steps.download && plan && crawlerData) {
+      if (steps.download && plan && preparedCrawlerData) {
         this.deps.signalService.showLogText(`[${fileInfo.number}] Downloading resources...`);
-        const forceReplace = this.getForcedPrimaryImageRefresh(entry, crawlerData);
-        assets = await this.deps.downloadManager.downloadAll(plan.outputDir, crawlerData, config, imageAlternatives, {
-          onSceneProgress: (downloaded, total) => {
-            this.deps.signalService.showLogText(`[${fileInfo.number}] Scene images: ${downloaded}/${total}`);
+        const forceReplace = this.getForcedPrimaryImageRefresh(entry, preparedCrawlerData);
+        assets = await this.deps.downloadManager.downloadAll(
+          plan.outputDir,
+          preparedCrawlerData,
+          config,
+          imageAlternatives,
+          {
+            onSceneProgress: (downloaded, total) => {
+              this.deps.signalService.showLogText(`[${fileInfo.number}] Scene images: ${downloaded}/${total}`);
+            },
+            forceReplace,
+            assetDecisions: committed?.assetDecisions,
           },
-          forceReplace,
-          assetDecisions: committed?.assetDecisions,
-        });
+        );
       }
 
       this.setProgress(progress, 75);
 
       // Step 5: Generate NFO (if enabled)
       let savedNfoPath: string | undefined;
-      if (steps.generateNfo && plan && crawlerData) {
+      if (steps.generateNfo && plan && preparedCrawlerData) {
         this.deps.signalService.showLogText(`[${fileInfo.number}] Generating NFO...`);
         let videoMeta: VideoMeta | undefined;
         try {
@@ -139,13 +156,6 @@ export class MaintenanceFileScraper {
         } catch {
           this.logger.warn(`Video probe failed for ${fileInfo.filePath}`);
         }
-        const preparedNfoData = await prepareCrawlerDataForNfo(this.actorImageService, config, crawlerData, {
-          movieDir: plan.outputDir,
-          sourceVideoPath: fileInfo.filePath,
-          actorSourceProvider: this.deps.actorSourceProvider,
-        });
-        preparedCrawlerData = preparedNfoData.data;
-        preparedActorPhotoPaths = preparedNfoData.actorPhotoPaths;
         savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedCrawlerData, {
           assets,
           sources: aggregationSources,
@@ -169,6 +179,7 @@ export class MaintenanceFileScraper {
         assets,
         savedNfoPath,
         preparedActorPhotoPaths,
+        committed?.assetDecisions,
       );
       const resolvedAssets = this.toDownloadedAssets(assets, resolvedArtifacts.assets);
       const updatedEntry = this.buildUpdatedEntry(entry, preparedCrawlerData, {
@@ -395,6 +406,7 @@ export class MaintenanceFileScraper {
     assets: DownloadedAssets,
     savedNfoPath?: string,
     preparedActorPhotoPaths: string[] = [],
+    assetDecisions?: MaintenanceAssetDecisions,
   ): Promise<ResolvedMaintenanceArtifacts> {
     if (!plan) {
       const nfoPath = savedNfoPath ?? entry.nfoPath;
@@ -422,7 +434,9 @@ export class MaintenanceFileScraper {
         poster: await this.resolvePrimaryAsset(entry.assets.poster, assets.poster, outputDir),
         fanart: await this.resolvePrimaryAsset(entry.assets.fanart, assets.fanart, outputDir),
         sceneImages: await this.resolveAssetCollection(entry.assets.sceneImages, assets.sceneImages, outputDir),
-        trailer: await this.resolvePrimaryAsset(entry.assets.trailer, assets.trailer, outputDir),
+        trailer: await this.resolvePrimaryAsset(entry.assets.trailer, assets.trailer, outputDir, {
+          discardExisting: assetDecisions?.trailer === "replace" && !assets.trailer,
+        }),
         nfo: nfoPath,
         actorPhotos:
           preparedActorPhotoPaths.length > 0
@@ -453,6 +467,9 @@ export class MaintenanceFileScraper {
     sourcePath: string | undefined,
     preferredPath: string | undefined,
     outputDir: string,
+    options: {
+      discardExisting?: boolean;
+    } = {},
   ): Promise<string | undefined> {
     if (preferredPath) {
       return preferredPath;
@@ -462,7 +479,13 @@ export class MaintenanceFileScraper {
       return undefined;
     }
 
-    return await this.moveKnownAsset(sourcePath, join(outputDir, basename(sourcePath)));
+    const targetPath = join(outputDir, basename(sourcePath));
+    if (options.discardExisting) {
+      await this.removeKnownAsset(sourcePath, targetPath);
+      return undefined;
+    }
+
+    return await this.moveKnownAsset(sourcePath, targetPath);
   }
 
   private async resolveAssetCollection(
@@ -503,6 +526,17 @@ export class MaintenanceFileScraper {
     }
 
     return await moveFileSafely(sourcePath, targetPath);
+  }
+
+  private async removeKnownAsset(sourcePath: string | undefined, targetPath: string): Promise<void> {
+    const candidates = new Set([sourcePath, targetPath].filter((value): value is string => Boolean(value)));
+    for (const filePath of candidates) {
+      if (!(await pathExists(filePath))) {
+        continue;
+      }
+
+      await unlink(filePath).catch(() => undefined);
+    }
   }
 
   private async removeStaleOriginalNfo(originalNfoPath: string | undefined, savedNfoPath: string): Promise<void> {

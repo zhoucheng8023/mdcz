@@ -44,7 +44,11 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   ...overrides,
 });
 
-const createEntry = (root: string, crawlerData: CrawlerData): LocalScanEntry => ({
+const createEntry = (
+  root: string,
+  crawlerData: CrawlerData,
+  overrides: Partial<LocalScanEntry> = {},
+): LocalScanEntry => ({
   id: "entry-1",
   videoPath: join(root, "ABC-123.mp4"),
   fileInfo: {
@@ -60,8 +64,10 @@ const createEntry = (root: string, crawlerData: CrawlerData): LocalScanEntry => 
     sceneImages: [],
     actorPhotos: [],
     nfo: join(root, "ABC-123.nfo"),
+    ...(overrides.assets ?? {}),
   },
   currentDir: root,
+  ...overrides,
 });
 
 const createPlan = (root: string): OrganizePlan => {
@@ -254,5 +260,51 @@ describe("MaintenanceFileScraper actor image parity", () => {
 
     expect(preparedData.actor_profiles).toEqual([{ name: "Actor A", photo_url: ".actors/Actor A.png" }]);
     expect(await readFile(join(plan.outputDir, ".actors", "Actor A.png"))).toEqual(validPngBytes);
+  });
+
+  it("removes a stale local trailer when maintenance explicitly replaces it with no new trailer asset", async () => {
+    const root = await createTempDir();
+    await createUserDataDir();
+    const oldTrailerPath = join(root, "trailer.mp4");
+    await writeFile(oldTrailerPath, "old-trailer", "utf8");
+
+    const { scraper, config } = createScraperHarness(root, {
+      downloadAll: vi.fn().mockResolvedValue({
+        downloaded: [],
+        sceneImages: [],
+      }),
+    });
+
+    const result = await scraper.processFile(
+      createEntry(
+        root,
+        createCrawlerData({
+          trailer_url: "https://example.com/trailer-old.mp4",
+        }),
+        {
+          assets: {
+            sceneImages: [],
+            actorPhotos: [],
+            nfo: join(root, "ABC-123.nfo"),
+            trailer: oldTrailerPath,
+          },
+        },
+      ),
+      config,
+      { fileIndex: 1, totalFiles: 1 },
+      undefined,
+      {
+        crawlerData: createCrawlerData({
+          trailer_url: undefined,
+        }),
+        assetDecisions: {
+          trailer: "replace",
+        },
+      },
+    );
+
+    expect(result.scrapeResult.status).toBe("success");
+    expect(result.updatedEntry?.assets.trailer).toBeUndefined();
+    await expect(readFile(oldTrailerPath, "utf8")).rejects.toThrow();
   });
 });

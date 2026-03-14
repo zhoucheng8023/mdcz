@@ -226,6 +226,39 @@ describe("buildMaintenanceCommitItem", () => {
     });
   });
 
+  it("marks trailers for replacement when the new trailer URL is selected", () => {
+    const entry = createEntry(
+      createCrawlerData({
+        trailer_url: "https://example.com/trailer-old.mp4",
+      }),
+    );
+    const preview: MaintenancePreviewItem = {
+      entryId: entry.id,
+      status: "ready",
+      proposedCrawlerData: createCrawlerData({
+        trailer_url: "https://example.com/trailer-new.mp4",
+      }),
+      fieldDiffs: [
+        createValueDiff({
+          field: "trailer_url",
+          label: "预告片",
+          oldValue: "https://example.com/trailer-old.mp4",
+          newValue: "https://example.com/trailer-new.mp4",
+          changed: true,
+        }),
+      ],
+    };
+
+    const item = buildMaintenanceCommitItem(entry, preview, {
+      trailer_url: "new",
+    });
+
+    expect(item.crawlerData?.trailer_url).toBe("https://example.com/trailer-new.mp4");
+    expect(item.assetDecisions).toEqual({
+      trailer: "replace",
+    });
+  });
+
   it("replays selected local poster/thumb assets back into the committed crawler data when NFO parsing failed", () => {
     const entry: LocalScanEntry = {
       ...createEntry(),

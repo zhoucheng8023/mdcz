@@ -284,6 +284,10 @@ const buildAssetDecisions = (
     if (diff.field === "sample_images" && diff.kind === "imageCollection") {
       assetDecisions.sceneImages = selection === "old" ? "preserve" : "replace";
     }
+
+    if (diff.field === "trailer_url" && diff.kind === "value") {
+      assetDecisions.trailer = selection === "old" ? "preserve" : "replace";
+    }
   }
 
   return Object.keys(assetDecisions).length > 0 ? assetDecisions : undefined;
@@ -322,6 +326,11 @@ export const buildMaintenanceCommitItem = (
   for (const diff of preview?.fieldDiffs ?? []) {
     const selectedSide = fieldSelections?.[diff.field] ?? getDefaultMaintenanceFieldSelection(diff);
     addFanartPreviewFallbacks(diff, selectedSide, filteredAlternatives);
+    if (diff.field === "sample_images" && diff.kind === "imageCollection" && selectedSide === "new") {
+      if (imageAlternatives?.sample_images?.length) {
+        filteredAlternatives.sample_images = imageAlternatives.sample_images;
+      }
+    }
   }
 
   return {

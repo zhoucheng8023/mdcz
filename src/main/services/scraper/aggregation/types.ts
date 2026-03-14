@@ -8,6 +8,7 @@ export interface ImageAlternatives {
   thumb_url: string[];
   poster_url: string[];
   fanart_url: string[];
+  sample_images: string[][];
 }
 
 /** Result of aggregating crawler data from multiple sources. */
@@ -32,6 +33,7 @@ export interface AggregationStats {
   totalSites: number;
   successCount: number;
   failedCount: number;
+  skippedCount: number;
   siteResults: SiteCrawlResult[];
   totalElapsedMs: number;
 }

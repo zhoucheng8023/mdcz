@@ -92,9 +92,7 @@ const downloadSchema = z.object({
 
 const personSyncSchema = z.object({
   personOverviewSources: z.array(z.enum(ACTOR_OVERVIEW_SOURCE_OPTIONS)).default(["official", "avjoho", "avbase"]),
-  personImageSources: z
-    .array(z.enum(ACTOR_IMAGE_SOURCE_OPTIONS))
-    .default(["local", "official", "gfriends", "avjoho", "avbase"]),
+  personImageSources: z.array(z.enum(ACTOR_IMAGE_SOURCE_OPTIONS)).default(["local", "official", "gfriends", "avbase"]),
 });
 
 const jellyfinSchema = z.object({

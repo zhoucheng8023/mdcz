@@ -1,0 +1,94 @@
+import { ActorSourceProvider, ActorSourceRegistry, type BaseActorSource } from "@main/services/actorSource";
+import { configurationSchema, defaultConfiguration } from "@main/services/config";
+import type { ActorProfile } from "@shared/types";
+import { describe, expect, it, vi } from "vitest";
+
+const createConfig = (overrides: Record<string, unknown> = {}) =>
+  configurationSchema.parse({
+    ...defaultConfiguration,
+    ...overrides,
+  });
+
+const createSource = (
+  name: BaseActorSource["name"],
+  profile: Partial<ActorProfile> | undefined,
+): BaseActorSource & { lookup: ReturnType<typeof vi.fn> } => {
+  return {
+    name,
+    lookup: vi.fn(async () => ({
+      source: name,
+      success: true,
+      profile: profile ? { name: "Actor A", ...profile } : undefined,
+      warnings: [],
+    })),
+  };
+};
+
+describe("ActorSourceProvider image lookup", () => {
+  it("prioritizes configured image sources for photo-only lookups", async () => {
+    const official = createSource("official", {
+      photo_url: "https://official.example.com/actor-a.jpg",
+    });
+    const avbase = createSource("avbase", {
+      photo_url: "https://avbase.example.com/actor-a.jpg",
+    });
+
+    const provider = new ActorSourceProvider({
+      registry: new ActorSourceRegistry([official, avbase]),
+    });
+
+    const result = await provider.lookup(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["avjoho", "avbase", "official"],
+          personImageSources: ["official", "avbase"],
+        },
+      }),
+      {
+        name: "Actor A",
+        requiredField: "photo_url",
+      },
+    );
+
+    expect(result.profile?.photo_url).toBe("https://official.example.com/actor-a.jpg");
+    expect(result.profileSources.photo_url).toBe("official");
+    expect(official.lookup).toHaveBeenCalledTimes(1);
+    expect(avbase.lookup).toHaveBeenCalledTimes(1);
+    expect(official.lookup.mock.invocationCallOrder[0]).toBeLessThan(avbase.lookup.mock.invocationCallOrder[0]);
+  });
+
+  it("ignores avjoho photo_url while keeping its overview metadata in full lookups", async () => {
+    const avjoho = createSource("avjoho", {
+      photo_url: "https://db.avjoho.com/wp-content/uploads/veo00064ps.jpg",
+      description: "AVJOHO profile",
+    });
+    const avbase = createSource("avbase", {
+      photo_url: "https://pics.dmm.co.jp/mono/actjpgs/nanase_arisu.jpg",
+    });
+
+    const provider = new ActorSourceProvider({
+      registry: new ActorSourceRegistry([avjoho, avbase]),
+    });
+
+    const result = await provider.lookup(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["avjoho", "avbase", "official"],
+          personImageSources: ["local", "avbase"],
+        },
+      }),
+      {
+        name: "七瀬アリス",
+      },
+    );
+
+    expect(result.profile?.description).toBe("AVJOHO profile");
+    expect(result.profile?.photo_url).toBe("https://pics.dmm.co.jp/mono/actjpgs/nanase_arisu.jpg");
+    expect(result.profileSources.description).toBe("avjoho");
+    expect(result.profileSources.photo_url).toBe("avbase");
+    expect(avjoho.lookup).toHaveBeenCalledTimes(1);
+    expect(avbase.lookup).toHaveBeenCalledTimes(1);
+  });
+});

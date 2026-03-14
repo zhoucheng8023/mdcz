@@ -14,7 +14,7 @@ import type { AggregationService } from "./aggregation";
 import type { DownloadManager } from "./DownloadManager";
 import type { FileOrganizer } from "./FileOrganizer";
 import type { NfoGenerator } from "./NfoGenerator";
-import { prepareCrawlerDataForNfo } from "./prepareCrawlerDataForNfo";
+import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import type { TranslateService } from "./TranslateService";
 
 export interface FileScraperDependencies {
@@ -89,10 +89,20 @@ export class FileScraper {
       }
 
       this.setProgress(progress, 30);
-      let plan = this.deps.fileOrganizer.plan(fileInfo, crawlerData, configuration);
-      plan = await this.deps.fileOrganizer.ensureOutputReady(plan, fileInfo.filePath);
-
       const translated = await this.deps.translateService.translateCrawlerData(crawlerData, configuration);
+      let plan = this.deps.fileOrganizer.plan(fileInfo, translated, configuration);
+      plan = await this.deps.fileOrganizer.ensureOutputReady(plan, fileInfo.filePath);
+      const preparedOutputData = await prepareCrawlerDataForMovieOutput(
+        this.actorImageService,
+        configuration,
+        translated,
+        {
+          enabled: true,
+          movieDir: plan.outputDir,
+          sourceVideoPath: fileInfo.filePath,
+          actorSourceProvider: this.deps.actorSourceProvider,
+        },
+      );
       this.setProgress(progress, 50);
 
       this.deps.signalService.showScrapeInfo({
@@ -103,7 +113,7 @@ export class FileScraper {
 
       const assets = await this.deps.downloadManager.downloadAll(
         plan.outputDir,
-        translated,
+        preparedOutputData.data,
         configuration,
         aggregationResult.imageAlternatives,
         {
@@ -114,18 +124,12 @@ export class FileScraper {
       );
       this.setProgress(progress, 75);
 
-      let preparedData = translated;
+      const preparedData = preparedOutputData.data;
       let savedNfoPath: string | undefined;
       if (configuration.download.downloadNfo) {
         if (configuration.download.keepNfo && (await pathExists(plan.nfoPath))) {
           savedNfoPath = plan.nfoPath;
         } else {
-          const preparedNfoData = await prepareCrawlerDataForNfo(this.actorImageService, configuration, translated, {
-            movieDir: plan.outputDir,
-            sourceVideoPath: fileInfo.filePath,
-            actorSourceProvider: this.deps.actorSourceProvider,
-          });
-          preparedData = preparedNfoData.data;
           savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedData, {
             assets,
             sources: aggregationResult.sources,

@@ -72,6 +72,7 @@ export abstract class BaseDmmCrawler extends BaseCrawler {
 
   protected async optimizeAwsImages(
     data: Partial<CrawlerData>,
+    context: Context,
     number00?: string,
     numberNo00?: string,
   ): Promise<Partial<CrawlerData>> {
@@ -89,7 +90,7 @@ export abstract class BaseDmmCrawler extends BaseCrawler {
     const results = await Promise.all(
       awsCandidates.map(async (awsUrl) => {
         try {
-          return (await this.isValidAwsImage(awsUrl)) ? awsUrl : null;
+          return (await this.isValidAwsImage(awsUrl, context)) ? awsUrl : null;
         } catch {
           return null;
         }
@@ -109,8 +110,11 @@ export abstract class BaseDmmCrawler extends BaseCrawler {
     return data;
   }
 
-  private async isValidAwsImage(awsUrl: string): Promise<boolean> {
-    const probe = await this.gateway.probeUrl(toAwsProbeUrl(awsUrl), { method: "GET" });
+  private async isValidAwsImage(awsUrl: string, context: Context): Promise<boolean> {
+    const probe = await this.gateway.probeUrl(toAwsProbeUrl(awsUrl), {
+      ...this.createFetchOptions(context),
+      method: "GET",
+    });
     return probe.ok && !isAwsPlaceholderUrl(probe.resolvedUrl);
   }
 }

@@ -216,6 +216,42 @@ const compareScores = (left: [number, number, number, number], right: [number, n
 
 type AvbasePageProps = NonNullable<NonNullable<AvbaseNextData["props"]>["pageProps"]>;
 
+const ACTOR_BLOCK_LABELS = ["出演者・メモ", "出演者"] as const;
+
+const ownText = ($: CheerioAPI, element: Parameters<CheerioAPI>[0]): string => {
+  const clone = $(element).clone();
+  clone.children().remove();
+  return normalizeText(clone.text());
+};
+
+const extractActorNamesFromScope = ($: CheerioAPI, scope: Parameters<CheerioAPI>[0]): string[] => {
+  return uniqueStrings(
+    $(scope)
+      .find("a[href*='/talents/'] span")
+      .toArray()
+      .map((element) => toNonEmptyString($(element).text())),
+  );
+};
+
+const readDomActors = ($: CheerioAPI): string[] => {
+  for (const element of $("body *").toArray()) {
+    const text = ownText($, element);
+    if (!ACTOR_BLOCK_LABELS.some((label) => text.includes(label))) {
+      continue;
+    }
+
+    const parent = $(element).parent();
+    for (const scope of [parent, parent.next(), parent.parent()]) {
+      const actorNames = extractActorNamesFromScope($, scope);
+      if (actorNames.length > 0) {
+        return actorNames;
+      }
+    }
+  }
+
+  return [];
+};
+
 const readPageProps = ($: CheerioAPI): AvbasePageProps | undefined => {
   const raw = $("script#__NEXT_DATA__").first().text().trim();
   if (!raw) {
@@ -290,10 +326,14 @@ export class AvbaseCrawler extends BaseCrawler {
       return null;
     }
 
-    const actors = uniqueStrings([
-      ...(work?.casts ?? []).map((entry) => toNonEmptyString(entry.actor?.name)),
-      ...(work?.actors ?? []).map((actor) => toNonEmptyString(actor.name)),
-    ]);
+    const domActors = readDomActors($);
+    const castActors = uniqueStrings((work?.casts ?? []).map((entry) => toNonEmptyString(entry.actor?.name)));
+    const actors =
+      domActors.length > 0
+        ? domActors
+        : castActors.length > 0
+          ? castActors
+          : uniqueStrings((work?.actors ?? []).map((actor) => toNonEmptyString(actor.name)));
     const genres = uniqueStrings((work?.genres ?? []).map((genre) => toNonEmptyString(genre.name)));
     const title = stripTrailingActorsFromTitle(rawTitle, actors);
     const products = work?.products ?? [];

@@ -45,7 +45,7 @@ export class PrestigeCrawler extends BaseCrawler {
   }
 
   protected async parseSearchPage(context: Context, _$: CheerioAPI, searchUrl: string): Promise<string | null> {
-    const payload = await this.gateway.fetchJson<PrestigeSearchResponse>(searchUrl);
+    const payload = await this.gateway.fetchJson<PrestigeSearchResponse>(searchUrl, this.createFetchOptions(context));
     const found = (payload.hits?.hits ?? []).find((item) =>
       item._source?.deliveryItemId?.endsWith(context.number.toUpperCase()),
     );
@@ -54,7 +54,7 @@ export class PrestigeCrawler extends BaseCrawler {
   }
 
   protected async parseDetailPage(context: Context, _$: CheerioAPI, detailUrl: string): Promise<CrawlerData | null> {
-    const data = await this.gateway.fetchJson<PrestigeProductResponse>(detailUrl);
+    const data = await this.gateway.fetchJson<PrestigeProductResponse>(detailUrl, this.createFetchOptions(context));
     const title = data.title?.replace("【配信専用】", "").trim();
     if (!title) {
       return null;

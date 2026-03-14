@@ -2,8 +2,7 @@ import { loggerService } from "@main/services/LoggerService";
 import type { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { type CheerioAPI, load } from "cheerio";
-
-import type { FetchGateway } from "../FetchGateway";
+import type { FetchGateway, FetchOptions } from "../FetchGateway";
 
 import type {
   AdapterDependencies,
@@ -176,13 +175,7 @@ export abstract class BaseCrawler implements SiteAdapter {
   }
 
   protected async fetch(url: string, context: Context): Promise<string> {
-    const headers = this.buildHeaders(context);
-    return this.gateway.fetchHtml(url, {
-      timeout: context.options.timeoutMs,
-      headers,
-      signal: context.options.signal,
-      cookies: context.options.cookies,
-    });
+    return this.gateway.fetchHtml(url, this.createFetchOptions(context));
   }
 
   protected buildHeaders(context: Context): Record<string, string> {
@@ -201,6 +194,15 @@ export abstract class BaseCrawler implements SiteAdapter {
     }
 
     return headers;
+  }
+
+  protected createFetchOptions(context: Context): FetchOptions {
+    return {
+      timeout: context.options.timeoutMs,
+      headers: this.buildHeaders(context),
+      signal: context.options.signal,
+      cookies: context.options.cookies,
+    };
   }
 
   private normalizeCrawlerData(context: Context, data: CrawlerData): CrawlerData {

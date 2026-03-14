@@ -169,6 +169,31 @@ describe("FileOrganizer naming settings", () => {
     expect(parse(plan.nfoPath).base).toBe("raw-source.nfo");
   });
 
+  it("removes dangling separators when a template field is empty", () => {
+    const config = createConfig({
+      naming: {
+        folderTemplate: "{studio}/{number}",
+        fileTemplate: "{studio} - {number}",
+      },
+    });
+
+    const organizer = new FileOrganizer();
+    const plan = organizer.plan(
+      createFileInfo({
+        filePath: "/input/source.mp4",
+        fileName: "source",
+      }),
+      createCrawlerData({
+        number: "XYZ-999",
+        studio: undefined,
+      }),
+      config,
+    );
+
+    expect(parse(plan.outputDir).base).toBe("XYZ-999-CEN");
+    expect(parse(plan.targetVideoPath).name).toBe("XYZ-999-CEN");
+  });
+
   it("keeps local metadata beside the source video when move is disabled", () => {
     const config = createConfig({
       naming: {

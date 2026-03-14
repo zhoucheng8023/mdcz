@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import { FixtureNetworkClient, withGateway } from "./fixtures";
 
-const createNextDataHtml = (pageProps: Record<string, unknown>): string => {
-  return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps } })}</script></body></html>`;
+const createNextDataHtml = (pageProps: Record<string, unknown>, bodyHtml = ""): string => {
+  return `<html><body>${bodyHtml}<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps } })}</script></body></html>`;
 };
 
 interface ProductOptions {
@@ -78,6 +78,7 @@ const createSearchWork = ({
 
 interface DetailWorkOptions {
   actors?: string[];
+  detailActors?: string[];
   genres?: string[];
   minDate?: string;
   products?: ReturnType<typeof createProduct>[];
@@ -87,6 +88,7 @@ interface DetailWorkOptions {
 
 const createDetailWork = ({
   actors = [],
+  detailActors = [],
   genres = [],
   minDate = "Wed Mar 11 2026 09:00:00 GMT+0900 (Japan Standard Time)",
   products = [],
@@ -102,6 +104,9 @@ const createDetailWork = ({
       actor: {
         name,
       },
+    })),
+    actors: detailActors.map((name) => ({
+      name,
     })),
     genres: genres.map((name) => ({ name })),
     products,
@@ -307,5 +312,119 @@ describe("AvbaseCrawler", () => {
     }
 
     expect(response.result.failureReason).toBe("not_found");
+  });
+
+  it("prefers female casts over the generic actor list when both are present", async () => {
+    const number = "ABF-777";
+    const searchUrl = "https://www.avbase.net/works?q=ABF-777";
+    const detailUrl = "https://www.avbase.net/works/prestige:ABF-777";
+
+    const searchHtml = createNextDataHtml({
+      works: [
+        createSearchWork({
+          prefix: "prestige",
+          workId: "ABF-777",
+          title: "双女優テスト",
+          products: [createProduct()],
+        }),
+      ],
+    });
+
+    const detailHtml = createNextDataHtml({
+      work: createDetailWork({
+        workId: "ABF-777",
+        title: "双女優テスト（千咲ちな、別の女优）",
+        actors: ["千咲ちな", "別の女优"],
+        detailActors: ["千咲ちな", "貞松大輔", "かめじろう"],
+        products: [createProduct({ maker: "プレステージ" })],
+      }),
+    });
+
+    const crawler = new AvbaseCrawler(
+      withGateway(
+        new FixtureNetworkClient(
+          new Map<string, unknown>([
+            [searchUrl, searchHtml],
+            [detailUrl, detailHtml],
+          ]),
+        ),
+      ),
+    );
+
+    const response = await crawler.crawl({
+      number,
+      site: Website.AVBASE,
+    });
+
+    expect(response.result.success).toBe(true);
+    if (!response.result.success) {
+      throw new Error("expected success");
+    }
+
+    expect(response.result.data.actors).toEqual(["千咲ちな", "別の女优"]);
+  });
+
+  it("prefers DOM-visible actor chips when AVBase internal actor data contains extra non-displayed people", async () => {
+    const number = "EBWH-241";
+    const searchUrl = "https://www.avbase.net/works?q=EBWH-241";
+    const detailUrl = "https://www.avbase.net/works/ebody:EBWH-241";
+
+    const searchHtml = createNextDataHtml({
+      works: [
+        createSearchWork({
+          prefix: "ebody",
+          workId: "EBWH-241",
+          title: "AVBase DOM actor test",
+          products: [createProduct()],
+        }),
+      ],
+    });
+
+    const detailHtml = createNextDataHtml(
+      {
+        work: createDetailWork({
+          workId: "EBWH-241",
+          title: "AVBase DOM actor test 千咲ちな",
+          actors: [],
+          detailActors: ["千咲ちな", "貞松大輔", "かめじろう"],
+          products: [createProduct({ maker: "E-BODY" })],
+        }),
+      },
+      `
+        <div>
+          <div class="text-xs">出演者・メモ</div>
+          <div class="m-4">
+            <div class="flex flex-wrap gap-2">
+              <a class="chip" href="/talents/%E5%8D%83%E5%92%B2%E3%81%A1%E3%81%AA">
+                <span>千咲ちな</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      `,
+    );
+
+    const crawler = new AvbaseCrawler(
+      withGateway(
+        new FixtureNetworkClient(
+          new Map<string, unknown>([
+            [searchUrl, searchHtml],
+            [detailUrl, detailHtml],
+          ]),
+        ),
+      ),
+    );
+
+    const response = await crawler.crawl({
+      number,
+      site: Website.AVBASE,
+    });
+
+    expect(response.result.success).toBe(true);
+    if (!response.result.success) {
+      throw new Error("expected success");
+    }
+
+    expect(response.result.data.actors).toEqual(["千咲ちな"]);
   });
 });

@@ -4,7 +4,7 @@ import type { Website } from "@shared/enums";
 import type { ActorProfile } from "@shared/types";
 
 export const ACTOR_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"] as const;
-export const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avjoho", "avbase"] as const;
+export const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avbase"] as const;
 
 export type ActorOverviewSourceName = (typeof ACTOR_OVERVIEW_SOURCE_OPTIONS)[number];
 export type ActorImageSourceName = (typeof ACTOR_IMAGE_SOURCE_OPTIONS)[number];
@@ -23,6 +23,7 @@ export interface ActorLookupQuery {
   name: string;
   aliases?: string[];
   sourceHints?: ActorSourceHint[];
+  requiredField?: ActorProfileField;
 }
 
 export interface ActorSourceResult {

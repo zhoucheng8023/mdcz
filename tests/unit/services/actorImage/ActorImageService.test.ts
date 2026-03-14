@@ -243,6 +243,57 @@ describe("ActorImageService", () => {
     expect(index.actors.actorc).toBeUndefined();
   });
 
+  it("retries actor source lookup after a crawler-provided photo fails to cache", async () => {
+    const { root } = await createActorLibrary();
+    const movieDir = join(root, "Movie");
+    const config = createConfig(root);
+    const validPngBytes = await readValidPngBytes();
+    vi.spyOn(imageUtils, "validateImage").mockResolvedValue({
+      valid: true,
+      width: 512,
+      height: 512,
+    });
+    const networkClient = {
+      getContent: vi.fn(async (url: string) => {
+        if (url.includes("broken.example.com")) {
+          throw new Error("connect timeout");
+        }
+        return validPngBytes;
+      }),
+    };
+    const actorSourceProvider = {
+      lookup: vi.fn().mockResolvedValue({
+        profile: {
+          name: "Actor F",
+          photo_url: "https://fallback.example.com/actor-f.png",
+        },
+        profileSources: {
+          photo_url: "official",
+        },
+        sourceResults: [],
+        warnings: [],
+      }),
+    } as unknown as ActorSourceProvider;
+    const service = new ActorImageService({ networkClient });
+
+    const profiles = await service.prepareActorProfilesForMovie(config, {
+      movieDir,
+      actors: ["Actor F"],
+      actorProfiles: [{ name: "Actor F", photo_url: "https://broken.example.com/actor-f.png" }],
+      actorSourceProvider,
+    });
+
+    expect(actorSourceProvider.lookup).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        name: "Actor F",
+        requiredField: "photo_url",
+      }),
+    );
+    expect(profiles).toEqual([{ name: "Actor F", photo_url: ".actors/Actor F.png" }]);
+    expect(await readFile(join(movieDir, ".actors", "Actor F.png"))).toEqual(validPngBytes);
+  });
+
   it("reuses cached actor images after the actor photo folder path changes", async () => {
     const userDataDir = await createUserDataDir();
     const firstRoot = await createTempDir();

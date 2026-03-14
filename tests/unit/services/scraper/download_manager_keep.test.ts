@@ -2,6 +2,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
+import { PersistentCooldownStore } from "@main/services/cooldown/PersistentCooldownStore";
 import type { NetworkClient, ProbeResult } from "@main/services/network";
 import { DownloadManager } from "@main/services/scraper/DownloadManager";
 import * as imageUtils from "@main/utils/image";
@@ -51,12 +52,17 @@ const seedFiles = async (root: string, files: Record<string, string>): Promise<v
   );
 };
 
-const createDownloadSubject = async (files: Record<string, string> = {}) => {
+const createDownloadSubject = async (
+  files: Record<string, string> = {},
+  options: {
+    imageHostCooldownStore?: PersistentCooldownStore;
+  } = {},
+) => {
   const root = await createTempDir();
   await seedFiles(root, files);
 
   const networkClient = new FakeNetworkClient();
-  const manager = new DownloadManager(networkClient as unknown as NetworkClient);
+  const manager = new DownloadManager(networkClient as unknown as NetworkClient, options);
 
   return { root, networkClient, manager };
 };
@@ -131,6 +137,68 @@ describe("DownloadManager keep flags", () => {
     expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
     expect(assets.downloaded).toEqual([]);
     expect(networkClient.probe).not.toHaveBeenCalled();
+    expect(networkClient.download).not.toHaveBeenCalled();
+  });
+
+  it("replaces an existing trailer when maintenance explicitly selects the new trailer URL", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject({
+      "trailer.mp4": "old-trailer",
+    });
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        trailer_url: "https://example.com/trailer-new.mp4",
+      }),
+      createDownloadConfig({
+        downloadThumb: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadSceneImages: false,
+        keepTrailer: true,
+      }),
+      {},
+      {
+        assetDecisions: {
+          trailer: "replace",
+        },
+      },
+    );
+
+    expect(assets.trailer).toBe(join(root, "trailer.mp4"));
+    expect(assets.downloaded).toEqual([join(root, "trailer.mp4")]);
+    await expect(readFile(join(root, "trailer.mp4"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/trailer-new.mp4",
+    );
+    expect(networkClient.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not silently keep an old trailer when maintenance replacement has no new trailer source", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject({
+      "trailer.mp4": "old-trailer",
+    });
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        trailer_url: undefined,
+      }),
+      createDownloadConfig({
+        downloadThumb: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadSceneImages: false,
+        keepTrailer: true,
+      }),
+      {},
+      {
+        assetDecisions: {
+          trailer: "replace",
+        },
+      },
+    );
+
+    expect(assets.trailer).toBeUndefined();
+    expect(assets.downloaded).toEqual([]);
+    await expect(readFile(join(root, "trailer.mp4"), "utf8")).resolves.toBe("old-trailer");
     expect(networkClient.download).not.toHaveBeenCalled();
   });
 
@@ -467,5 +535,149 @@ describe("DownloadManager keep flags", () => {
     );
     expect(networkClient.probe).toHaveBeenCalledTimes(1);
     expect(networkClient.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("abandons a partial scene set and switches to the next set without mixing sources", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject();
+    mockImageValidation(true);
+    networkClient.download.mockImplementation(async (url: string, outputPath: string) => {
+      if (url.includes("slow.example.com")) {
+        throw new Error("Request timeout");
+      }
+
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `downloaded:${url}`, "utf8");
+      return outputPath;
+    });
+
+    const config = createConfig({
+      download: {
+        ...defaultConfiguration.download,
+        downloadThumb: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadTrailer: false,
+        keepSceneImages: false,
+        sceneImageConcurrency: 1,
+      },
+      aggregation: {
+        ...defaultConfiguration.aggregation,
+        behavior: {
+          ...defaultConfiguration.aggregation.behavior,
+          maxSceneImages: 2,
+        },
+      },
+    });
+
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: ["https://fast.example.com/set-a-1.jpg", "https://slow.example.com/set-a-2.jpg"],
+      }),
+      config,
+      {
+        sample_images: [["https://alt.example.com/set-b-1.jpg", "https://alt.example.com/set-b-2.jpg"]],
+      },
+    );
+
+    expect(assets.sceneImages).toEqual([
+      join(root, "extrafanart", "fanart1.jpg"),
+      join(root, "extrafanart", "fanart2.jpg"),
+    ]);
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://alt.example.com/set-b-1.jpg",
+    );
+    await expect(readFile(join(root, "extrafanart", "fanart2.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://alt.example.com/set-b-2.jpg",
+    );
+    expect(networkClient.download.mock.calls.map(([url]) => url)).toEqual([
+      "https://fast.example.com/set-a-1.jpg",
+      "https://slow.example.com/set-a-2.jpg",
+      "https://alt.example.com/set-b-1.jpg",
+      "https://alt.example.com/set-b-2.jpg",
+    ]);
+  });
+
+  it("cools down a failing image host and skips remaining scene downloads for that host across runs", async () => {
+    const storeRoot = await createTempDir();
+    const storePath = join(storeRoot, "image-host-cooldowns.json");
+    const hostStore = new PersistentCooldownStore({
+      filePath: storePath,
+      loggerName: "DownloadManagerHostCooldownTestStore",
+    });
+    const { root, manager, networkClient } = await createDownloadSubject({}, { imageHostCooldownStore: hostStore });
+    mockImageValidation(true);
+    networkClient.download.mockImplementation(async (url: string, outputPath: string) => {
+      if (url.includes("blocked.example.com")) {
+        throw new Error("Request timeout");
+      }
+
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `downloaded:${url}`, "utf8");
+      return outputPath;
+    });
+
+    const config = createConfig({
+      download: {
+        ...defaultConfiguration.download,
+        downloadThumb: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadTrailer: false,
+        keepSceneImages: false,
+        sceneImageConcurrency: 1,
+      },
+      aggregation: {
+        ...defaultConfiguration.aggregation,
+        behavior: {
+          ...defaultConfiguration.aggregation.behavior,
+          maxSceneImages: 1,
+        },
+      },
+    });
+
+    const firstAssets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: ["https://blocked.example.com/scene-001.jpg"],
+      }),
+      config,
+      {
+        sample_images: [["https://blocked.example.com/scene-002.jpg"], ["https://cdn.example.com/scene-004.jpg"]],
+      },
+    );
+
+    expect(firstAssets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
+    expect(networkClient.download.mock.calls.map(([url]) => url)).toEqual([
+      "https://blocked.example.com/scene-001.jpg",
+      "https://blocked.example.com/scene-002.jpg",
+      "https://cdn.example.com/scene-004.jpg",
+    ]);
+
+    await hostStore.flush();
+
+    const secondRoot = await createTempDir();
+    const reloadedStore = new PersistentCooldownStore({
+      filePath: storePath,
+      loggerName: "DownloadManagerHostCooldownTestStoreReloaded",
+    });
+    const reloadedManager = new DownloadManager(networkClient as unknown as NetworkClient, {
+      imageHostCooldownStore: reloadedStore,
+    });
+    const callsBeforeSecondRun = networkClient.download.mock.calls.length;
+
+    const secondAssets = await reloadedManager.downloadAll(
+      secondRoot,
+      createCrawlerData({
+        sample_images: ["https://blocked.example.com/scene-005.jpg"],
+      }),
+      config,
+      {
+        sample_images: [["https://cdn.example.com/scene-006.jpg"]],
+      },
+    );
+
+    expect(secondAssets.sceneImages).toEqual([join(secondRoot, "extrafanart", "fanart1.jpg")]);
+    expect(networkClient.download).toHaveBeenCalledTimes(callsBeforeSecondRun + 1);
   });
 });

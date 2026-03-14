@@ -26,15 +26,23 @@ const DEFAULT_BEHAVIOR: AggregationBehavior = {
 };
 
 type SourceEntry = { site: Website; data: CrawlerData };
-type ResolvedField = { value: unknown; source?: Website; alternatives?: string[] };
+type ResolvedField = {
+  value: unknown;
+  source?: Website;
+  alternatives?: string[];
+  sampleImageAlternatives?: string[][];
+};
 
 const EMPTY_IMAGE_ALTERNATIVES: ImageAlternatives = {
   thumb_url: [],
   poster_url: [],
   fanart_url: [],
+  sample_images: [],
 };
 
-function isImageField(field: keyof CrawlerData): field is keyof ImageAlternatives {
+type PrimaryImageAlternativeField = "thumb_url" | "poster_url" | "fanart_url";
+
+function isPrimaryImageField(field: keyof CrawlerData): field is PrimaryImageAlternativeField {
   return field === "thumb_url" || field === "poster_url" || field === "fanart_url";
 }
 
@@ -73,8 +81,10 @@ export class FieldAggregator {
       const ordered = this.orderByPriority(entries, priority);
 
       const result = this.applyStrategy(field, strategy, ordered);
-      if (isImageField(field)) {
+      if (isPrimaryImageField(field)) {
         imageAlternatives[field] = result.alternatives ?? [];
+      } else if (field === "sample_images") {
+        imageAlternatives.sample_images = result.sampleImageAlternatives ?? [];
       }
       if (result.value !== undefined && result.value !== null) {
         sources[field] = result.source;
@@ -168,9 +178,17 @@ export class FieldAggregator {
   }
 
   private firstNonEmpty(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
+    if (field === "sample_images") {
+      return this.firstNonEmptySampleImages(entries);
+    }
+
     for (const entry of entries) {
       const value = entry.data[field];
       if (Array.isArray(value) && value.length > 0) {
+        if (field === "actors" || field === "actor_profiles") {
+          return { value: value.slice(0, this.behavior.maxActors), source: entry.site };
+        }
+
         return { value, source: entry.site };
       }
       if (typeof value === "string" && value.length > 0) {
@@ -178,6 +196,41 @@ export class FieldAggregator {
       }
     }
     return { value: undefined };
+  }
+
+  private firstNonEmptySampleImages(entries: SourceEntry[]): ResolvedField {
+    const alternatives: string[][] = [];
+    const seenSets = new Set<string>();
+    let winner: string[] | undefined;
+    let source: Website | undefined;
+
+    for (const entry of entries) {
+      const urls = this.normalizeSampleImageSet(entry.data.sample_images);
+      if (urls.length === 0) {
+        continue;
+      }
+
+      const signature = JSON.stringify(urls);
+      if (!winner) {
+        winner = urls;
+        source = entry.site;
+        seenSets.add(signature);
+        continue;
+      }
+
+      if (seenSets.has(signature)) {
+        continue;
+      }
+
+      seenSets.add(signature);
+      alternatives.push(urls);
+    }
+
+    return {
+      value: winner,
+      source,
+      sampleImageAlternatives: alternatives,
+    };
   }
 
   private longest(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
@@ -206,7 +259,6 @@ export class FieldAggregator {
     if (field === "genres") {
       return this.unionGenres(entries);
     }
-
     // Generic array union for unknown fields
     const seen = new Set<string>();
     const merged: unknown[] = [];
@@ -292,6 +344,26 @@ export class FieldAggregator {
       value: merged.slice(0, this.behavior.maxGenres),
       source,
     };
+  }
+
+  private normalizeSampleImageSet(values: string[]): string[] {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+
+    for (const value of values) {
+      const normalized = value.trim();
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+
+      seen.add(normalized);
+      urls.push(normalized);
+      if (urls.length >= this.behavior.maxSceneImages) {
+        break;
+      }
+    }
+
+    return urls;
   }
 
   private highestQuality(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {

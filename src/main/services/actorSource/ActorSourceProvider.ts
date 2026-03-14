@@ -35,7 +35,15 @@ const mergeAliases = (name: string, aliases: string[]): string[] => {
   return toUniqueActorNames(aliases).filter((alias) => normalizeActorName(alias) !== normalizeActorName(name));
 };
 
-const buildExecutionOrder = (selected: ActorSourceName[]): ActorSourceName[] => {
+const buildExecutionOrder = (
+  configuration: Configuration,
+  selected: ActorSourceName[],
+  requiredField?: string,
+): ActorSourceName[] => {
+  if (requiredField === "photo_url") {
+    return Array.from(new Set(configuration.personSync.personImageSources));
+  }
+
   const ordered: ActorSourceName[] = [];
 
   if (selected.includes("local")) {
@@ -86,10 +94,11 @@ export class ActorSourceProvider {
   }
 
   async lookup(configuration: Configuration, query: string | ActorLookupQuery): Promise<ActorLookupResult> {
-    const baseQuery =
+    const baseQuery: ActorLookupQuery =
       typeof query === "string"
         ? {
             name: query,
+            requiredField: undefined,
           }
         : {
             ...query,
@@ -110,7 +119,7 @@ export class ActorSourceProvider {
 
     return this.lookupResolver.resolve(this.buildCacheKey(configuration, normalized, baseQuery), async () => {
       const selected = uniqueSourceNames(configuration);
-      const executionOrder = buildExecutionOrder(selected);
+      const executionOrder = buildExecutionOrder(configuration, selected, baseQuery.requiredField);
       const results: ActorSourceResult[] = [];
       let enrichedQuery = baseQuery;
 
@@ -156,6 +165,7 @@ export class ActorSourceProvider {
       name: normalizedName,
       aliases: query.aliases ?? [],
       sourceHints: normalizeHintsForCache(query.sourceHints),
+      requiredField: query.requiredField,
       mediaPath: configuration.paths.mediaPath.trim(),
       actorPhotoFolder: configuration.paths.actorPhotoFolder.trim(),
       personOverviewSources: configuration.personSync.personOverviewSources,
