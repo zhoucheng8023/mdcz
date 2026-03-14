@@ -12,6 +12,7 @@ import {
   buildEmbyUrl,
   type EmbyBatchResult,
   type EmbyMode,
+  EmbyServiceError,
   fetchPersons,
   getHttpStatus,
   hasPrimaryImage,
@@ -153,8 +154,13 @@ export class EmbyActorPhotoService {
           try {
             await refreshPerson(this.networkClient, configuration, person.Id);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Failed to refresh Emby actor ${person.Name} after photo sync: ${message}`);
+            const detail =
+              error instanceof EmbyServiceError
+                ? `${error.code}: ${error.message}`
+                : error instanceof Error
+                  ? error.message
+                  : String(error);
+            this.logger.warn(`Failed to refresh Emby actor ${person.Name} after photo sync: ${detail}`);
           }
         }
 
@@ -162,8 +168,13 @@ export class EmbyActorPhotoService {
         this.deps.signalService.showLogText(`Updated Emby actor photo: ${actorName}`);
       } catch (error) {
         failedCount += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to update Emby actor photo for ${actorName}: ${message}`);
+        const detail =
+          error instanceof EmbyServiceError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn(`Failed to update Emby actor photo for ${actorName}: ${detail}`);
       }
     }
 

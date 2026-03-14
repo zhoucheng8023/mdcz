@@ -16,6 +16,7 @@ import {
   type EmbyBatchResult,
   type EmbyMode,
   type EmbyPerson,
+  EmbyServiceError,
   fetchPersonDetail,
   fetchPersons,
   type ItemDetail,
@@ -91,8 +92,13 @@ export class EmbyActorInfoService {
           try {
             await refreshPerson(this.networkClient, configuration, person.Id);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Failed to refresh Emby actor ${person.Name} after info sync: ${message}`);
+            const detail =
+              error instanceof EmbyServiceError
+                ? `${error.code}: ${error.message}`
+                : error instanceof Error
+                  ? error.message
+                  : String(error);
+            this.logger.warn(`Failed to refresh Emby actor ${person.Name} after info sync: ${detail}`);
           }
         }
 
@@ -100,8 +106,13 @@ export class EmbyActorInfoService {
         this.deps.signalService.showLogText(`Updated Emby actor info: ${person.Name}`);
       } catch (error) {
         failedCount += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to update Emby actor info for ${person.Name}: ${message}`);
+        const detail =
+          error instanceof EmbyServiceError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn(`Failed to update Emby actor info for ${person.Name}: ${detail}`);
       }
     }
 

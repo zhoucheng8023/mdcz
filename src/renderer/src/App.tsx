@@ -136,7 +136,7 @@ const App = () => {
       try {
         unsubscribers.push(
           ipc.on.log((payload) => {
-            logStore.addLog(createRuntimeLog(payload.level ?? "info", payload.text));
+            logStore.addLog(createRuntimeLog(payload.level ?? "info", payload.text, payload.timestamp));
           }),
         );
 

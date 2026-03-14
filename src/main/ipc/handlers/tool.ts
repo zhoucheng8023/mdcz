@@ -1,5 +1,6 @@
 import type { ServiceContainer } from "@main/container";
 import { configManager, configurationSchema } from "@main/services/config";
+import { ActorPhotoFolderConfigurationError } from "@main/services/config/actorPhotoPath";
 import {
   checkConnection as checkEmbyConnection,
   EmbyServiceError,
@@ -97,6 +98,9 @@ export const createToolHandlers = (
           if (error instanceof JellyfinServiceError) {
             throw createIpcError(error.code, error.message);
           }
+          if (error instanceof ActorPhotoFolderConfigurationError) {
+            throw createIpcError(error.code, error.message);
+          }
           logger.error(`Tool_JellyfinActorPhotoSync failed: ${toErrorMessage(error)}`);
           throw asSerializableIpcError(error);
         }
@@ -143,6 +147,9 @@ export const createToolHandlers = (
           return embyActorPhotoService.run(configuration, mode);
         } catch (error) {
           if (error instanceof EmbyServiceError) {
+            throw createIpcError(error.code, error.message);
+          }
+          if (error instanceof ActorPhotoFolderConfigurationError) {
             throw createIpcError(error.code, error.message);
           }
           logger.error(`Tool_EmbyActorPhotoSync failed: ${toErrorMessage(error)}`);

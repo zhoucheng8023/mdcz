@@ -29,7 +29,7 @@ export const createMaintenanceHandlers = (
         const entries = await maintenanceService.scan(dirPath);
         return { entries };
       } catch (error) {
-        logger.error(`Maintenance scan failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error("Maintenance scan failed");
         throw asSerializableIpcError(error);
       }
     }),
@@ -49,7 +49,7 @@ export const createMaintenanceHandlers = (
 
           return await maintenanceService.preview(entries, presetId);
         } catch (error) {
-          logger.error(`Maintenance preview failed: ${error instanceof Error ? error.message : String(error)}`);
+          logger.error("Maintenance preview failed");
           throw asSerializableIpcError(error);
         }
       }),
@@ -71,7 +71,7 @@ export const createMaintenanceHandlers = (
 
           return { success: true as const };
         } catch (error) {
-          logger.error(`Maintenance execute failed: ${error instanceof Error ? error.message : String(error)}`);
+          logger.error("Maintenance execute failed");
           throw asSerializableIpcError(error);
         }
       }),

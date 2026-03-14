@@ -396,16 +396,26 @@ export class JellyfinActorInfoService {
           try {
             await refreshPerson(this.networkClient, configuration, person.Id);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Failed to refresh Jellyfin actor ${person.Name} after info sync: ${message}`);
+            const detail =
+              error instanceof JellyfinServiceError
+                ? `${error.code}: ${error.message}`
+                : error instanceof Error
+                  ? error.message
+                  : String(error);
+            this.logger.warn(`Failed to refresh Jellyfin actor ${person.Name} after info sync: ${detail}`);
           }
         }
         processedCount += 1;
         this.deps.signalService.showLogText(`Updated Jellyfin actor info: ${person.Name}`);
       } catch (error) {
         failedCount += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to update Jellyfin actor info for ${person.Name}: ${message}`);
+        const detail =
+          error instanceof JellyfinServiceError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn(`Failed to update Jellyfin actor info for ${person.Name}: ${detail}`);
       }
     }
 

@@ -8,7 +8,7 @@ import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
 import { imageContentTypeFromPath, pathExists } from "@main/utils/file";
 import { buildJellyfinHeaders, buildJellyfinUrl, type JellyfinMode } from "./auth";
-import { getHttpStatus, toJellyfinServiceError } from "./errors";
+import { getHttpStatus, JellyfinServiceError, toJellyfinServiceError } from "./errors";
 import { fetchPersons, type JellyfinBatchResult, type JellyfinPerson, refreshPerson } from "./people";
 
 export interface JellyfinActorPhotoDependencies {
@@ -143,16 +143,26 @@ export class JellyfinActorPhotoService {
           try {
             await refreshPerson(this.networkClient, configuration, person.Id);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.warn(`Failed to refresh Jellyfin actor ${person.Name} after photo sync: ${message}`);
+            const detail =
+              error instanceof JellyfinServiceError
+                ? `${error.code}: ${error.message}`
+                : error instanceof Error
+                  ? error.message
+                  : String(error);
+            this.logger.warn(`Failed to refresh Jellyfin actor ${person.Name} after photo sync: ${detail}`);
           }
         }
         processedCount += 1;
         this.deps.signalService.showLogText(`Updated Jellyfin actor photo: ${person.Name}`);
       } catch (error) {
         failedCount += 1;
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Failed to update Jellyfin actor photo for ${person.Name}: ${message}`);
+        const detail =
+          error instanceof JellyfinServiceError
+            ? `${error.code}: ${error.message}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        this.logger.warn(`Failed to update Jellyfin actor photo for ${person.Name}: ${detail}`);
       }
     }
 

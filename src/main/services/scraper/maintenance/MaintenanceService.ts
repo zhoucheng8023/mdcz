@@ -88,14 +88,14 @@ export class MaintenanceService {
     }
 
     this.status = { ...this.status, state: "scanning" };
-    this.signalService.showLogText("[Maintenance] Scanning directories...");
+    this.signalService.showLogText("Scanning maintenance directories");
 
     try {
       await configManager.ensureLoaded();
       const config = configurationSchema.parse(await configManager.get());
       const entries = await this.localScanService.scan(dirPath, config.paths.sceneImagesFolder);
 
-      this.signalService.showLogText(`[Maintenance] Scan complete: found ${entries.length} movies`);
+      this.signalService.showLogText(`Maintenance scan completed. Found ${entries.length} item(s).`);
       return entries;
     } finally {
       this.status = createIdleMaintenanceStatus();
@@ -160,9 +160,7 @@ export class MaintenanceService {
       failedCount: 0,
     };
 
-    this.signalService.showLogText(
-      `[Maintenance] Start execution: ${execution.preset.label}, total ${totalItems} items`,
-    );
+    this.signalService.showLogText(`Starting maintenance run for preset ${execution.preset.id}. Items: ${totalItems}`);
     this.signalService.resetProgress();
 
     void this.runExecution(execution);
@@ -233,12 +231,11 @@ export class MaintenanceService {
             this.status.completedEntries += 1;
             this.status.failedCount += 1;
             completedEntryIds.add(entry.id);
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Unexpected error processing ${entry.fileInfo.number}: ${message}`);
+            this.logger.error(`Unexpected maintenance error while processing ${entry.fileInfo.number}`);
             this.signalService.showMaintenanceItemResult({
               entryId: entry.id,
               status: "failed",
-              error: message,
+              error: error instanceof Error ? error.message : String(error),
             });
           }
         });
@@ -266,8 +263,8 @@ export class MaintenanceService {
 
       this.signalService.showLogText(
         wasStopped
-          ? `[维护] 执行已停止：成功 ${this.status.successCount}，失败/取消 ${this.status.failedCount}`
-          : `[维护] 执行完成：成功 ${this.status.successCount}，失败 ${this.status.failedCount}`,
+          ? `Maintenance stopped. Succeeded: ${this.status.successCount}, Failed or canceled: ${this.status.failedCount}`
+          : `Maintenance completed. Succeeded: ${this.status.successCount}, Failed: ${this.status.failedCount}`,
       );
     } finally {
       this.status = createIdleMaintenanceStatus();

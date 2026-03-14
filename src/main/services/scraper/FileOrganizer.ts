@@ -204,6 +204,7 @@ export class FileOrganizer {
         (filePath) => resolve(filePath) !== resolve(sourceFilePath) && !isGeneratedSidecarVideo(filePath),
       );
       if (otherVideos.length > 0) {
+        this.logger.warn(`Cannot organize in place because multiple video files exist in ${sourceDir}`);
         throw new Error("成功后不移动文件时，仅支持源目录内存在单个视频文件");
       }
     }
