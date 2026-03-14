@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ActorImageService, getActorImageCacheDirectory } from "@main/services/ActorImageService";
+import type { ActorSourceProvider } from "@main/services/actorSource";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { SignalService } from "@main/services/SignalService";
 import type { AggregationService } from "@main/services/scraper/aggregation";
@@ -226,5 +227,103 @@ describe("FileScraper actor image library", () => {
     expect(preparedData.actor_profiles).toEqual([{ name: "Actor B", photo_url: ".actors/Actor B.png" }]);
     expect(await readFile(join(outputDir, ".actors", "Actor B.png"))).toEqual(validPngBytes);
     expect(index.actors.actorb.blobRelativePath).toBeTruthy();
+  });
+
+  it("hydrates actor profile photos from actor sources when crawlers only return actor names", async () => {
+    const root = await createTempDir();
+    await createUserDataDir();
+    const actorLibraryDir = join(root, "actor-library");
+    const outputDir = join(root, "output", "ABC-123");
+    const nfoPath = join(outputDir, "ABC-123.nfo");
+    const validPngBytes = await readValidPngBytes();
+    vi.spyOn(imageUtils, "validateImage").mockResolvedValue({
+      valid: true,
+      width: 512,
+      height: 512,
+    });
+    const actorImageService = new ActorImageService({
+      networkClient: {
+        getContent: vi.fn(async () => validPngBytes),
+      },
+    });
+    const actorSourceProvider = {
+      lookup: vi.fn().mockResolvedValue({
+        profile: {
+          name: "Actor C",
+          photo_url: "https://img.example.com/actor-c.png",
+        },
+        profileSources: {
+          photo_url: "official",
+        },
+        sourceResults: [],
+        warnings: [],
+      }),
+    } as unknown as ActorSourceProvider;
+    const plan: OrganizePlan = {
+      outputDir,
+      targetVideoPath: join(outputDir, "ABC-123.mp4"),
+      nfoPath,
+    };
+
+    await mkdir(actorLibraryDir, { recursive: true });
+
+    const config = configurationSchema.parse({
+      ...defaultConfiguration,
+      download: {
+        ...defaultConfiguration.download,
+        downloadNfo: true,
+      },
+      paths: {
+        ...defaultConfiguration.paths,
+        actorPhotoFolder: actorLibraryDir,
+      },
+    });
+    const writeNfo = vi.fn().mockResolvedValue(nfoPath);
+    const scraper = new FileScraper({
+      configManager: new TestConfigManager(config),
+      aggregationService: {
+        aggregate: vi.fn().mockResolvedValue(
+          createAggregationResult(
+            createCrawlerData({
+              actors: ["Actor C"],
+              actor_profiles: undefined,
+            }),
+          ),
+        ),
+      } as unknown as AggregationService,
+      translateService: {
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+      } as unknown as TranslateService,
+      nfoGenerator: {
+        writeNfo,
+      } as unknown as NfoGenerator,
+      downloadManager: {
+        downloadAll: vi.fn().mockResolvedValue({
+          downloaded: [],
+          sceneImages: [],
+        }),
+      } as unknown as DownloadManager,
+      fileOrganizer: {
+        plan: vi.fn().mockReturnValue(plan),
+        ensureOutputReady: vi.fn().mockImplementation(async (nextPlan: OrganizePlan) => nextPlan),
+        organizeVideo: vi.fn().mockResolvedValue(join(outputDir, "ABC-123.mp4")),
+      } as unknown as FileOrganizer,
+      signalService: new SignalService(null),
+      actorImageService,
+      actorSourceProvider,
+    });
+
+    const result = await scraper.scrapeFile(join(root, "ABC-123.mp4"), { fileIndex: 1, totalFiles: 1 });
+    const preparedData = writeNfo.mock.calls[0]?.[1] as CrawlerData;
+
+    expect(result.status).toBe("success");
+    expect(actorSourceProvider.lookup).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        name: "Actor C",
+      }),
+    );
+    expect(preparedData.actor_profiles).toEqual([{ name: "Actor C", photo_url: ".actors/Actor C.png" }]);
+    expect(await readFile(join(outputDir, ".actors", "Actor C.png"))).toEqual(validPngBytes);
   });
 });

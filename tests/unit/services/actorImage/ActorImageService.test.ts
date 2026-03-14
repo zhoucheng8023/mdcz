@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ActorImageService, getActorImageCacheDirectory } from "@main/services/ActorImageService";
+import type { ActorSourceProvider } from "@main/services/actorSource";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import * as imageUtils from "@main/utils/image";
 import { app } from "electron";
@@ -119,6 +120,28 @@ describe("ActorImageService", () => {
       { name: "Actor B", photo_url: undefined },
     ]);
     expect(await readFile(join(movieDir, ".actors", "Actor A.jpg"), "utf8")).toBe("manual");
+  });
+
+  it("skips actor source lookup when a local actor image already exists", async () => {
+    const { root } = await createActorLibrary();
+    const movieDir = join(root, "Movie");
+    const config = createConfig(root);
+    const service = new ActorImageService();
+    const manualPath = join(root, "Actor A.jpg");
+    const actorSourceProvider = {
+      lookup: vi.fn(),
+    } as unknown as ActorSourceProvider;
+
+    await writeFile(manualPath, "manual", "utf8");
+
+    const profiles = await service.prepareActorProfilesForMovie(config, {
+      movieDir,
+      actors: ["Actor A"],
+      actorSourceProvider,
+    });
+
+    expect(profiles).toEqual([{ name: "Actor A", photo_url: ".actors/Actor A.jpg" }]);
+    expect(actorSourceProvider.lookup).not.toHaveBeenCalled();
   });
 
   it("returns fallback on corrupt index.json without overwriting the file", async () => {

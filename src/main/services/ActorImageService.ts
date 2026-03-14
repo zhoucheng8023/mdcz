@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFile, link, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
+import type { ActorSourceHint, ActorSourceProvider } from "@main/services/actorSource";
 import type { Configuration } from "@main/services/config";
 import { resolveActorPhotoFolderPath } from "@main/services/config/actorPhotoPath";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import { normalizeActorName, toUniqueActorNames } from "@main/utils/actor";
+import { mergeActorProfiles } from "@main/utils/actorProfile";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
 import { pathExists } from "@main/utils/file";
 import { validateImage } from "@main/utils/image";
@@ -56,6 +58,7 @@ const buildPublicFileName = (displayName: string, extension: string): string => 
   return `${sanitized}${extension}`;
 };
 
+const hasActorPhoto = (profile: ActorProfile | undefined): boolean => Boolean(profile?.photo_url?.trim());
 const isRemoteUrl = (value: string): boolean => /^https?:\/\//iu.test(value);
 
 const isSupportedPhotoExtension = (value: string): value is (typeof PHOTO_EXTENSIONS)[number] =>
@@ -210,12 +213,18 @@ export class ActorImageService {
       actors: string[];
       actorProfiles?: ActorProfile[];
       actorPhotoBaseDir?: string;
+      actorSourceProvider?: ActorSourceProvider;
+      sourceHints?: ActorSourceHint[];
     },
   ): Promise<ActorProfile[] | undefined> {
     const profileByName = new Map<string, ActorProfile>();
     for (const profile of input.actorProfiles ?? []) {
-      const normalized = normalizeActorName(profile.name);
-      if (normalized) {
+      const lookupNames = toUniqueActorNames([profile.name, ...(profile.aliases ?? [])]);
+      for (const lookupName of lookupNames) {
+        const normalized = normalizeActorName(lookupName);
+        if (!normalized) {
+          continue;
+        }
         profileByName.set(normalized, profile);
       }
     }
@@ -231,11 +240,26 @@ export class ActorImageService {
       }
       seenActorNames.add(normalized);
 
-      const existingProfile = profileByName.get(normalized);
-      const lookupNames = toUniqueActorNames([actorName, existingProfile?.name, ...(existingProfile?.aliases ?? [])]);
+      const matchedProfile = profileByName.get(normalized);
+      let existingProfile = matchedProfile;
+      let lookupNames = toUniqueActorNames([actorName, existingProfile?.name, ...(existingProfile?.aliases ?? [])]);
       let localImagePath = await this.resolveLocalImage(configuration, lookupNames, {
         fallbackBaseDir: input.actorPhotoBaseDir,
       });
+
+      if (!localImagePath) {
+        existingProfile = await this.resolveActorProfile(
+          configuration,
+          actorName,
+          matchedProfile,
+          input.actorSourceProvider,
+          input.sourceHints,
+        );
+        lookupNames = toUniqueActorNames([actorName, existingProfile?.name, ...(existingProfile?.aliases ?? [])]);
+        localImagePath = await this.resolveLocalImage(configuration, lookupNames, {
+          fallbackBaseDir: input.actorPhotoBaseDir,
+        });
+      }
 
       if (!localImagePath) {
         localImagePath = await this.cacheProfileImage(configuration, lookupNames, existingProfile?.photo_url, {
@@ -261,6 +285,32 @@ export class ActorImageService {
     }
 
     return preparedProfiles.length > 0 ? preparedProfiles : undefined;
+  }
+
+  private async resolveActorProfile(
+    configuration: Configuration,
+    actorName: string,
+    existingProfile: ActorProfile | undefined,
+    actorSourceProvider?: ActorSourceProvider,
+    sourceHints?: ActorSourceHint[],
+  ): Promise<ActorProfile | undefined> {
+    if (hasActorPhoto(existingProfile) || !actorSourceProvider) {
+      return existingProfile;
+    }
+
+    const lookup = await actorSourceProvider.lookup(configuration, {
+      name: actorName,
+      aliases: existingProfile?.aliases,
+      sourceHints,
+    });
+
+    return (
+      mergeActorProfiles(
+        [{ name: actorName, aliases: existingProfile?.aliases }, existingProfile, lookup.profile].filter(
+          (profile): profile is ActorProfile => Boolean(profile),
+        ),
+      ) ?? existingProfile
+    );
   }
 
   private async cacheProfileImage(

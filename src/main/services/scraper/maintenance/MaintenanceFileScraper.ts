@@ -116,11 +116,11 @@ export class MaintenanceFileScraper {
       };
 
       if (steps.download && plan && crawlerData) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] 下载资源...`);
+        this.deps.signalService.showLogText(`[${fileInfo.number}] Downloading resources...`);
         const forceReplace = this.getForcedPrimaryImageRefresh(entry, crawlerData);
         assets = await this.deps.downloadManager.downloadAll(plan.outputDir, crawlerData, config, imageAlternatives, {
           onSceneProgress: (downloaded, total) => {
-            this.deps.signalService.showLogText(`[${fileInfo.number}] 场景图: ${downloaded}/${total}`);
+            this.deps.signalService.showLogText(`[${fileInfo.number}] Scene images: ${downloaded}/${total}`);
           },
           forceReplace,
           assetDecisions: committed?.assetDecisions,
@@ -132,7 +132,7 @@ export class MaintenanceFileScraper {
       // Step 5: Generate NFO (if enabled)
       let savedNfoPath: string | undefined;
       if (steps.generateNfo && plan && crawlerData) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] 生成 NFO...`);
+        this.deps.signalService.showLogText(`[${fileInfo.number}] Generating NFO...`);
         let videoMeta: VideoMeta | undefined;
         try {
           videoMeta = await probeVideoMetadata(fileInfo.filePath);
@@ -142,6 +142,7 @@ export class MaintenanceFileScraper {
         const preparedNfoData = await prepareCrawlerDataForNfo(this.actorImageService, config, crawlerData, {
           movieDir: plan.outputDir,
           sourceVideoPath: fileInfo.filePath,
+          actorSourceProvider: this.deps.actorSourceProvider,
         });
         preparedCrawlerData = preparedNfoData.data;
         preparedActorPhotoPaths = preparedNfoData.actorPhotoPaths;
@@ -157,7 +158,7 @@ export class MaintenanceFileScraper {
       // Step 6: Organize files (if enabled)
       let outputVideoPath = fileInfo.filePath;
       if (steps.organize && plan) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] 整理文件...`);
+        this.deps.signalService.showLogText(`[${fileInfo.number}] Organizing files...`);
         outputVideoPath = await this.deps.fileOrganizer.organizeVideo(fileInfo, plan, config);
       }
 
@@ -258,7 +259,7 @@ export class MaintenanceFileScraper {
 
     if (steps.aggregate) {
       if (options.emitLogs) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] 联网获取元数据...`);
+        this.deps.signalService.showLogText(`[${fileInfo.number}] Fetching metadata online...`);
       }
 
       const aggregationResult = await this.deps.aggregationService.aggregate(fileInfo.number, config, signal);
@@ -284,7 +285,7 @@ export class MaintenanceFileScraper {
       }
 
       if (options.emitLogs) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] 翻译元数据...`);
+        this.deps.signalService.showLogText(`[${fileInfo.number}] Translating metadata...`);
       }
       crawlerData = await this.deps.translateService.translateCrawlerData(crawlerData, config);
     }

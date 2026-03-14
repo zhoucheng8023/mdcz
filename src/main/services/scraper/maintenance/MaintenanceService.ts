@@ -1,4 +1,5 @@
 import { ActorImageService } from "@main/services/ActorImageService";
+import type { ActorSourceProvider } from "@main/services/actorSource";
 import { type Configuration, configManager, configurationSchema } from "@main/services/config";
 import type { DeepPartial } from "@main/services/config/models";
 import type { CrawlerProvider } from "@main/services/crawler";
@@ -74,6 +75,7 @@ export class MaintenanceService {
     private readonly networkClient: NetworkClient,
     private readonly crawlerProvider: CrawlerProvider,
     private readonly actorImageService = new ActorImageService(),
+    private readonly actorSourceProvider?: ActorSourceProvider,
   ) {}
 
   getStatus(): MaintenanceStatus {
@@ -86,14 +88,14 @@ export class MaintenanceService {
     }
 
     this.status = { ...this.status, state: "scanning" };
-    this.signalService.showLogText("[维护] 正在扫描目录...");
+    this.signalService.showLogText("[Maintenance] Scanning directories...");
 
     try {
       await configManager.ensureLoaded();
       const config = configurationSchema.parse(await configManager.get());
       const entries = await this.localScanService.scan(dirPath, config.paths.sceneImagesFolder);
 
-      this.signalService.showLogText(`[维护] 扫描完成：发现 ${entries.length} 个影片`);
+      this.signalService.showLogText(`[Maintenance] Scan complete: found ${entries.length} movies`);
       return entries;
     } finally {
       this.status = createIdleMaintenanceStatus();
@@ -158,7 +160,9 @@ export class MaintenanceService {
       failedCount: 0,
     };
 
-    this.signalService.showLogText(`[维护] 开始执行：${execution.preset.label}，共 ${totalItems} 个条目`);
+    this.signalService.showLogText(
+      `[Maintenance] Start execution: ${execution.preset.label}, total ${totalItems} items`,
+    );
     this.signalService.resetProgress();
 
     void this.runExecution(execution);
@@ -307,6 +311,7 @@ export class MaintenanceService {
       fileOrganizer: new FileOrganizer(),
       signalService: this.signalService,
       actorImageService: this.actorImageService,
+      actorSourceProvider: this.actorSourceProvider,
     };
   }
 }

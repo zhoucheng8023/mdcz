@@ -1,5 +1,7 @@
 import { dirname, join } from "node:path";
 import type { ActorImageService } from "@main/services/ActorImageService";
+import type { ActorSourceProvider } from "@main/services/actorSource";
+import { mergeActorSourceHints } from "@main/services/actorSource/sourceHints";
 import type { Configuration } from "@main/services/config";
 import type { ActorProfile, CrawlerData } from "@shared/types";
 
@@ -55,6 +57,7 @@ export const prepareCrawlerDataForNfo = async (
   options: {
     movieDir: string;
     sourceVideoPath: string;
+    actorSourceProvider?: ActorSourceProvider;
   },
 ): Promise<{ data: CrawlerData; actorPhotoPaths: string[] }> => {
   const actorProfiles = await actorImageService.prepareActorProfilesForMovie(configuration, {
@@ -62,6 +65,14 @@ export const prepareCrawlerDataForNfo = async (
     actors: crawlerData.actors,
     actorProfiles: crawlerData.actor_profiles,
     actorPhotoBaseDir: dirname(options.sourceVideoPath),
+    actorSourceProvider: options.actorSourceProvider,
+    sourceHints: mergeActorSourceHints([
+      {
+        website: crawlerData.website,
+        studio: crawlerData.studio,
+        publisher: crawlerData.publisher,
+      },
+    ]),
   });
 
   return {

@@ -30,7 +30,7 @@ export const createTranslateHandlers = (): Pick<IpcRouterContract, typeof IpcCha
         return { success: false, message: "请先填写 LLM 密钥" };
       }
 
-      logger.info(`测试 LLM 连通性: model=${llmModelName}, baseURL=${llmBaseUrl || "(default)"}`);
+      logger.info(`Test LLM connectivity: model=${llmModelName}, baseURL=${llmBaseUrl || "(default)"}`);
 
       const client = new OpenAI({
         apiKey: llmApiKey,
@@ -51,7 +51,7 @@ export const createTranslateHandlers = (): Pick<IpcRouterContract, typeof IpcCha
         });
 
         const content = response.choices[0]?.message?.content;
-        logger.info(`测试 LLM 连通性: 成功, 回复="${content}"`);
+        logger.info(`Test LLM connectivity: Success, reply="${content}"`);
 
         if (typeof content === "string" && content.trim().length > 0) {
           return { success: true, message: `连接成功，LLM 回复: ${content.trim()}` };
@@ -60,7 +60,7 @@ export const createTranslateHandlers = (): Pick<IpcRouterContract, typeof IpcCha
         return { success: false, message: "LLM 返回了空内容" };
       } catch (error) {
         const msg = toErrorMessage(error);
-        logger.error(`测试 LLM 连通性: 失败, error=${msg}`);
+        logger.error(`Test LLM connectivity: Failed, error=${msg}`);
         return { success: false, message: `连接失败: ${msg}` };
       }
     }),

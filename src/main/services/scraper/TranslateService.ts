@@ -7,7 +7,7 @@ import { toErrorMessage } from "@main/utils/common";
 import { parseRetryAfterMs, readRetryAfterHeader } from "@main/utils/http";
 import { convertToSimplified, convertToTraditional, type DetectedLanguage, detectLanguage } from "@main/utils/language";
 import { appendMappingCandidate, findMappedActorName, findMappedGenreName } from "@main/utils/translate";
-import type { CrawlerData } from "@shared/types";
+import type { ActorProfile, CrawlerData } from "@shared/types";
 import OpenAI from "openai";
 import PQueue from "p-queue";
 import { z } from "zod";
@@ -95,6 +95,9 @@ export class TranslateService {
     const plot_zh = data.plot ? await this.translateText(data.plot, plotTarget, config) : undefined;
 
     const mappedActors = await Promise.all((data.actors ?? []).map((actor) => this.normalizeActorAlias(actor)));
+    const mappedActorProfiles = await Promise.all(
+      (data.actor_profiles ?? []).map((profile) => this.normalizeActorProfile(profile)),
+    );
     const mappedGenres = await Promise.all(
       (data.genres ?? []).map((genre) => this.translateGenreTerm(genre, titleTarget, config)),
     );
@@ -104,6 +107,7 @@ export class TranslateService {
       title_zh,
       plot_zh,
       actors: mappedActors,
+      actor_profiles: mappedActorProfiles.length > 0 ? mappedActorProfiles : data.actor_profiles,
       genres: mappedGenres,
     };
   }
@@ -142,6 +146,25 @@ export class TranslateService {
       const result = actorCanonical?.trim() || normalized;
       return result.length > 0 ? result : normalized;
     });
+  }
+
+  private async normalizeActorProfile(profile: ActorProfile): Promise<ActorProfile> {
+    const originalName = profile.name.trim();
+    if (!originalName) {
+      return profile;
+    }
+
+    const normalizedName = await this.normalizeActorAlias(originalName);
+    const nextName = normalizedName || originalName;
+    const aliasCandidates = [originalName, ...(profile.aliases ?? [])]
+      .map((alias) => alias.trim())
+      .filter((alias) => alias.length > 0 && alias !== nextName);
+
+    return {
+      ...profile,
+      name: nextName,
+      aliases: aliasCandidates.length > 0 ? Array.from(new Set(aliasCandidates)) : profile.aliases,
+    };
   }
 
   private async translateGenreTerm(term: string, target: LanguageTarget, config: Configuration): Promise<string> {

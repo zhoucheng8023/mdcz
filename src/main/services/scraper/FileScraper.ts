@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ActorImageService } from "@main/services/ActorImageService";
+import type { ActorSourceProvider } from "@main/services/actorSource";
 import type { Configuration } from "@main/services/config";
 import { configurationSchema } from "@main/services/config";
 import type { ConfigManager } from "@main/services/config/ConfigManager";
@@ -25,6 +26,7 @@ export interface FileScraperDependencies {
   fileOrganizer: FileOrganizer;
   signalService: SignalService;
   actorImageService?: ActorImageService;
+  actorSourceProvider?: ActorSourceProvider;
 }
 
 export interface FileScrapeProgress {
@@ -121,6 +123,7 @@ export class FileScraper {
           const preparedNfoData = await prepareCrawlerDataForNfo(this.actorImageService, configuration, translated, {
             movieDir: plan.outputDir,
             sourceVideoPath: fileInfo.filePath,
+            actorSourceProvider: this.deps.actorSourceProvider,
           });
           preparedData = preparedNfoData.data;
           savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedData, {
