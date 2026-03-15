@@ -43,7 +43,7 @@ describe("parseNfo", () => {
     expect(result.poster_url).toBeUndefined();
   });
 
-  it("reads persisted remote image source urls independently from local artwork paths", () => {
+  it("reads persisted remote asset source urls independently from local file paths", () => {
     const xml = `
       <movie>
         <title>Source Urls</title>
@@ -53,9 +53,17 @@ describe("parseNfo", () => {
         <fanart>
           <thumb>fanart.jpg</thumb>
         </fanart>
-        <thumb_source_url>https://example.com/thumb-remote.jpg</thumb_source_url>
-        <poster_source_url>https://example.com/poster-remote.jpg</poster_source_url>
-        <fanart_source_url>https://example.com/fanart-remote.jpg</fanart_source_url>
+        <mdcz>
+          <thumb_source_url>https://example.com/thumb-remote.jpg</thumb_source_url>
+          <poster_source_url>https://example.com/poster-remote.jpg</poster_source_url>
+          <fanart_source_url>https://example.com/fanart-remote.jpg</fanart_source_url>
+          <trailer_source_url>https://example.com/trailer-remote.mp4</trailer_source_url>
+          <sample_images>
+            <image>https://example.com/scene-001.jpg</image>
+            <image>https://example.com/scene-002.jpg</image>
+          </sample_images>
+        </mdcz>
+        <trailer>trailer.mp4</trailer>
       </movie>
     `;
 
@@ -67,6 +75,9 @@ describe("parseNfo", () => {
     expect(result.thumb_source_url).toBe("https://example.com/thumb-remote.jpg");
     expect(result.poster_source_url).toBe("https://example.com/poster-remote.jpg");
     expect(result.fanart_source_url).toBe("https://example.com/fanart-remote.jpg");
+    expect(result.trailer_source_url).toBe("https://example.com/trailer-remote.mp4");
+    expect(result.trailer_url).toBe("trailer.mp4");
+    expect(result.sample_images).toEqual(["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"]);
   });
 
   it("round-trips standard actor nodes, managed movie tags, and streamdetails", () => {

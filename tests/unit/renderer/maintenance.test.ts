@@ -225,17 +225,19 @@ describe("buildMaintenanceCommitItem", () => {
     });
   });
 
-  it("marks trailers for replacement when the new trailer URL is selected", () => {
-    const entry = createEntry(
+  it("updates or clears trailer source metadata based on the selected side", () => {
+    const remoteEntry = createEntry(
       createCrawlerData({
         trailer_url: "https://example.com/trailer-old.mp4",
+        trailer_source_url: "https://example.com/trailer-old.mp4",
       }),
     );
-    const preview: MaintenancePreviewItem = {
-      entryId: entry.id,
+    const remotePreview: MaintenancePreviewItem = {
+      entryId: remoteEntry.id,
       status: "ready",
       proposedCrawlerData: createCrawlerData({
         trailer_url: "https://example.com/trailer-new.mp4",
+        trailer_source_url: "https://example.com/trailer-new.mp4",
       }),
       fieldDiffs: [
         createValueDiff({
@@ -248,13 +250,46 @@ describe("buildMaintenanceCommitItem", () => {
       ],
     };
 
-    const item = buildMaintenanceCommitItem(entry, preview, {
+    const replacedTrailer = buildMaintenanceCommitItem(remoteEntry, remotePreview, {
       trailer_url: "new",
     });
 
-    expect(item.crawlerData?.trailer_url).toBe("https://example.com/trailer-new.mp4");
-    expect(item.assetDecisions).toEqual({
+    expect(replacedTrailer.crawlerData?.trailer_url).toBe("https://example.com/trailer-new.mp4");
+    expect(replacedTrailer.crawlerData?.trailer_source_url).toBe("https://example.com/trailer-new.mp4");
+    expect(replacedTrailer.assetDecisions).toEqual({
       trailer: "replace",
+    });
+
+    const localEntry: LocalScanEntry = {
+      ...createEntry(),
+      scanError: "NFO 解析失败: NFO missing website",
+    };
+    const localPreview: MaintenancePreviewItem = {
+      entryId: localEntry.id,
+      status: "ready",
+      proposedCrawlerData: createCrawlerData({
+        trailer_url: "https://example.com/trailer-new.mp4",
+        trailer_source_url: "https://example.com/trailer-new.mp4",
+      }),
+      fieldDiffs: [
+        createValueDiff({
+          field: "trailer_url",
+          label: "预告片",
+          oldValue: "trailer.mp4",
+          newValue: "https://example.com/trailer-new.mp4",
+          changed: true,
+        }),
+      ],
+    };
+
+    const preservedTrailer = buildMaintenanceCommitItem(localEntry, localPreview, {
+      trailer_url: "old",
+    });
+
+    expect(preservedTrailer.crawlerData?.trailer_url).toBe("trailer.mp4");
+    expect(preservedTrailer.crawlerData?.trailer_source_url).toBeUndefined();
+    expect(preservedTrailer.assetDecisions).toEqual({
+      trailer: "preserve",
     });
   });
 

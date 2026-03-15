@@ -41,47 +41,60 @@ const createEntry = (): LocalScanEntry => ({
   currentDir: "/media",
 });
 
+const plan = {
+  outputDir: "/organized/ABC-123",
+  targetVideoPath: "/organized/ABC-123/ABC-123.mp4",
+  nfoPath: "/organized/ABC-123/ABC-123.nfo",
+};
+
+const createScraper = (crawlerData: CrawlerData) =>
+  new MaintenanceFileScraper(
+    {
+      configManager: {} as never,
+      aggregationService: {
+        aggregate: vi.fn().mockResolvedValue({
+          data: crawlerData,
+          sources: {},
+          imageAlternatives: {},
+        }),
+      } as never,
+      translateService: {
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+      } as never,
+      nfoGenerator: {
+        writeNfo: vi.fn(),
+      } as never,
+      downloadManager: {
+        downloadAll: vi.fn(),
+      } as never,
+      fileOrganizer: {
+        plan: vi.fn().mockReturnValue(plan),
+        resolveOutputPlan: vi.fn(async () => plan),
+      } as never,
+      signalService: new SignalService(null),
+    },
+    getPreset("refresh_data"),
+  );
+
 describe("MaintenanceFileScraper preview diffs", () => {
-  it("builds refresh-data diffs against an empty baseline when local NFO parsing failed", async () => {
+  it("builds refresh-data diffs against a fallback baseline when local NFO parsing failed", async () => {
     const crawlerData = createCrawlerData({
       title_zh: "远程标题",
       plot: "Remote Plot",
       thumb_url: "https://example.com/thumb.jpg",
+      trailer_url: "https://example.com/trailer.mp4",
     });
-    const plan = {
-      outputDir: "/organized/ABC-123",
-      targetVideoPath: "/organized/ABC-123/ABC-123.mp4",
-      nfoPath: "/organized/ABC-123/ABC-123.nfo",
-    };
-    const scraper = new MaintenanceFileScraper(
+    const scraper = createScraper(crawlerData);
+    const result = await scraper.previewFile(
       {
-        configManager: {} as never,
-        aggregationService: {
-          aggregate: vi.fn().mockResolvedValue({
-            data: crawlerData,
-            sources: {},
-            imageAlternatives: {},
-          }),
-        } as never,
-        translateService: {
-          translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
-        } as never,
-        nfoGenerator: {
-          writeNfo: vi.fn(),
-        } as never,
-        downloadManager: {
-          downloadAll: vi.fn(),
-        } as never,
-        fileOrganizer: {
-          plan: vi.fn().mockReturnValue(plan),
-          resolveOutputPlan: vi.fn(async () => plan),
-        } as never,
-        signalService: new SignalService(null),
+        ...createEntry(),
+        assets: {
+          ...createEntry().assets,
+          trailer: "/media/trailer.mp4",
+        },
       },
-      getPreset("refresh_data"),
+      configurationSchema.parse(defaultConfiguration),
     );
-
-    const result = await scraper.previewFile(createEntry(), configurationSchema.parse(defaultConfiguration));
 
     expect(result.status).toBe("ready");
     expect(result.fieldDiffs?.find((diff) => diff.field === "title")).toMatchObject({
@@ -92,6 +105,12 @@ describe("MaintenanceFileScraper preview diffs", () => {
     });
     expect(result.fieldDiffs?.find((diff) => diff.field === "thumb_url")).toMatchObject({
       kind: "image",
+      changed: true,
+    });
+    expect(result.fieldDiffs?.find((diff) => diff.field === "trailer_url")).toMatchObject({
+      kind: "value",
+      oldValue: "trailer.mp4",
+      newValue: "https://example.com/trailer.mp4",
       changed: true,
     });
   });

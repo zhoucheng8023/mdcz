@@ -163,6 +163,7 @@ describe("NfoGenerator", () => {
         thumb_source_url: "https://remote.example.com/thumb.jpg",
         fanart_source_url: "https://remote.example.com/fanart.jpg",
         trailer_url: "https://remote.example.com/trailer.mp4",
+        trailer_source_url: "https://remote.example.com/trailer.mp4",
       }),
       {
         assets: createAssets(),
@@ -175,9 +176,11 @@ describe("NfoGenerator", () => {
     expect(parsed.thumb_url).toBe("thumb.jpg");
     expect(parsed.trailer_url).toBe("trailer.mp4");
     expect(parsed.fanart_url).toBe("fanart.jpg");
+    expect(xml).toContain("<mdcz>");
     expect(parsed.poster_source_url).toBe("https://remote.example.com/poster.jpg");
     expect(parsed.thumb_source_url).toBe("https://remote.example.com/thumb.jpg");
     expect(parsed.fanart_source_url).toBe("https://remote.example.com/fanart.jpg");
+    expect(parsed.trailer_source_url).toBe("https://remote.example.com/trailer.mp4");
     expect(parsed.sample_images).toEqual([]);
   });
 
@@ -207,7 +210,7 @@ describe("NfoGenerator", () => {
     expect(xml).toContain("<bitrate>8000000</bitrate>");
   });
 
-  it("uses thumb artwork as fallback fanart and does not persist sample images into NFO", () => {
+  it("uses thumb artwork as fallback fanart and persists sample image urls under mdcz", () => {
     const xml = new NfoGenerator().buildXml(
       createCrawlerData({
         thumb_url: "https://remote.example.com/thumb.jpg",
@@ -218,9 +221,14 @@ describe("NfoGenerator", () => {
     const parsed = parseNfo(xml);
 
     expect(xml).toContain("<fanart>");
+    expect(xml).toContain("<mdcz>");
+    expect(xml).toContain("<sample_images>");
     expect(parsed.fanart_url).toBe("https://remote.example.com/thumb.jpg");
     expect(parsed.fanart_source_url).toBe("https://remote.example.com/thumb.jpg");
-    expect(parsed.sample_images).toEqual([]);
+    expect(parsed.sample_images).toEqual([
+      "https://remote.example.com/scene-001.jpg",
+      "https://remote.example.com/scene-002.jpg",
+    ]);
     expect(parsed.thumb_url).toBe("https://remote.example.com/thumb.jpg");
   });
 

@@ -672,6 +672,7 @@ export class MaintenanceFileScraper {
       actors: [],
       genres: [],
       sample_images: [],
+      trailer_url: entry.assets.trailer ? basename(entry.assets.trailer) : undefined,
       website: crawlerData.website,
     };
   }
@@ -682,13 +683,21 @@ export class MaintenanceFileScraper {
   ): Partial<Record<"thumb" | "poster" | "fanart", boolean>> {
     const forceReplace: Partial<Record<"thumb" | "poster" | "fanart", boolean>> = {};
     const mappings = [
-      { field: "thumb_url" as const, key: "thumb" as const },
-      { field: "poster_url" as const, key: "poster" as const },
+      {
+        field: "thumb_url" as const,
+        sourceField: "thumb_source_url" as const,
+        key: "thumb" as const,
+      },
+      {
+        field: "poster_url" as const,
+        sourceField: "poster_source_url" as const,
+        key: "poster" as const,
+      },
     ];
 
-    for (const { field, key } of mappings) {
-      const nextValue = this.normalizeComparableUrl(crawlerData[field]);
-      const currentValue = this.normalizeComparableUrl(entry.crawlerData?.[field]);
+    for (const { field, sourceField, key } of mappings) {
+      const nextValue = this.normalizeComparableUrl(crawlerData[sourceField] ?? crawlerData[field]);
+      const currentValue = this.normalizeComparableUrl(entry.crawlerData?.[sourceField] ?? entry.crawlerData?.[field]);
       if (nextValue && nextValue !== currentValue) {
         forceReplace[key] = true;
       }
@@ -702,6 +711,7 @@ export class MaintenanceFileScraper {
   }
 
   private normalizeComparableUrl(value: string | undefined): string {
-    return value?.trim() ?? "";
+    const normalized = value?.trim() ?? "";
+    return /^https?:\/\//iu.test(normalized) ? normalized : "";
   }
 }

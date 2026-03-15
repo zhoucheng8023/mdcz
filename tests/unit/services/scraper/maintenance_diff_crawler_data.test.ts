@@ -42,6 +42,14 @@ const createEntry = (crawlerData: CrawlerData): LocalScanEntry => ({
   currentDir: "/media",
 });
 
+const getEntryCrawlerData = (entry: LocalScanEntry): CrawlerData => {
+  if (!entry.crawlerData) {
+    throw new Error("Expected crawler data for maintenance diff test");
+  }
+
+  return entry.crawlerData;
+};
+
 describe("diffCrawlerData", () => {
   it("ignores actor thumbnail path changes because actor_profiles are execution-time derived data", () => {
     const diffs = diffCrawlerData(
@@ -227,31 +235,33 @@ describe("diffCrawlerData", () => {
     ]);
   });
 
-  it("treats an image as unchanged when the preserved old remote source matches the new candidate url", () => {
+  it("uses persisted source urls to keep matching thumb, trailer, and scene data unchanged", () => {
     const entry = createEntry(
       createCrawlerData({
         thumb_url: "thumb.jpg",
         thumb_source_url: "https://example.com/current-thumb.jpg",
+        trailer_url: "trailer.mp4",
+        trailer_source_url: "https://example.com/current-trailer.mp4",
+        sample_images: ["https://example.com/current-scene.jpg"],
       }),
     );
-    const existingCrawlerData = entry.crawlerData;
-
-    expect(existingCrawlerData).toBeDefined();
-    if (!existingCrawlerData) {
-      throw new Error("Expected crawler data for maintenance diff test");
-    }
+    const existingCrawlerData = getEntryCrawlerData(entry);
 
     const result = partitionCrawlerDataWithOptions(
       existingCrawlerData,
       createCrawlerData({
         thumb_url: "https://example.com/current-thumb.jpg",
+        trailer_url: "https://example.com/current-trailer.mp4",
+        sample_images: ["https://example.com/current-scene.jpg"],
       }),
       {
         entry,
       },
     );
 
-    expect(result.fieldDiffs.find((diff) => diff.field === "thumb_url")).toBeUndefined();
+    expect(result.fieldDiffs.find((diff) => ["thumb_url", "trailer_url", "sample_images"].includes(diff.field))).toBe(
+      undefined,
+    );
     expect(result.unchangedFieldDiffs).toContainEqual({
       kind: "image",
       field: "thumb_url",
@@ -268,20 +278,37 @@ describe("diffCrawlerData", () => {
         fallbackSrcs: [],
       },
     });
+    expect(result.unchangedFieldDiffs).toContainEqual({
+      kind: "value",
+      field: "trailer_url",
+      label: "预告片",
+      oldValue: "trailer.mp4",
+      newValue: "https://example.com/current-trailer.mp4",
+      changed: false,
+    });
+    expect(result.unchangedFieldDiffs).toContainEqual({
+      kind: "imageCollection",
+      field: "sample_images",
+      label: "场景图",
+      oldValue: ["https://example.com/current-scene.jpg"],
+      newValue: ["https://example.com/current-scene.jpg"],
+      changed: false,
+      oldPreview: {
+        items: ["/media/extrafanart/fanart1.jpg"],
+      },
+      newPreview: {
+        items: ["https://example.com/current-scene.jpg"],
+      },
+    });
   });
 
-  it("emits a scene-image diff from local extrafanart even when old raw urls are empty", () => {
+  it("emits a scene-image diff when persisted urls change even if old preview uses local extrafanart", () => {
     const entry = createEntry(
       createCrawlerData({
-        sample_images: [],
+        sample_images: ["https://example.com/old-scene.jpg"],
       }),
     );
-    const existingCrawlerData = entry.crawlerData;
-
-    expect(existingCrawlerData).toBeDefined();
-    if (!existingCrawlerData) {
-      throw new Error("Expected crawler data for maintenance diff test");
-    }
+    const existingCrawlerData = getEntryCrawlerData(entry);
 
     const result = partitionCrawlerDataWithOptions(
       existingCrawlerData,
@@ -297,7 +324,7 @@ describe("diffCrawlerData", () => {
       kind: "imageCollection",
       field: "sample_images",
       label: "场景图",
-      oldValue: [],
+      oldValue: ["https://example.com/old-scene.jpg"],
       newValue: ["https://example.com/new-scene.jpg"],
       changed: true,
       oldPreview: {

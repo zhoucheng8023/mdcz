@@ -126,6 +126,32 @@ const buildFanartNode = (
   return { thumb: { "#text": primaryFanartUrl } };
 };
 
+const buildMdczNode = (data: CrawlerData): Record<string, unknown> | undefined => {
+  const thumbSourceUrl = data.thumb_source_url ?? toRemoteImageSourceUrl(data.thumb_url);
+  const posterSourceUrl = data.poster_source_url ?? toRemoteImageSourceUrl(data.poster_url);
+  const fanartSourceUrl =
+    data.fanart_source_url ??
+    toRemoteImageSourceUrl(data.fanart_url) ??
+    thumbSourceUrl ??
+    toRemoteImageSourceUrl(data.thumb_url);
+  const trailerSourceUrl = data.trailer_source_url ?? toRemoteImageSourceUrl(data.trailer_url);
+  const sampleImageUrls = data.sample_images
+    .map((value) => toRemoteImageSourceUrl(value))
+    .filter((value): value is string => Boolean(value));
+
+  if (!thumbSourceUrl && !posterSourceUrl && !fanartSourceUrl && !trailerSourceUrl && sampleImageUrls.length === 0) {
+    return undefined;
+  }
+
+  return {
+    thumb_source_url: thumbSourceUrl,
+    poster_source_url: posterSourceUrl,
+    fanart_source_url: fanartSourceUrl,
+    trailer_source_url: trailerSourceUrl,
+    sample_images: sampleImageUrls.length > 0 ? { image: sampleImageUrls } : undefined,
+  };
+};
+
 export interface NfoOptions {
   assets?: DownloadedAssets;
   sources?: SourceMap;
@@ -205,17 +231,10 @@ export class NfoGenerator {
       movie.fanart = fanartNode;
     }
 
-    const thumbSourceUrl = data.thumb_source_url ?? toRemoteImageSourceUrl(data.thumb_url);
-    const posterSourceUrl = data.poster_source_url ?? toRemoteImageSourceUrl(data.poster_url);
-    const fanartSourceUrl =
-      data.fanart_source_url ??
-      toRemoteImageSourceUrl(data.fanart_url) ??
-      thumbSourceUrl ??
-      toRemoteImageSourceUrl(data.thumb_url);
-
-    movie.thumb_source_url = thumbSourceUrl;
-    movie.poster_source_url = posterSourceUrl;
-    movie.fanart_source_url = fanartSourceUrl;
+    const mdczNode = buildMdczNode(data);
+    if (mdczNode) {
+      movie.mdcz = mdczNode;
+    }
 
     if (videoNode) {
       movie.fileinfo = {

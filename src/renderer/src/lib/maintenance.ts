@@ -14,6 +14,9 @@ const IMAGE_SOURCE_FIELD_MAP = {
   thumb_url: "thumb_source_url",
   poster_url: "poster_source_url",
 } as const;
+const VALUE_SOURCE_FIELD_MAP = {
+  trailer_url: "trailer_source_url",
+} as const;
 
 const getImageSourceField = (
   field: FieldDiff["field"],
@@ -22,6 +25,17 @@ const getImageSourceField = (
     case "thumb_url":
     case "poster_url":
       return IMAGE_SOURCE_FIELD_MAP[field];
+    default:
+      return undefined;
+  }
+};
+
+const getValueSourceField = (
+  field: FieldDiff["field"],
+): (typeof VALUE_SOURCE_FIELD_MAP)[keyof typeof VALUE_SOURCE_FIELD_MAP] | undefined => {
+  switch (field) {
+    case "trailer_url":
+      return VALUE_SOURCE_FIELD_MAP[field];
     default:
       return undefined;
   }
@@ -41,7 +55,7 @@ const cloneValue = <T>(value: T): T => {
   return value;
 };
 
-const toRemoteImageSourceValue = (value: unknown): string | undefined => {
+const toRemoteSourceValue = (value: unknown): string | undefined => {
   if (typeof value !== "string") {
     return undefined;
   }
@@ -151,7 +165,15 @@ const buildSelectedImageSourceValue = (diff: FieldDiff): string | undefined => {
     return undefined;
   }
 
-  return toRemoteImageSourceValue(diff.newValue) ?? toRemoteImageSourceValue(diff.newPreview.src);
+  return toRemoteSourceValue(diff.newValue) ?? toRemoteSourceValue(diff.newPreview.src);
+};
+
+const buildSelectedValueSourceValue = (diff: FieldDiff): string | undefined => {
+  if (diff.kind !== "value") {
+    return undefined;
+  }
+
+  return toRemoteSourceValue(diff.newValue);
 };
 
 const syncSharedFanartWithThumbSelection = (
@@ -230,6 +252,13 @@ export const buildCommittedCrawlerData = (
         applyOldImageSelection(mutableBaseData, diff, hasExistingCrawlerData);
       } else {
         mutableBaseData[diff.field] = cloneValue(diff.oldValue);
+
+        if (!hasExistingCrawlerData) {
+          const sourceField = getValueSourceField(diff.field);
+          if (sourceField) {
+            mutableBaseData[sourceField] = undefined;
+          }
+        }
       }
       continue;
     }
@@ -243,6 +272,13 @@ export const buildCommittedCrawlerData = (
       }
 
       mutableBaseData[sourceField] = cloneValue(buildSelectedImageSourceValue(diff));
+    }
+
+    if (diff.kind === "value") {
+      const sourceField = getValueSourceField(diff.field);
+      if (sourceField) {
+        mutableBaseData[sourceField] = cloneValue(buildSelectedValueSourceValue(diff));
+      }
     }
 
     syncSharedFanartWithThumbSelection(mutableBaseData, diff, selection);

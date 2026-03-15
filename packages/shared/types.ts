@@ -47,6 +47,7 @@ export interface CrawlerData {
   thumb_source_url?: string;
   poster_source_url?: string;
   fanart_source_url?: string;
+  trailer_source_url?: string;
   sample_images: string[];
   trailer_url?: string;
   website: Website;

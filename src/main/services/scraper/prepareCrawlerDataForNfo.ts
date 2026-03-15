@@ -34,7 +34,7 @@ const toLocalActorPhotoPaths = (movieDir: string, actorProfiles: ActorProfile[] 
   return resolvedPaths;
 };
 
-const withPersistedImageSourceUrls = (crawlerData: CrawlerData): CrawlerData => {
+const withPersistedAssetSourceUrls = (crawlerData: CrawlerData): CrawlerData => {
   const thumbSourceUrl = crawlerData.thumb_source_url ?? toRemoteImageSourceUrl(crawlerData.thumb_url);
   const posterSourceUrl = crawlerData.poster_source_url ?? toRemoteImageSourceUrl(crawlerData.poster_url);
   const fanartSourceUrl =
@@ -42,12 +42,14 @@ const withPersistedImageSourceUrls = (crawlerData: CrawlerData): CrawlerData => 
     toRemoteImageSourceUrl(crawlerData.fanart_url) ??
     thumbSourceUrl ??
     toRemoteImageSourceUrl(crawlerData.thumb_url);
+  const trailerSourceUrl = crawlerData.trailer_source_url ?? toRemoteImageSourceUrl(crawlerData.trailer_url);
 
   return {
     ...crawlerData,
     thumb_source_url: thumbSourceUrl,
     poster_source_url: posterSourceUrl,
     fanart_source_url: fanartSourceUrl,
+    trailer_source_url: trailerSourceUrl,
   };
 };
 
@@ -84,7 +86,7 @@ export const prepareCrawlerDataForNfo = async (
 
   return {
     data: {
-      ...withPersistedImageSourceUrls(crawlerData),
+      ...withPersistedAssetSourceUrls(crawlerData),
       actor_profiles: actorProfiles,
     },
     actorPhotoPaths: toLocalActorPhotoPaths(options.movieDir, actorProfiles),

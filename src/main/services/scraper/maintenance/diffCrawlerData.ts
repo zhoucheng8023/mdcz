@@ -39,6 +39,10 @@ const VALUE_FIELDS: DiffableField[] = [
   { key: "content_type", label: "内容类型" },
 ];
 
+const VALUE_SOURCE_FIELD_MAP = {
+  trailer_url: "trailer_source_url",
+} as const satisfies Partial<Record<keyof CrawlerData, keyof CrawlerData>>;
+
 const IMAGE_FIELDS: DiffableField[] = [
   // In maintenance mode, fanart is treated as a derived local asset from thumb,
   // so only independently switchable primary images are diffed here.
@@ -183,6 +187,12 @@ const buildSceneImagePreview = (items: unknown): FieldDiffImageCollectionPreview
   };
 };
 
+const normalizeImageCollectionValue = (value: unknown): string[] => {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+};
+
 const hasPreviewContent = (diff: FieldDiff, side: "old" | "new"): boolean => {
   if (diff.kind === "image") {
     const preview = side === "old" ? diff.oldPreview : diff.newPreview;
@@ -211,6 +221,23 @@ const buildValueDiff = (
   newValue,
   changed,
 });
+
+const buildSourceAwareValueDiff = (
+  field: keyof typeof VALUE_SOURCE_FIELD_MAP,
+  label: string,
+  oldData: CrawlerData,
+  newData: CrawlerData,
+): FieldDiff => {
+  const oldValue = oldData[field];
+  const newValue = newData[field];
+  const rawChanged = !isEqual(oldValue, newValue);
+  const sourceField = VALUE_SOURCE_FIELD_MAP[field];
+  const oldSource = toRemoteHttpSource(oldData[sourceField]) || toRemoteHttpSource(oldValue);
+  const newSource = toRemoteHttpSource(newData[sourceField]) || toRemoteHttpSource(newValue);
+  const changed = oldSource || newSource ? oldSource !== newSource : rawChanged;
+
+  return buildValueDiff(field, label, oldValue, newValue, changed);
+};
 
 const buildImageFieldDiff = (
   field: "thumb_url" | "poster_url",
@@ -252,8 +279,8 @@ const buildImageCollectionFieldDiff = (
   newData: CrawlerData,
   entry: LocalScanEntry | undefined,
 ): FieldDiff => {
-  const oldValue = oldData[field];
-  const newValue = newData[field];
+  const oldValue = normalizeImageCollectionValue(oldData[field]);
+  const newValue = normalizeImageCollectionValue(newData[field]);
   const hasLocalSceneImages = (entry?.assets.sceneImages.length ?? 0) > 0;
   const oldPreview = buildSceneImagePreview(hasLocalSceneImages ? entry?.assets.sceneImages : oldValue);
   const newPreview = buildSceneImagePreview(newValue);
@@ -264,7 +291,7 @@ const buildImageCollectionFieldDiff = (
     label,
     oldValue,
     newValue,
-    changed: !isEqual(oldValue, newValue) || !isEqual(oldPreview.items, newPreview.items),
+    changed: !isEqual(oldValue, newValue),
     oldPreview,
     newPreview,
   };
@@ -302,16 +329,16 @@ export function partitionCrawlerDataWithOptions(
       continue;
     }
 
-    const oldValue = oldData[key];
-    const newValue = newData[key];
-    const changed = !isEqual(oldValue, newValue);
-    const diff = buildValueDiff(key, label, oldValue, newValue, changed);
+    const diff =
+      key in VALUE_SOURCE_FIELD_MAP
+        ? buildSourceAwareValueDiff(key as keyof typeof VALUE_SOURCE_FIELD_MAP, label, oldData, newData)
+        : buildValueDiff(key, label, oldData[key], newData[key], !isEqual(oldData[key], newData[key]));
 
-    if (!changed && !hasPreviewContent(diff, "old")) {
+    if (!diff.changed && !hasPreviewContent(diff, "old")) {
       continue;
     }
 
-    (changed ? fieldDiffs : unchangedFieldDiffs).push(diff);
+    (diff.changed ? fieldDiffs : unchangedFieldDiffs).push(diff);
   }
 
   for (const { key, label } of IMAGE_FIELDS) {
