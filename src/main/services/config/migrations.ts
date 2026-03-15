@@ -35,6 +35,8 @@ const renameKey = (raw: Record<string, unknown>, section: string, oldKey: string
 };
 
 const DEFAULT_FOLDER_TEMPLATE = "{actor}/{number}";
+const V040_PERSON_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"] as const;
+const V040_PERSON_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avbase"] as const;
 
 const LEGACY_FIELD_PRIORITY_DEFAULTS: Record<string, readonly string[]> = {
   title: ["dmm", "mgstage", "dmm_tv", "fc2", "javdb", "javbus", "jav321", "km_produce"],
@@ -101,6 +103,29 @@ const migrateFolderTemplate = (raw: Record<string, unknown>): void => {
 
   if (!folderTemplate.includes("{number}")) {
     naming.folderTemplate = appendPathSegment(folderTemplate, "{number}");
+  }
+};
+
+const sanitizePersonSyncSources = (raw: Record<string, unknown>): void => {
+  const personSync = raw.personSync;
+  if (!isRecord(personSync)) {
+    return;
+  }
+
+  if (Array.isArray(personSync.personImageSources)) {
+    personSync.personImageSources = personSync.personImageSources.filter(
+      (value): value is string =>
+        typeof value === "string" &&
+        V040_PERSON_IMAGE_SOURCE_OPTIONS.includes(value as (typeof V040_PERSON_IMAGE_SOURCE_OPTIONS)[number]),
+    );
+  }
+
+  if (Array.isArray(personSync.personOverviewSources)) {
+    personSync.personOverviewSources = personSync.personOverviewSources.filter(
+      (value): value is string =>
+        typeof value === "string" &&
+        V040_PERSON_OVERVIEW_SOURCE_OPTIONS.includes(value as (typeof V040_PERSON_OVERVIEW_SOURCE_OPTIONS)[number]),
+    );
   }
 };
 
@@ -173,7 +198,10 @@ function migrateV030ToV040(raw: Record<string, unknown>): void {
   // 7. Ensure folderTemplate stays valid under the new successFileMove rule
   migrateFolderTemplate(raw);
 
-  // 8. Append the newly introduced default site to enabledSites / siteOrder
+  // 8. Sanitize legacy personSync source arrays against the v0.4 option snapshot
+  sanitizePersonSyncSources(raw);
+
+  // 9. Append the newly introduced default site to enabledSites / siteOrder
   const scrape = raw.scrape;
   if (isRecord(scrape)) {
     if (isStringArray(scrape.enabledSites)) {
@@ -192,7 +220,7 @@ function migrateV030ToV040(raw: Record<string, unknown>): void {
     }
   }
 
-  // 9. Normalize untouched legacy fieldPriorities arrays to the current v0.4 defaults
+  // 10. Normalize untouched legacy fieldPriorities arrays to the current v0.4 defaults
   normalizeFieldPriorityDefaults(raw);
 }
 

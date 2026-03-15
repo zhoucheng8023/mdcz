@@ -15,6 +15,32 @@ interface Jav321Context extends Context {
   postBody?: string;
 }
 
+const splitActorText = (value: string | undefined): string[] => {
+  if (!value) {
+    return [];
+  }
+
+  const normalized = value
+    .replace(/&nbsp;/giu, " ")
+    .replace(/[♀♂]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const parts = normalized
+    .split(/[、,，/&＆]/u)
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+
+  if (parts.length > 1) {
+    return uniqueStrings(parts);
+  }
+
+  return [normalized];
+};
+
 export class Jav321Crawler extends BaseCrawler {
   site(): Website {
     return Website.JAV321;
@@ -88,7 +114,7 @@ export class Jav321Crawler extends BaseCrawler {
     const infoHtml = $("div.col-md-9").first().html() ?? "";
 
     const extractField = (label: string): string | undefined => {
-      const regex = new RegExp(`<b>${label}</b>\\s*(.+?)(?:<br|<\\/div|$)`, "iu");
+      const regex = new RegExp(`<b>${label}</b>\\s*:?\\s*(.+?)(?:<br|<\\/div|$)`, "iu");
       const match = infoHtml.match(regex);
       if (!match?.[1]) {
         return undefined;
@@ -99,7 +125,7 @@ export class Jav321Crawler extends BaseCrawler {
     };
 
     const extractFieldLinks = (label: string): string[] => {
-      const regex = new RegExp(`<b>${label}</b>\\s*(.+?)(?:<br|<\\/div|$)`, "iu");
+      const regex = new RegExp(`<b>${label}</b>\\s*:?\\s*(.+?)(?:<br|<\\/div|$)`, "iu");
       const match = infoHtml.match(regex);
       if (!match?.[1]) {
         return [];
@@ -122,12 +148,14 @@ export class Jav321Crawler extends BaseCrawler {
         .filter((name: string) => name.length > 0),
     );
 
-    const actors = uniqueStrings(
+    const linkedActors = uniqueStrings(
       $("a[href*='/star/']")
         .toArray()
         .map((element: CheerioInput) => $(element).text().trim())
         .filter((name: string) => name.length > 0),
     );
+    const actors =
+      linkedActors.length > 0 ? linkedActors : splitActorText(extractField("出演者") ?? extractField("女優"));
 
     const thumbUrl = $("img.img-responsive").first().attr("src");
     const thumbUrlAbsolute = thumbUrl ? toAbsoluteUrl(JAV321_BASE_URL, thumbUrl) : undefined;

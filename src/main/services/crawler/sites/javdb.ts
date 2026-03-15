@@ -54,6 +54,18 @@ const findStrongLinks = ($: CheerioAPI, labels: string[]): string[] => {
   return Array.from(new Set(links));
 };
 
+const findActorLinksBySymbol = ($: CheerioAPI, symbolClass: "female" | "male"): string[] => {
+  const selectors = [`strong.${symbolClass}`, `strong.symbol.${symbolClass}`];
+  const links = selectors.flatMap((selector) =>
+    $(selector)
+      .toArray()
+      .map((element: CheerioInput) => $(element).prevAll("a").first().text().trim())
+      .filter((name: string) => name.length > 0),
+  );
+
+  return Array.from(new Set(links));
+};
+
 export class JavdbCrawler extends BaseCrawler {
   site(): Website {
     return Website.JAVDB;
@@ -129,19 +141,11 @@ export class JavdbCrawler extends BaseCrawler {
     const number =
       extractAttr($, "a.button.is-white.copy-to-clipboard", "data-clipboard-text")?.trim() || context.number;
 
-    const actorsPrimary = $("strong.female")
-      .toArray()
-      .flatMap((element: CheerioInput) => $(element).parent().find("a").toArray())
-      .map((element: CheerioInput) => $(element).text().trim())
-      .filter((name: string) => name.length > 0);
-
-    const actorsFallback = $("strong.male")
-      .toArray()
-      .flatMap((element: CheerioInput) => $(element).parent().find("a").toArray())
-      .map((element: CheerioInput) => $(element).text().trim())
-      .filter((name: string) => name.length > 0);
-
-    const actors = actorsPrimary.length > 0 ? actorsPrimary : actorsFallback;
+    const actorsPrimary = findActorLinksBySymbol($, "female");
+    const actorsFallback = findActorLinksBySymbol($, "male");
+    const actorsUnmarked = findStrongLinks($, ["演員:", "Actors:", "演员:"]);
+    const actors =
+      actorsPrimary.length > 0 ? actorsPrimary : actorsFallback.length > 0 ? actorsFallback : actorsUnmarked;
 
     const genres = findStrongLinks($, ["類別:", "Tags:", "类别:"]);
 
