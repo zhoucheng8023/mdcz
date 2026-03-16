@@ -121,4 +121,81 @@ describe("ActorSourceProvider image lookup", () => {
     expect(avjoho.lookup).toHaveBeenCalledTimes(1);
     expect(avbase.lookup).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps overview metadata from the first qualified overview source instead of mixing fields across sites", async () => {
+    const official = createSource("official", {
+      aliases: ["Official Alias"],
+    });
+    const avbase = createSource("avbase", {
+      description: "AVBASE profile",
+      birth_date: "1999-05-08",
+    });
+    const avjoho = createSource("avjoho", {
+      birth_place: "神奈川県",
+      blood_type: "A",
+      height_cm: 166,
+    });
+
+    const provider = new ActorSourceProvider({
+      registry: new ActorSourceRegistry([official, avbase, avjoho]),
+    });
+
+    const result = await provider.lookup(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official", "avbase", "avjoho"],
+          personImageSources: ["official", "avbase"],
+        },
+      }),
+      {
+        name: "Actor A",
+      },
+    );
+
+    expect(result.profile).toMatchObject({
+      name: "Actor A",
+      aliases: ["Official Alias"],
+      description: "AVBASE profile",
+      birth_date: "1999-05-08",
+    });
+    expect(result.profile.birth_place).toBeUndefined();
+    expect(result.profile.height_cm).toBeUndefined();
+    expect(result.profileSources.description).toBe("avbase");
+    expect(result.profileSources.birth_date).toBe("avbase");
+    expect(result.profileSources.birth_place).toBeUndefined();
+  });
+
+  it("falls back to a later overview source when an earlier source is too sparse", async () => {
+    const official = createSource("official", {
+      aliases: ["Official Alias"],
+    });
+    const avbase = createSource("avbase", {
+      birth_date: "1999-05-08",
+      birth_place: "神奈川県",
+      height_cm: 166,
+    });
+
+    const provider = new ActorSourceProvider({
+      registry: new ActorSourceRegistry([official, avbase]),
+    });
+
+    const result = await provider.lookup(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official", "avbase"],
+        },
+      }),
+      {
+        name: "Actor A",
+      },
+    );
+
+    expect(result.profile.birth_date).toBe("1999-05-08");
+    expect(result.profile.birth_place).toBe("神奈川県");
+    expect(result.profile.height_cm).toBe(166);
+    expect(result.profileSources.birth_date).toBe("avbase");
+    expect(result.profile.aliases).toEqual(["Official Alias"]);
+  });
 });

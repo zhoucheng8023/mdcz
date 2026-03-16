@@ -170,7 +170,8 @@ interface PersonToolCardProps {
   checkResult: ConnectionCheckResult | null;
   checkPending: boolean;
   busy: boolean;
-  syncRunning: boolean;
+  infoSyncRunning: boolean;
+  photoSyncRunning: boolean;
   syncProgress: number;
   infoMode: SyncMode;
   photoMode: SyncMode;
@@ -195,7 +196,8 @@ function PersonToolCard({
   checkResult,
   checkPending,
   busy,
-  syncRunning,
+  infoSyncRunning,
+  photoSyncRunning,
   syncProgress,
   infoMode,
   photoMode,
@@ -306,7 +308,7 @@ function PersonToolCard({
                 disabled={busy || checkPending}
                 className="flex-1 rounded-lg h-9 text-sm"
               >
-                {syncRunning ? "同步中..." : "同步信息"}
+                {infoSyncRunning ? "同步中..." : "同步信息"}
               </Button>
             </div>
             <div className="text-[11px] leading-relaxed text-muted-foreground">
@@ -332,7 +334,7 @@ function PersonToolCard({
                 disabled={busy || checkPending}
                 className="flex-1 rounded-lg h-9 text-sm"
               >
-                {syncRunning ? "同步中..." : "同步头像"}
+                {photoSyncRunning ? "同步中..." : "同步头像"}
               </Button>
             </div>
             <div className="text-[11px] leading-relaxed text-muted-foreground">
@@ -387,12 +389,16 @@ function ToolComponent() {
   const [jellyfinActorPhotoMode, setJellyfinActorPhotoMode] = useState<SyncMode>("missing");
   const [embyActorInfoMode, setEmbyActorInfoMode] = useState<SyncMode>("missing");
   const [embyActorPhotoMode, setEmbyActorPhotoMode] = useState<SyncMode>("missing");
-  const [jellyfinSyncRunning, setJellyfinSyncRunning] = useState(false);
-  const [embySyncRunning, setEmbySyncRunning] = useState(false);
+  const [jellyfinInfoSyncRunning, setJellyfinInfoSyncRunning] = useState(false);
+  const [jellyfinPhotoSyncRunning, setJellyfinPhotoSyncRunning] = useState(false);
+  const [embyInfoSyncRunning, setEmbyInfoSyncRunning] = useState(false);
+  const [embyPhotoSyncRunning, setEmbyPhotoSyncRunning] = useState(false);
   const [jellyfinSyncProgress, setJellyfinSyncProgress] = useState(0);
   const [embySyncProgress, setEmbySyncProgress] = useState(0);
   const jellyfinProgressResetTimerRef = useRef<number | null>(null);
   const embyProgressResetTimerRef = useRef<number | null>(null);
+  const jellyfinSyncRunning = jellyfinInfoSyncRunning || jellyfinPhotoSyncRunning;
+  const embySyncRunning = embyInfoSyncRunning || embyPhotoSyncRunning;
   const anyPersonSyncRunning = jellyfinSyncRunning || embySyncRunning;
   const anyPersonCheckPending = checkJellyfinConnectionMut.isPending || checkEmbyConnectionMut.isPending;
   const [selectedPersonServer, setSelectedPersonServer] = useState<"jellyfin" | "emby">("jellyfin");
@@ -619,7 +625,7 @@ function ToolComponent() {
 
     clearProgressResetTimer(jellyfinProgressResetTimerRef);
     setJellyfinSyncProgress(0);
-    setJellyfinSyncRunning(true);
+    setJellyfinInfoSyncRunning(true);
     showInfo("正在同步 Jellyfin 演员信息...");
     try {
       const result = await ipc.tool.syncJellyfinActorInfo(jellyfinActorInfoMode);
@@ -628,7 +634,7 @@ function ToolComponent() {
     } catch (error) {
       showError(`Jellyfin 演员信息同步失败: ${formatError(error)}`);
     } finally {
-      setJellyfinSyncRunning(false);
+      setJellyfinInfoSyncRunning(false);
       clearProgressResetTimer(jellyfinProgressResetTimerRef);
       jellyfinProgressResetTimerRef.current = window.setTimeout(() => {
         setJellyfinSyncProgress(0);
@@ -654,7 +660,7 @@ function ToolComponent() {
 
     clearProgressResetTimer(jellyfinProgressResetTimerRef);
     setJellyfinSyncProgress(0);
-    setJellyfinSyncRunning(true);
+    setJellyfinPhotoSyncRunning(true);
     showInfo("正在同步 Jellyfin 演员头像...");
     try {
       const result = await ipc.tool.syncJellyfinActorPhoto(jellyfinActorPhotoMode);
@@ -663,7 +669,7 @@ function ToolComponent() {
     } catch (error) {
       showError(`Jellyfin 头像同步失败: ${formatError(error)}`);
     } finally {
-      setJellyfinSyncRunning(false);
+      setJellyfinPhotoSyncRunning(false);
       clearProgressResetTimer(jellyfinProgressResetTimerRef);
       jellyfinProgressResetTimerRef.current = window.setTimeout(() => {
         setJellyfinSyncProgress(0);
@@ -689,7 +695,7 @@ function ToolComponent() {
 
     clearProgressResetTimer(embyProgressResetTimerRef);
     setEmbySyncProgress(0);
-    setEmbySyncRunning(true);
+    setEmbyInfoSyncRunning(true);
     showInfo("正在同步 Emby 演员信息...");
     try {
       const result = await ipc.tool.syncEmbyActorInfo(embyActorInfoMode);
@@ -698,7 +704,7 @@ function ToolComponent() {
     } catch (error) {
       showError(`Emby 演员信息同步失败: ${formatError(error)}`);
     } finally {
-      setEmbySyncRunning(false);
+      setEmbyInfoSyncRunning(false);
       clearProgressResetTimer(embyProgressResetTimerRef);
       embyProgressResetTimerRef.current = window.setTimeout(() => {
         setEmbySyncProgress(0);
@@ -729,7 +735,7 @@ function ToolComponent() {
 
     clearProgressResetTimer(embyProgressResetTimerRef);
     setEmbySyncProgress(0);
-    setEmbySyncRunning(true);
+    setEmbyPhotoSyncRunning(true);
     showInfo("正在同步 Emby 演员头像...");
     try {
       const result = await ipc.tool.syncEmbyActorPhoto(embyActorPhotoMode);
@@ -738,7 +744,7 @@ function ToolComponent() {
     } catch (error) {
       showError(`Emby 头像同步失败: ${formatError(error)}`);
     } finally {
-      setEmbySyncRunning(false);
+      setEmbyPhotoSyncRunning(false);
       clearProgressResetTimer(embyProgressResetTimerRef);
       embyProgressResetTimerRef.current = window.setTimeout(() => {
         setEmbySyncProgress(0);
@@ -999,12 +1005,13 @@ function ToolComponent() {
           diagnosticLabel: "Jellyfin 诊断结果",
           checkResult: jellyfinCheckResult,
           checkPending: checkJellyfinConnectionMut.isPending,
-          syncRunning: jellyfinSyncRunning,
+          infoSyncRunning: jellyfinInfoSyncRunning,
+          photoSyncRunning: jellyfinPhotoSyncRunning,
           syncProgress: jellyfinSyncProgress,
           infoMode: jellyfinActorInfoMode,
           photoMode: jellyfinActorPhotoMode,
-          infoMissingText: "仅补全缺失的演员简介、资料标签和摘要。",
-          infoAllText: "按当前抓取结果更新演员简介、资料标签和摘要。",
+          infoMissingText: "仅补全缺失的演员简介与基础资料。",
+          infoAllText: "按当前抓取结果更新演员简介与基础资料。",
           photoMissingText: "仅为缺少头像的演员补充头像。",
           photoAllText: "按当前抓取结果重新同步演员头像。",
           photoNotice: undefined as string | undefined,
@@ -1018,12 +1025,13 @@ function ToolComponent() {
           diagnosticLabel: "Emby 诊断结果",
           checkResult: embyCheckResult,
           checkPending: checkEmbyConnectionMut.isPending,
-          syncRunning: embySyncRunning,
+          infoSyncRunning: embyInfoSyncRunning,
+          photoSyncRunning: embyPhotoSyncRunning,
           syncProgress: embySyncProgress,
           infoMode: embyActorInfoMode,
           photoMode: embyActorPhotoMode,
-          infoMissingText: "仅补全缺失的演员简介、资料标签和摘要，并保留未变更字段。",
-          infoAllText: "按当前抓取结果更新演员简介、资料标签和摘要，并按同步字段写回 Emby。",
+          infoMissingText: "仅补全缺失的演员简介与基础资料，并保留未变更字段。",
+          infoAllText: "按当前抓取结果更新演员简介与基础资料，并按同步字段写回 Emby。",
           photoMissingText: "仅为缺少头像的演员补充头像。",
           photoAllText: "按当前抓取结果重新同步演员头像。",
           photoNotice: "人物头像上传通常需要管理员 API Key。若返回 401 或 403，请改用管理员 API Key 后重试。",

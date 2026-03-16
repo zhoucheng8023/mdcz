@@ -96,29 +96,27 @@ const readPostedPayload = (networkClient: FakeNetworkClient, index = 0): Record<
   return JSON.parse(typeof body === "string" ? body : "{}");
 };
 
-const expectManagedActorPayload = (payload: Record<string, unknown>, overview: string): void => {
+const expectManagedActorPayload = (
+  payload: Record<string, unknown>,
+  overview: string,
+  options: {
+    tags?: string[];
+    taglines?: string[];
+  } = {},
+): void => {
   expect(payload).toMatchObject({
     Overview: overview,
-    Taglines: ["MDCz: 2001-02-03 / 東京都 / A型 / 160cm / B90 W58 H88 / Gカップ"],
+    Tags: options.tags ?? [],
+    Taglines: options.taglines ?? [],
     PremiereDate: "2001-02-03T00:00:00.000Z",
     ProductionYear: 2001,
     ProductionLocations: ["東京都"],
   });
-  expect(payload.Tags).toEqual(
-    expect.arrayContaining([
-      "mdcz:birth_date:2001-02-03",
-      "mdcz:birth_place:東京都",
-      "mdcz:blood_type:A",
-      "mdcz:height_cm:160",
-      "mdcz:bust_cm:90",
-      "mdcz:waist_cm:58",
-      "mdcz:hip_cm:88",
-      "mdcz:cup_size:G",
-    ]),
-  );
 };
 
 describe("Jellyfin services", () => {
+  const jellyfinUserId = "123e4567-e89b-12d3-a456-426614174000";
+
   afterEach(async () => {
     vi.restoreAllMocks();
     await Promise.all(
@@ -242,7 +240,7 @@ describe("Jellyfin services", () => {
       if (parsed.pathname === "/Persons") {
         return { Items: [{ Id: "person-1", Name: "Actor A", Overview: "" }] };
       }
-      if (parsed.pathname === "/Items/person-1") {
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
         return { Id: "person-1", Name: "Actor A", LockedFields: [], LockData: false };
       }
       throw new Error(`Unexpected URL ${url}`);
@@ -266,6 +264,7 @@ describe("Jellyfin services", () => {
           ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
+          userId: jellyfinUserId,
           refreshPersonAfterSync: true,
           lockOverviewAfterSync: true,
         },
@@ -278,7 +277,7 @@ describe("Jellyfin services", () => {
     expect(networkClient.postText.mock.calls[0]?.[0]).toContain("/Items/person-1?");
     expectManagedActorPayload(
       readPostedPayload(networkClient),
-      "基本资料\n生日：2001-02-03\n出生地：東京都\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\nActor biography\n\n别名：Alias A / Alias B",
+      "基本资料\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\nActor biography\n\n别名：Alias A / Alias B",
     );
     expect(readPostedPayload(networkClient)).toMatchObject({
       LockedFields: ["Overview"],
@@ -287,14 +286,182 @@ describe("Jellyfin services", () => {
     expect(networkClient.postText.mock.calls[1]?.[0]).toContain("/Items/person-1/Refresh");
   });
 
-  it("fills missing actor tags and summary without overwriting an existing Jellyfin overview", async () => {
+  it("uses the user-scoped item detail endpoint for Jellyfin actor info sync", async () => {
+    const networkClient = new FakeNetworkClient();
+    networkClient.getJson.mockImplementation(async (url: string) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/Persons") {
+        return { Items: [{ Id: "person-1", Name: "Actor A", Overview: "" }] };
+      }
+      if (parsed.pathname === "/Users") {
+        return [{ Id: jellyfinUserId, Policy: { IsAdministrator: true, EnableAllFolders: true } }];
+      }
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
+        return { Id: "person-1", Name: "Actor A", LockedFields: [], LockData: false };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const actorSourceProvider = new FakeActorSourceProvider();
+    actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
+
+    const service = new JellyfinActorInfoService({
+      signalService: new SignalService(null),
+      networkClient: networkClient as unknown as NetworkClient,
+      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
+    });
+
+    const result = await service.run(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
+          url: "http://127.0.0.1:8096",
+          apiKey: "token",
+          refreshPersonAfterSync: false,
+        },
+      }),
+      "all",
+    );
+
+    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(networkClient.getJson).toHaveBeenCalledWith(
+      expect.stringContaining("/Users?api_key=token"),
+      expect.anything(),
+    );
+    expect(networkClient.getJson).toHaveBeenCalledWith(
+      expect.stringContaining(`/Users/${jellyfinUserId}/Items/person-1?api_key=token`),
+      expect.anything(),
+    );
+    expect(networkClient.postText).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves the Jellyfin user ID once per info sync run in automatic mode", async () => {
+    const networkClient = new FakeNetworkClient();
+    networkClient.getJson.mockImplementation(async (url: string) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/Persons") {
+        return {
+          Items: [
+            { Id: "person-1", Name: "Actor A", Overview: "" },
+            { Id: "person-2", Name: "Actor B", Overview: "" },
+          ],
+        };
+      }
+      if (parsed.pathname === "/Users") {
+        return [{ Id: jellyfinUserId, Policy: { IsAdministrator: true, EnableAllFolders: true } }];
+      }
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
+        return { Id: "person-1", Name: "Actor A", LockedFields: [], LockData: false };
+      }
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-2`) {
+        return { Id: "person-2", Name: "Actor B", LockedFields: [], LockData: false };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const actorSourceProvider = new FakeActorSourceProvider();
+    actorSourceProvider.lookup
+      .mockResolvedValueOnce(createStructuredLookupResult("Actor A"))
+      .mockResolvedValueOnce(createStructuredLookupResult("Actor B"));
+
+    const service = new JellyfinActorInfoService({
+      signalService: new SignalService(null),
+      networkClient: networkClient as unknown as NetworkClient,
+      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
+    });
+
+    const result = await service.run(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
+          url: "http://127.0.0.1:8096",
+          apiKey: "token",
+          refreshPersonAfterSync: false,
+        },
+      }),
+      "all",
+    );
+
+    expect(result).toEqual({ processedCount: 2, failedCount: 0 });
+    expect(
+      networkClient.getJson.mock.calls.filter(([url]) => String(url).includes("/Users?api_key=token")),
+    ).toHaveLength(1);
+    expect(networkClient.postText).toHaveBeenCalledTimes(2);
+  });
+
+  it("includes empty Jellyfin collection fields for sparse person updates", async () => {
+    const networkClient = new FakeNetworkClient();
+    networkClient.getJson.mockImplementation(async (url: string) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/Persons") {
+        return { Items: [{ Id: "person-1", Name: "Actor A", Overview: "" }] };
+      }
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
+        return { Id: "person-1", Name: "Actor A", Overview: "", LockedFields: [], LockData: false };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const actorSourceProvider = new FakeActorSourceProvider();
+    actorSourceProvider.lookup.mockResolvedValue({
+      profile: {
+        name: "Actor A",
+        aliases: ["Alias A"],
+      },
+      profileSources: {},
+      sourceResults: [],
+      warnings: [],
+    });
+
+    const service = new JellyfinActorInfoService({
+      signalService: new SignalService(null),
+      networkClient: networkClient as unknown as NetworkClient,
+      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
+    });
+
+    const result = await service.run(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
+          url: "http://127.0.0.1:8096",
+          apiKey: "token",
+          userId: jellyfinUserId,
+          refreshPersonAfterSync: false,
+        },
+      }),
+      "all",
+    );
+
+    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(readPostedPayload(networkClient)).toMatchObject({
+      Overview: "别名：Alias A",
+      Genres: [],
+      Tags: [],
+      ProviderIds: {},
+      Taglines: [],
+      ProductionLocations: [],
+      LockedFields: [],
+      LockData: false,
+    });
+  });
+
+  it("fills missing actor native fields and summary without overwriting the existing Jellyfin overview body", async () => {
     const networkClient = new FakeNetworkClient();
     networkClient.getJson.mockImplementation(async (url: string) => {
       const parsed = new URL(url);
       if (parsed.pathname === "/Persons") {
         return { Items: [{ Id: "person-1", Name: "Actor A", Overview: "已有简介" }] };
       }
-      if (parsed.pathname === "/Items/person-1") {
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
         return {
           Id: "person-1",
           Name: "Actor A",
@@ -326,6 +493,7 @@ describe("Jellyfin services", () => {
           ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
+          userId: jellyfinUserId,
           refreshPersonAfterSync: false,
         },
       }),
@@ -334,7 +502,82 @@ describe("Jellyfin services", () => {
 
     expect(result).toEqual({ processedCount: 1, failedCount: 0 });
     expect(networkClient.postText).toHaveBeenCalledTimes(1);
-    expectManagedActorPayload(readPostedPayload(networkClient), "已有简介");
+    expectManagedActorPayload(
+      readPostedPayload(networkClient),
+      "基本资料\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\n已有简介\n\n别名：Alias A / Alias B",
+      { tags: ["favorite"] },
+    );
+  });
+
+  it("cleans legacy managed tags and taglines in missing mode while preserving user entries", async () => {
+    const networkClient = new FakeNetworkClient();
+    networkClient.getJson.mockImplementation(async (url: string) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/Persons") {
+        return {
+          Items: [
+            {
+              Id: "person-1",
+              Name: "Actor A",
+              Overview:
+                "基本资料\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\n已有简介\n\n别名：Alias A / Alias B",
+            },
+          ],
+        };
+      }
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
+        return {
+          Id: "person-1",
+          Name: "Actor A",
+          Overview:
+            "基本资料\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\n已有简介\n\n别名：Alias A / Alias B",
+          Tags: ["favorite", "mdcz:birth_date:2001-02-03"],
+          Taglines: ["精选", "MDCz: 2001-02-03 / 東京都 / A型 / 160cm"],
+          PremiereDate: "2001-02-03T00:00:00.000Z",
+          ProductionYear: 2001,
+          ProductionLocations: ["東京都"],
+          LockedFields: [],
+          LockData: false,
+        };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const actorSourceProvider = new FakeActorSourceProvider();
+    actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
+
+    const service = new JellyfinActorInfoService({
+      signalService: new SignalService(null),
+      networkClient: networkClient as unknown as NetworkClient,
+      actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
+    });
+
+    const result = await service.run(
+      createConfig({
+        personSync: {
+          ...defaultConfiguration.personSync,
+          personOverviewSources: ["official"],
+        },
+        jellyfin: {
+          ...defaultConfiguration.jellyfin,
+          url: "http://127.0.0.1:8096",
+          apiKey: "token",
+          userId: jellyfinUserId,
+          refreshPersonAfterSync: false,
+        },
+      }),
+      "missing",
+    );
+
+    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(networkClient.postText).toHaveBeenCalledTimes(1);
+    expectManagedActorPayload(
+      readPostedPayload(networkClient),
+      "基本资料\n血型：A型\n身高：160cm\n三围：B90 W58 H88\n罩杯：G杯\n\n已有简介\n\n别名：Alias A / Alias B",
+      {
+        tags: ["favorite"],
+        taglines: ["精选"],
+      },
+    );
   });
 
   it("appends aliases to the existing overview in all mode when the source has no description", async () => {
@@ -344,7 +587,7 @@ describe("Jellyfin services", () => {
       if (parsed.pathname === "/Persons") {
         return { Items: [{ Id: "person-1", Name: "Actor A", Overview: "已有简介\n\n别名：旧别名" }] };
       }
-      if (parsed.pathname === "/Items/person-1") {
+      if (parsed.pathname === `/Users/${jellyfinUserId}/Items/person-1`) {
         return {
           Id: "person-1",
           Name: "Actor A",
@@ -382,6 +625,7 @@ describe("Jellyfin services", () => {
           ...defaultConfiguration.jellyfin,
           url: "http://127.0.0.1:8096",
           apiKey: "token",
+          userId: jellyfinUserId,
         },
       }),
       "all",

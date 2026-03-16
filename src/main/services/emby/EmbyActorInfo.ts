@@ -4,7 +4,6 @@ import type { Configuration } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import {
-  hasMissingActorInfo,
   normalizeExistingPersonSyncState,
   type PlannedPersonSyncState,
   planPersonSync,
@@ -72,10 +71,6 @@ export class EmbyActorInfoService {
           productionYear: typeof detail.ProductionYear === "number" ? detail.ProductionYear : undefined,
           productionLocations: toStringArray(detail.ProductionLocations),
         });
-
-        if (mode === "missing" && !hasMissingActorInfo(existing)) {
-          continue;
-        }
 
         const actorSource = await this.deps.actorSourceProvider.lookup(configuration, person.Name);
         logActorSourceWarnings(this.logger, person.Name, actorSource.warnings);
@@ -147,18 +142,14 @@ export class EmbyActorInfoService {
       payload.Genres = genres;
     }
 
-    if (synced.tags.length > 0) {
-      payload.Tags = synced.tags;
-    }
+    payload.Tags = synced.tags;
 
     const providerIds = toStringRecord(detail.ProviderIds);
     if (Object.keys(providerIds).length > 0) {
       payload.ProviderIds = providerIds;
     }
 
-    if (synced.taglines.length > 0) {
-      payload.Taglines = synced.taglines;
-    }
+    payload.Taglines = synced.taglines;
 
     if (synced.productionLocations && synced.productionLocations.length > 0) {
       payload.ProductionLocations = synced.productionLocations;

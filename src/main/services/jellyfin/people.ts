@@ -4,7 +4,6 @@ import type { Configuration } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import {
-  hasMissingActorInfo,
   normalizeExistingPersonSyncState,
   type PlannedPersonSyncState,
   planPersonSync,
@@ -15,6 +14,11 @@ import { JellyfinServiceError, toJellyfinServiceError } from "./errors";
 
 interface JellyfinPersonsResponse {
   Items?: unknown;
+}
+
+interface JellyfinUserResponse {
+  Id?: unknown;
+  Policy?: unknown;
 }
 
 type ItemDetail = Record<string, unknown>;
@@ -70,16 +74,106 @@ const toBooleanValue = (value: unknown): boolean | undefined => {
   return typeof value === "boolean" ? value : undefined;
 };
 
+const pickJellyfinUserId = (users: JellyfinUserResponse[]): string | undefined => {
+  let bestId: string | undefined;
+  let bestScore = -1;
+
+  for (const user of users) {
+    const id = toStringValue(user.Id);
+    if (!id) {
+      continue;
+    }
+
+    const policy = isRecord(user.Policy) ? user.Policy : undefined;
+    const isAdministrator = toBooleanValue(policy?.IsAdministrator) ?? false;
+    const enableAllFolders = toBooleanValue(policy?.EnableAllFolders) ?? false;
+    const score = isAdministrator && enableAllFolders ? 3 : isAdministrator ? 2 : enableAllFolders ? 1 : 0;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = id;
+      if (score === 3) {
+        break;
+      }
+    }
+  }
+
+  return bestId;
+};
+
+const getConfiguredUserId = (configuration: Configuration): string | undefined => {
+  const trimmedUserId = configuration.jellyfin.userId.trim();
+  if (trimmedUserId && !isUuid(trimmedUserId)) {
+    throw new JellyfinServiceError("JELLYFIN_INVALID_USER_ID", "Jellyfin userId 必须为 UUID");
+  }
+  return trimmedUserId || undefined;
+};
+
+const fetchAutoResolvedUserId = async (networkClient: NetworkClient, configuration: Configuration): Promise<string> => {
+  const url = buildJellyfinUrl(configuration, "/Users");
+
+  try {
+    const response = await networkClient.getJson<unknown>(url, {
+      headers: buildJellyfinHeaders(configuration, {
+        accept: "application/json",
+      }),
+    });
+
+    const users = Array.isArray(response) ? (response as JellyfinUserResponse[]) : [];
+    const userId = pickJellyfinUserId(users);
+    if (!userId) {
+      throw new JellyfinServiceError(
+        "JELLYFIN_USER_CONTEXT_REQUIRED",
+        "当前 Jellyfin 服务器要求用户上下文，请在设置中填写 Jellyfin 用户 ID 后重试",
+      );
+    }
+
+    return userId;
+  } catch (error) {
+    if (error instanceof JellyfinServiceError) {
+      throw error;
+    }
+
+    throw toJellyfinServiceError(
+      error,
+      {
+        401: { code: "JELLYFIN_AUTH_FAILED", message: "Jellyfin API Key 无效，无法读取用户列表" },
+        403: { code: "JELLYFIN_PERMISSION_DENIED", message: "当前 Jellyfin 凭据没有读取用户列表的权限" },
+      },
+      {
+        code: "JELLYFIN_USER_CONTEXT_REQUIRED",
+        message: "当前 Jellyfin 服务器要求用户上下文，请在设置中填写 Jellyfin 用户 ID 后重试",
+      },
+    );
+  }
+};
+
+export const resolveJellyfinUserId = async (
+  networkClient: NetworkClient,
+  configuration: Configuration,
+): Promise<string> => {
+  return getConfiguredUserId(configuration) ?? (await fetchAutoResolvedUserId(networkClient, configuration));
+};
+
 const buildPersonUpdatePayload = (
   person: JellyfinPerson,
   detail: ItemDetail,
   synced: PlannedPersonSyncState,
   lockOverview: boolean,
 ): Record<string, unknown> => {
+  const genres = toStringArray(detail.Genres);
+  const providerIds = toStringRecord(detail.ProviderIds);
+  const lockedFields = Array.from(new Set(toStringArray(detail.LockedFields)));
+
   const payload: Record<string, unknown> = {
     Id: person.Id,
     Name: toStringValue(detail.Name) ?? person.Name,
-    Overview: synced.overview ?? "",
+    Overview: synced.overview ?? toStringValue(detail.Overview) ?? "",
+    Genres: genres,
+    Tags: synced.tags,
+    ProviderIds: providerIds,
+    Taglines: synced.taglines,
+    ProductionLocations: synced.productionLocations ?? [],
   };
 
   const serverId = toStringValue(detail.ServerId);
@@ -87,26 +181,14 @@ const buildPersonUpdatePayload = (
     payload.ServerId = serverId;
   }
 
-  const genres = toStringArray(detail.Genres);
-  if (genres.length > 0) {
-    payload.Genres = genres;
+  const type = toStringValue(detail.Type);
+  if (type) {
+    payload.Type = type;
   }
 
-  if (synced.tags.length > 0) {
-    payload.Tags = synced.tags;
-  }
-
-  const providerIds = toStringRecord(detail.ProviderIds);
-  if (Object.keys(providerIds).length > 0) {
-    payload.ProviderIds = providerIds;
-  }
-
-  if (synced.taglines.length > 0) {
-    payload.Taglines = synced.taglines;
-  }
-
-  if (synced.productionLocations && synced.productionLocations.length > 0) {
-    payload.ProductionLocations = synced.productionLocations;
+  const personType = toStringValue(detail.PersonType);
+  if (personType) {
+    payload.PersonType = personType;
   }
 
   if (synced.premiereDate) {
@@ -117,19 +199,16 @@ const buildPersonUpdatePayload = (
     payload.ProductionYear = synced.productionYear;
   }
 
-  const lockedFields = Array.from(new Set(toStringArray(detail.LockedFields)));
   if (lockOverview && !lockedFields.includes("Overview")) {
     lockedFields.push("Overview");
   }
-  if (lockedFields.length > 0) {
-    payload.LockedFields = lockedFields;
-  }
+  payload.LockedFields = lockedFields;
 
   const lockData = toBooleanValue(detail.LockData);
   if (lockOverview) {
     payload.LockData = true;
-  } else if (lockData !== undefined) {
-    payload.LockData = lockData;
+  } else {
+    payload.LockData = lockData ?? false;
   }
 
   return payload;
@@ -141,15 +220,13 @@ export const fetchPersons = async (
   options: {
     limit?: number;
     fields?: string[];
+    userId?: string;
   } = {},
 ): Promise<JellyfinPerson[]> => {
-  const trimmedUserId = configuration.jellyfin.userId.trim();
-  if (trimmedUserId && !isUuid(trimmedUserId)) {
-    throw new JellyfinServiceError("JELLYFIN_INVALID_USER_ID", "Jellyfin userId 必须为 UUID");
-  }
+  const userId = options.userId ?? getConfiguredUserId(configuration);
 
   const url = buildJellyfinUrl(configuration, "/Persons", {
-    userId: trimmedUserId || undefined,
+    userId,
     personTypes: "Actor",
     Limit: options.limit !== undefined ? String(options.limit) : undefined,
     Fields: options.fields?.join(","),
@@ -206,15 +283,23 @@ export const fetchPersonDetail = async (
   networkClient: NetworkClient,
   configuration: Configuration,
   person: JellyfinPerson,
+  options: {
+    userId?: string;
+  } = {},
 ): Promise<ItemDetail> => {
-  const url = buildJellyfinUrl(configuration, `/Items/${encodeURIComponent(person.Id)}`);
+  const requestOptions = {
+    headers: buildJellyfinHeaders(configuration, {
+      accept: "application/json",
+    }),
+  };
+  const userId = options.userId ?? (await resolveJellyfinUserId(networkClient, configuration));
+  const url = buildJellyfinUrl(
+    configuration,
+    `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(person.Id)}`,
+  );
 
   try {
-    return await networkClient.getJson<ItemDetail>(url, {
-      headers: buildJellyfinHeaders(configuration, {
-        accept: "application/json",
-      }),
-    });
+    return await networkClient.getJson<ItemDetail>(url, requestOptions);
   } catch (error) {
     throw toJellyfinServiceError(
       error,
@@ -346,8 +431,10 @@ export class JellyfinActorInfoService {
   }
 
   async run(configuration: Configuration, mode: JellyfinMode): Promise<JellyfinBatchResult> {
+    const resolvedUserId = await resolveJellyfinUserId(this.networkClient, configuration);
     const persons = await fetchPersons(this.networkClient, configuration, {
       fields: ["Overview"],
+      userId: resolvedUserId,
     });
     const total = persons.length;
 
@@ -366,7 +453,9 @@ export class JellyfinActorInfoService {
 
     for (const person of persons) {
       try {
-        const detail = await fetchPersonDetail(this.networkClient, configuration, person);
+        const detail = await fetchPersonDetail(this.networkClient, configuration, person, {
+          userId: resolvedUserId,
+        });
         const existing = normalizeExistingPersonSyncState({
           overview: toStringValue(detail.Overview) ?? person.Overview,
           tags: toStringArray(detail.Tags),
@@ -375,10 +464,6 @@ export class JellyfinActorInfoService {
           productionYear: typeof detail.ProductionYear === "number" ? detail.ProductionYear : undefined,
           productionLocations: toStringArray(detail.ProductionLocations),
         });
-
-        if (mode === "missing" && !hasMissingActorInfo(existing)) {
-          continue;
-        }
 
         const source = await this.deps.actorSourceProvider.lookup(configuration, person.Name);
         logActorSourceWarnings(this.logger, person.Name, source.warnings);

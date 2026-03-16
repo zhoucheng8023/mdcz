@@ -317,6 +317,37 @@ describe("Configuration migrations", () => {
 
       expect((raw.naming as Record<string, unknown>).folderTemplate).toBe("{actor}");
     });
+
+    it("promotes gfriends ahead of official when personImageSources still use the old default order", () => {
+      const raw = buildV030Config({
+        personSync: {
+          personOverviewSources: ["official", "avbase"],
+          personImageSources: ["local", "official", "gfriends", "avbase"],
+        },
+      });
+
+      runMigrations(raw);
+
+      expect((raw.personSync as Record<string, unknown>).personImageSources).toEqual([
+        "local",
+        "gfriends",
+        "official",
+        "avbase",
+      ]);
+    });
+
+    it("preserves customized personImageSources order", () => {
+      const raw = buildV030Config({
+        personSync: {
+          personOverviewSources: ["official"],
+          personImageSources: ["official", "gfriends", "local"],
+        },
+      });
+
+      runMigrations(raw);
+
+      expect((raw.personSync as Record<string, unknown>).personImageSources).toEqual(["official", "gfriends", "local"]);
+    });
   });
 
   describe("migrator behavior", () => {
@@ -350,7 +381,7 @@ describe("Configuration migrations", () => {
       expect(result.migrated).toBe(true);
       expect(result.fromVersion).toBe(0);
       expect(result.toVersion).toBe(1);
-      expect(result.applied).toEqual(["v0.3.0 → v0.4.0"]);
+      expect(result.applied).toEqual(["config v0 → v1"]);
     });
 
     it("rejects config versions newer than the current app supports", () => {

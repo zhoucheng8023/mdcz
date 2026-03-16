@@ -87,26 +87,23 @@ const readPostedPayload = (networkClient: FakeNetworkClient, index = 0): Record<
   return JSON.parse(typeof body === "string" ? body : "{}");
 };
 
-const expectStructuredActorPayload = (payload: Record<string, unknown>, overview: string): void => {
+const expectStructuredActorPayload = (
+  payload: Record<string, unknown>,
+  overview: string,
+  options: {
+    tags?: string[];
+    taglines?: string[];
+    premiereDate?: string;
+  } = {},
+): void => {
   expect(payload).toMatchObject({
     Overview: overview,
-    Taglines: ["MDCz: 1999-12-20 / 埼玉県 / A型 / 169cm / B95 W60 H85 / Gカップ"],
-    PremiereDate: "1999-12-20T00:00:00.000Z",
+    Tags: options.tags ?? [],
+    Taglines: options.taglines ?? [],
+    PremiereDate: options.premiereDate ?? "1999-12-20T00:00:00.000Z",
     ProductionYear: 1999,
     ProductionLocations: ["埼玉県"],
   });
-  expect(payload.Tags).toEqual(
-    expect.arrayContaining([
-      "mdcz:birth_date:1999-12-20",
-      "mdcz:birth_place:埼玉県",
-      "mdcz:blood_type:A",
-      "mdcz:height_cm:169",
-      "mdcz:bust_cm:95",
-      "mdcz:waist_cm:60",
-      "mdcz:hip_cm:85",
-      "mdcz:cup_size:G",
-    ]),
-  );
 };
 
 describe("Emby actor services", () => {
@@ -170,12 +167,12 @@ describe("Emby actor services", () => {
     expect(networkClient.postText.mock.calls[1]?.[0]).toContain("/Items/person-1/Refresh");
     expectStructuredActorPayload(
       readPostedPayload(networkClient),
-      "基本资料\n生日：1999-12-20\n出生地：埼玉県\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n官方简介\n\n别名：神木れい / かみきれい",
+      "基本资料\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n官方简介\n\n别名：神木れい / かみきれい",
     );
     expect(readPostedPayload(networkClient)).not.toHaveProperty("DateCreated");
   });
 
-  it("fills missing actor tags and summary in missing mode without overwriting the overview", async () => {
+  it("fills missing actor native fields and summary in missing mode without overwriting the overview body", async () => {
     const networkClient = new FakeNetworkClient();
     networkClient.getJson.mockImplementation(async (url: string) => {
       const parsed = new URL(url);
@@ -196,8 +193,11 @@ describe("Emby actor services", () => {
     const result = await service.run(createEmbyConfig(), "missing");
 
     expect(result).toEqual({ processedCount: 1, failedCount: 0 });
-    expectStructuredActorPayload(readPostedPayload(networkClient), "已有简介");
-    expect(readPostedPayload(networkClient).Tags).toEqual(expect.arrayContaining(["favorite"]));
+    expectStructuredActorPayload(
+      readPostedPayload(networkClient),
+      "基本资料\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n已有简介\n\n别名：神木れい / かみきれい",
+      { tags: ["favorite"] },
+    );
   });
 
   it("appends aliases to the existing overview in all mode when the source has no description", async () => {
@@ -268,7 +268,7 @@ describe("Emby actor services", () => {
     });
   });
 
-  it("skips missing-only sync when overview, actor tags, and actor summary already exist", async () => {
+  it("cleans legacy managed tags and taglines in missing mode while preserving user entries", async () => {
     const networkClient = new FakeNetworkClient();
     networkClient.getJson.mockImplementation(async (url: string) => {
       const parsed = new URL(url);
@@ -279,9 +279,10 @@ describe("Emby actor services", () => {
         return {
           Id: "person-1",
           Name: "神木麗",
-          Overview: "已有简介",
+          Overview:
+            "基本资料\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n已有简介\n\n别名：神木れい / かみきれい",
           Tags: ["favorite", "mdcz:birth_date:1999-12-20"],
-          Taglines: ["MDCz: 1999-12-20"],
+          Taglines: ["精选", "MDCz: 1999-12-20"],
           PremiereDate: "1999-12-20T00:00:00.0000000Z",
           ProductionLocations: ["埼玉県"],
           ProductionYear: 1999,
@@ -291,14 +292,24 @@ describe("Emby actor services", () => {
     });
 
     const actorSourceProvider = new FakeActorSourceProvider();
+    actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
 
     const service = createInfoService(networkClient, actorSourceProvider);
 
     const result = await service.run(createEmbyConfig(), "missing");
 
-    expect(result).toEqual({ processedCount: 0, failedCount: 0 });
-    expect(actorSourceProvider.lookup).not.toHaveBeenCalled();
-    expect(networkClient.postText).not.toHaveBeenCalled();
+    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(actorSourceProvider.lookup).toHaveBeenCalledWith(expect.any(Object), "神木麗");
+    expect(networkClient.postText).toHaveBeenCalledTimes(2);
+    expectStructuredActorPayload(
+      readPostedPayload(networkClient),
+      "基本资料\n血型：A型\n身高：169cm\n三围：B95 W60 H85\n罩杯：G杯\n\n已有简介\n\n别名：神木れい / かみきれい",
+      {
+        tags: ["favorite"],
+        taglines: ["精选"],
+        premiereDate: "1999-12-20T00:00:00.0000000Z",
+      },
+    );
   });
 
   it("uploads actor photos from the shared actor source provider", async () => {

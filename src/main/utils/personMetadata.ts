@@ -47,8 +47,6 @@ const buildProfileSummaryBlock = (
   >,
 ): string | undefined => {
   const lines = [
-    profile.birth_date ? `生日：${profile.birth_date}` : undefined,
-    profile.birth_place ? `出生地：${profile.birth_place}` : undefined,
     profile.blood_type ? `血型：${profile.blood_type}型` : undefined,
     profile.height_cm !== undefined ? `身高：${profile.height_cm}cm` : undefined,
     buildMeasurementsLine(profile),

@@ -36,7 +36,9 @@ const renameKey = (raw: Record<string, unknown>, section: string, oldKey: string
 
 const DEFAULT_FOLDER_TEMPLATE = "{actor}/{number}";
 const V040_PERSON_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"] as const;
-const V040_PERSON_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avbase"] as const;
+const V040_PERSON_IMAGE_SOURCE_OPTIONS = ["local", "gfriends", "official", "avbase"] as const;
+const V040_PERSON_IMAGE_SOURCE_DEFAULTS = ["local", "official", "gfriends", "avbase"] as const;
+const CURRENT_PERSON_IMAGE_SOURCE_DEFAULTS = ["local", "gfriends", "official", "avbase"] as const;
 
 const LEGACY_FIELD_PRIORITY_DEFAULTS: Record<string, readonly string[]> = {
   title: ["dmm", "mgstage", "dmm_tv", "fc2", "javdb", "javbus", "jav321", "km_produce"],
@@ -147,6 +149,22 @@ const normalizeFieldPriorityDefaults = (raw: Record<string, unknown>): void => {
   }
 };
 
+const normalizePersonImageSourceDefaults = (raw: Record<string, unknown>): void => {
+  const personSync = raw.personSync;
+  if (!isRecord(personSync)) {
+    return;
+  }
+
+  const personImageSources = personSync.personImageSources;
+  if (!isStringArray(personImageSources)) {
+    return;
+  }
+
+  if (stringArraysEqual(personImageSources, V040_PERSON_IMAGE_SOURCE_DEFAULTS)) {
+    personSync.personImageSources = [...CURRENT_PERSON_IMAGE_SOURCE_DEFAULTS];
+  }
+};
+
 // ── v0.3.0 → v0.4.0 ─────────────────────────────────────────────────────────
 
 function migrateV030ToV040(raw: Record<string, unknown>): void {
@@ -224,6 +242,10 @@ function migrateV030ToV040(raw: Record<string, unknown>): void {
 
   // 10. Normalize untouched legacy fieldPriorities arrays to the current v0.4 defaults
   normalizeFieldPriorityDefaults(raw);
+
+  // 11. Promote gfriends ahead of lower-quality fallback image sources when the
+  // legacy default image order is still untouched.
+  normalizePersonImageSourceDefaults(raw);
 }
 
 // ── Registry ─────────────────────────────────────────────────────────────────

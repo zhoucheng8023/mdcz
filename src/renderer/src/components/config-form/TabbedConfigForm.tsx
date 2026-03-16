@@ -78,7 +78,7 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
 ];
 const LANGUAGE_OPTIONS = ["zh-CN", "zh-TW", "ja-JP", "en-US"];
 const ACTOR_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"];
-const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "official", "gfriends", "avbase"];
+const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "gfriends", "official", "avbase"];
 
 // ── Field registry for search/filter ──
 
@@ -479,7 +479,7 @@ function PersonSyncSection(_props: SectionRenderProps) {
         <div className="space-y-1">
           <h3 className="text-sm font-medium">共享人物资料源</h3>
           <p className="text-xs text-muted-foreground">
-            这部分同时服务 Jellyfin 和 Emby，包括人物简介来源顺序和人物头像来源顺序。
+            同时服务 Jellyfin 和 Emby。人物简介会按顺序选择一个质量达标的主资料源。
           </p>
         </div>
         <ChipArrayFieldWrapper
