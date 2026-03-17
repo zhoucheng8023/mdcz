@@ -1,4 +1,5 @@
 import { loggerService } from "@main/services/LoggerService";
+import { toErrorMessage } from "@main/utils/common";
 import type { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { type CheerioAPI, load } from "cheerio";
@@ -147,7 +148,7 @@ export abstract class BaseCrawler implements SiteAdapter {
         try {
           classifiedMessage = this.classifyDetailFailure(context, detailHtml, detailDoc, detailUrl);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = toErrorMessage(error);
           this.logger.warn(`Detail failure classifier failed for ${context.number}: ${message}`);
         }
 
@@ -163,7 +164,7 @@ export abstract class BaseCrawler implements SiteAdapter {
         data: this.normalizeCrawlerData(context, data),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       this.logger.warn(`Crawler pipeline failed for ${context.number}: ${message}`);
       return {
         success: false,

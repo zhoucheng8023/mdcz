@@ -1,6 +1,7 @@
 import type { Configuration } from "@main/services/config";
 import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
+import { toErrorMessage } from "@main/utils/common";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { buildCrawlerOptions } from "../crawlerOptions";
@@ -243,7 +244,7 @@ export class AggregationService {
         result = {
           site,
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: toErrorMessage(error),
           elapsedMs: 0,
         };
       } finally {
@@ -325,8 +326,7 @@ export class AggregationService {
       };
     } catch (error) {
       const elapsedMs = Date.now() - start;
-      const message =
-        siteTimedOut && !signal.aborted ? timeoutMessage : error instanceof Error ? error.message : String(error);
+      const message = siteTimedOut && !signal.aborted ? timeoutMessage : toErrorMessage(error);
       this.logger.warn(`${site} threw for ${number}: ${message} (${elapsedMs}ms)`);
       return {
         site,

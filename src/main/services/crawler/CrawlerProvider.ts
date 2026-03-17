@@ -1,5 +1,6 @@
 import { type CooldownFailurePolicy, PersistentCooldownStore } from "@main/services/cooldown/PersistentCooldownStore";
 import { loggerService } from "@main/services/LoggerService";
+import { toErrorMessage } from "@main/utils/common";
 import { Website } from "@shared/enums";
 
 import type { AdapterDependencies, CrawlerInput, CrawlerResponse, SiteAdapter } from "./base/types";
@@ -110,7 +111,7 @@ export class CrawlerProvider {
 
       return response;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       this.recordSiteCooldownFailure(input.site, "unknown", message);
       this.logger.warn(`Crawler threw for ${input.site}: ${message}`);
 

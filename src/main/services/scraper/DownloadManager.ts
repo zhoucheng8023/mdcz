@@ -10,6 +10,7 @@ import {
 } from "@main/services/cooldown/PersistentCooldownStore";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient, ProbeResult } from "@main/services/network";
+import { toErrorMessage } from "@main/utils/common";
 import { pathExists } from "@main/utils/file";
 import { validateImage } from "@main/utils/image";
 import type { Website } from "@shared/enums";
@@ -777,7 +778,7 @@ export class DownloadManager {
           if (isAbortError(error)) {
             throw error;
           }
-          const message = error instanceof Error ? error.message : String(error);
+          const message = toErrorMessage(error);
           this.logger.warn(`Parallel task failed for ${task.path}: ${message}`);
           results[taskIndex] = { key: task.key, path: task.path, success: false };
         } finally {
@@ -915,7 +916,7 @@ export class DownloadManager {
 
       this.logger.warn(`Image invalid (${validation.reason ?? "parse_failed"}): ${url}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       this.logger.warn(`Image validation failed for ${url}: ${message}`);
     }
 
@@ -1049,7 +1050,7 @@ export class DownloadManager {
       if (isAbortError(error)) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       this.recordImageHostFailure(url, message);
       return createFailedProbeCandidate(url, index);
     }
@@ -1061,7 +1062,7 @@ export class DownloadManager {
       await copyFile(sourcePath, targetPath);
       return targetPath;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       this.logger.warn(`Failed to derive ${targetLabel} image: ${message}`);
       return null;
     }
@@ -1088,7 +1089,7 @@ export class DownloadManager {
       if (isAbortError(error)) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       if (shouldRecordImageHostFailure(undefined, message)) {
         this.recordImageHostFailure(url, message);
       }

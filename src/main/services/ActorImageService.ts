@@ -9,6 +9,7 @@ import type { NetworkClient } from "@main/services/network";
 import { normalizeActorName, toUniqueActorNames } from "@main/utils/actor";
 import { mergeActorProfiles } from "@main/utils/actorProfile";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
+import { toErrorMessage } from "@main/utils/common";
 import { pathExists } from "@main/utils/file";
 import { validateImage } from "@main/utils/image";
 import { sanitizePathSegment } from "@main/utils/path";
@@ -162,6 +163,7 @@ export class ActorImageService {
     const existing = this.findEntry(index, names);
     const discoveredPath = await this.findPublicImage(layout.root, names);
     if (discoveredPath) {
+      this.logger.info(`Actor photo local hit for ${names[0] ?? "unknown"}: ${discoveredPath}`);
       await this.upsertEntry(layout, names, (current) =>
         this.createOrMergeEntry(current, names, {
           publicFileName: basename(discoveredPath),
@@ -173,6 +175,7 @@ export class ActorImageService {
 
     const restoredPath = await this.resolveExistingEntry(layout, existing, options.expectedRemoteUrl);
     if (restoredPath && existing) {
+      this.logger.info(`Actor photo cache hit for ${names[0] ?? existing.displayName}: ${restoredPath}`);
       await this.upsertEntry(layout, names, (current) => {
         if (!current) {
           return existing;
@@ -210,6 +213,7 @@ export class ActorImageService {
       }
     }
 
+    this.logger.info(`Materialized actor photo for ${actorName}: ${targetPath}`);
     return relative(movieDir, targetPath).replaceAll("\\", "/");
   }
 
@@ -332,6 +336,9 @@ export class ActorImageService {
       }
 
       const relativeThumbPath = await this.materializeForMovie(input.movieDir, actorName, localImagePath);
+      if (!relativeThumbPath) {
+        this.logger.warn(`Failed to materialize actor photo for ${actorName} from ${localImagePath}`);
+      }
       preparedProfiles.push({
         ...existingProfile,
         name: actorName,
@@ -368,7 +375,7 @@ export class ActorImageService {
 
     if (lookup.profile.photo_url) {
       this.logger.info(
-        `Resolved actor photo for ${actorName} from ${lookup.profileSources.photo_url ?? "unknown"}: ${lookup.profile.photo_url}`,
+        `Resolved actor photo URL for ${actorName} from ${lookup.profileSources.photo_url ?? "unknown"}: ${lookup.profile.photo_url}`,
       );
     }
 
@@ -395,11 +402,16 @@ export class ActorImageService {
     }
 
     if (!isRemoteUrl(source)) {
-      return (await pathExists(source)) ? source : undefined;
+      const sourceExists = await pathExists(source);
+      if (sourceExists) {
+        this.logger.info(`Actor photo source path hit for ${names[0] ?? source}: ${source}`);
+      }
+      return sourceExists ? source : undefined;
     }
 
     const root = resolveActorPhotoFolderPath(configuration, options);
     if (!root) {
+      this.logger.warn(`Actor photo cache root unavailable for ${names[0] ?? source}; resolved URL not cached`);
       return undefined;
     }
 
@@ -433,6 +445,7 @@ export class ActorImageService {
     signal?: AbortSignal,
   ): Promise<string | undefined> {
     if (!this.deps.networkClient) {
+      this.logger.warn(`Actor photo network client unavailable for ${names[0] ?? remoteUrl}; resolved URL not cached`);
       return undefined;
     }
 
@@ -449,6 +462,7 @@ export class ActorImageService {
     const normalizedRemoteUrl = remoteUrl.trim();
 
     if (existingBlobPath && existing?.sourceUrl === normalizedRemoteUrl && (await pathExists(existingBlobPath))) {
+      this.logger.info(`Actor photo remote cache hit for ${names[0] ?? existing.displayName}: ${existingBlobPath}`);
       await this.upsertEntry(layout, names, (current) => {
         if (!current) {
           return existing;
@@ -511,6 +525,7 @@ export class ActorImageService {
             sourceUrl: normalizedRemoteUrl,
           });
           await this.writeEntryIfChanged(layout.indexPath, currentIndex, current, nextEntry);
+          this.logger.info(`Cached remote actor photo for ${names[0] ?? remoteUrl}: ${remoteUrl} -> ${blobPath}`);
           return blobPath;
         });
       } finally {
@@ -520,7 +535,7 @@ export class ActorImageService {
       if (isAbortError(error)) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       this.logger.warn(`Failed to cache remote actor image for ${names[0] ?? remoteUrl}: ${message}`);
       return undefined;
     }
