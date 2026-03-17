@@ -25,7 +25,7 @@ describe("parseNfo", () => {
     expect(result.thumb_url).toBe("thumb.jpg");
     expect(result.poster_url).toBe("poster.jpg");
     expect(result.fanart_url).toBe("fanart.jpg");
-    expect(result.sample_images).toEqual([]);
+    expect(result.scene_images).toEqual([]);
   });
 
   it("falls back to the first aspectless thumb", () => {
@@ -58,10 +58,10 @@ describe("parseNfo", () => {
           <poster_source_url>https://example.com/poster-remote.jpg</poster_source_url>
           <fanart_source_url>https://example.com/fanart-remote.jpg</fanart_source_url>
           <trailer_source_url>https://example.com/trailer-remote.mp4</trailer_source_url>
-          <sample_images>
+          <scene_images>
             <image>https://example.com/scene-001.jpg</image>
             <image>https://example.com/scene-002.jpg</image>
-          </sample_images>
+          </scene_images>
         </mdcz>
         <trailer>trailer.mp4</trailer>
       </movie>
@@ -77,7 +77,7 @@ describe("parseNfo", () => {
     expect(result.fanart_source_url).toBe("https://example.com/fanart-remote.jpg");
     expect(result.trailer_source_url).toBe("https://example.com/trailer-remote.mp4");
     expect(result.trailer_url).toBe("trailer.mp4");
-    expect(result.sample_images).toEqual(["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"]);
+    expect(result.scene_images).toEqual(["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"]);
   });
 
   it("round-trips standard actor nodes, managed movie tags, and streamdetails", () => {
@@ -96,7 +96,7 @@ describe("parseNfo", () => {
         publisher: "PRESTIGE",
         plot: "简短简介",
         genres: [],
-        sample_images: [],
+        scene_images: [],
         website: Website.DMM,
       },
       {
@@ -193,6 +193,6 @@ describe("parseNfo", () => {
     const result = parseNfo(xml);
 
     expect(result.fanart_url).toBe("fanart.jpg");
-    expect(result.sample_images).toEqual([]);
+    expect(result.scene_images).toEqual([]);
   });
 });

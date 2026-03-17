@@ -137,7 +137,7 @@ export class JavbusCrawler extends BaseCrawler {
     const director = $("a[href*='/director/']").first().text().trim() || undefined;
     const series = $("a[href*='/series/']").first().text().trim() || undefined;
 
-    const sampleImageUrls = $("#sample-waterfall a")
+    const sceneImageUrls = $("#sample-waterfall a")
       .toArray()
       .map((element: CheerioInput) => $(element).attr("href"))
       .filter((href: string | undefined): href is string => typeof href === "string" && href.length > 0)
@@ -161,7 +161,7 @@ export class JavbusCrawler extends BaseCrawler {
       thumb_url: thumbUrlAbsolute,
       poster_url: posterUrl,
       fanart_url: undefined,
-      sample_images: sampleImageUrls,
+      scene_images: sceneImageUrls,
       trailer_url: undefined,
       website: Website.JAVBUS,
     };

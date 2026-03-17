@@ -36,7 +36,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   number: "ABC-123",
   actors: [],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });
@@ -48,7 +48,7 @@ const createAggregationResult = (data: CrawlerData) => ({
     thumb_url: [],
     poster_url: [],
     fanart_url: [],
-    sample_images: [],
+    scene_images: [],
   },
   stats: {
     totalSites: 1,

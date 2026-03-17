@@ -87,7 +87,7 @@ export class MGStageCrawler extends BaseCrawler {
     const thumbUrl = $("a.enlarge_image").first().attr("href") ?? $("img.enlarge_image").first().attr("src");
     const thumbUrlAbsolute = thumbUrl ? toAbsoluteUrl(MGSTAGE_BASE_URL, thumbUrl) : undefined;
 
-    const sampleImages = $("a.sample_image")
+    const sceneImages = $("a.sample_image")
       .toArray()
       .map((element: CheerioInput) => $(element).attr("href"))
       .filter((href: string | undefined): href is string => Boolean(href))
@@ -113,7 +113,7 @@ export class MGStageCrawler extends BaseCrawler {
       thumb_url: thumbUrlAbsolute,
       poster_url: undefined,
       fanart_url: undefined,
-      sample_images: sampleImages,
+      scene_images: sceneImages,
       trailer_url: undefined,
       website: Website.MGSTAGE,
     };

@@ -11,7 +11,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   number: "ABC-123",
   actors: ["Actor A"],
   genres: ["Drama"],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });

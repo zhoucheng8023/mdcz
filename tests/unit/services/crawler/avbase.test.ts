@@ -14,7 +14,7 @@ interface ProductOptions {
   imageUrl?: string;
   label?: string;
   maker?: string;
-  sampleImages?: string[];
+  sceneImages?: string[];
   series?: string;
   thumbnailUrl?: string;
   volume?: string;
@@ -26,7 +26,7 @@ const createProduct = ({
   imageUrl,
   label,
   maker,
-  sampleImages = [],
+  sceneImages = [],
   series,
   thumbnailUrl,
   volume,
@@ -37,7 +37,7 @@ const createProduct = ({
     maker: maker ? { name: maker } : undefined,
     label: label ? { name: label } : undefined,
     series: series ? { name: series } : undefined,
-    sample_image_urls: sampleImages.map((url) => ({ l: url })),
+    sample_image_urls: sceneImages.map((url) => ({ l: url })),
     iteminfo: {
       description,
       director,
@@ -154,7 +154,7 @@ describe("AvbaseCrawler", () => {
             volume: "125",
             imageUrl: "https://pics.dmm.co.jp/mono/movie/adult/118abf075/118abf075pl.jpg",
             thumbnailUrl: "https://pics.dmm.co.jp/mono/movie/adult/118abf075/118abf075ps.jpg",
-            sampleImages: [
+            sceneImages: [
               "https://pics.dmm.co.jp/digital/video/118abf075/118abf075jp-1.jpg",
               "https://pics.dmm.co.jp/digital/video/118abf075/118abf075jp-2.jpg",
             ],
@@ -167,7 +167,7 @@ describe("AvbaseCrawler", () => {
             volume: "126",
             imageUrl: "https://pic.duga.jp/unsecure/prestige/6763/noauth/jacket.jpg",
             thumbnailUrl: "https://pic.duga.jp/unsecure/prestige/6763/noauth/jacket_240.jpg",
-            sampleImages: ["https://pic.duga.jp/unsecure/prestige/6763/cap/0001.jpg"],
+            sceneImages: ["https://pic.duga.jp/unsecure/prestige/6763/cap/0001.jpg"],
           }),
           createProduct({
             maker: "プレステージ",
@@ -177,7 +177,7 @@ describe("AvbaseCrawler", () => {
             volume: "135分",
             imageUrl: "https://image.mgstage.com/images/prestige/sp/abf/075/pake-03_sp-abf-075.jpg",
             thumbnailUrl: "https://image.mgstage.com/images/prestige/sp/abf/075/h1-06_sp-abf-075.jpg",
-            sampleImages: [
+            sceneImages: [
               "https://image.mgstage.com/images/prestige/sp/abf/075/popsample1_sp-abf-075.jpg",
               "https://image.mgstage.com/images/prestige/sp/abf/075/popsample2_sp-abf-075.jpg",
               "https://image.mgstage.com/images/prestige/sp/abf/075/popsample3_sp-abf-075.jpg",
@@ -220,7 +220,7 @@ describe("AvbaseCrawler", () => {
     expect(data.durationSeconds).toBe(125 * 60);
     expect(data.thumb_url).toBe("https://pics.dmm.co.jp/mono/movie/adult/118abf075/118abf075pl.jpg");
     expect(data.poster_url).toBe("https://pics.dmm.co.jp/mono/movie/adult/118abf075/118abf075ps.jpg");
-    expect(data.sample_images).toEqual([
+    expect(data.scene_images).toEqual([
       "https://image.mgstage.com/images/prestige/sp/abf/075/popsample1_sp-abf-075.jpg",
       "https://image.mgstage.com/images/prestige/sp/abf/075/popsample2_sp-abf-075.jpg",
       "https://image.mgstage.com/images/prestige/sp/abf/075/popsample3_sp-abf-075.jpg",

@@ -163,7 +163,7 @@ export function ScrapeFailureDialog({ open, onOpenChange }: ScrapeFailureDialogP
                     <span className="font-medium text-sm truncate">{item.number}</span>
                     {item.title && <span className="text-xs text-muted-foreground truncate">{item.title}</span>}
                   </div>
-                  {item.error_msg && <p className="text-xs text-destructive mt-0.5 truncate">{item.error_msg}</p>}
+                  {item.errorMessage && <p className="text-xs text-destructive mt-0.5 truncate">{item.errorMessage}</p>}
                   <p className="text-[10px] text-muted-foreground truncate mt-0.5">{item.path}</p>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

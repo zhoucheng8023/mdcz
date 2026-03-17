@@ -43,6 +43,6 @@ describe("Batch3 crawlers", () => {
     expect(response.result.data.number.length).toBeGreaterThan(0);
     expect(Array.isArray(response.result.data.actors)).toBe(true);
     expect(Array.isArray(response.result.data.genres)).toBe(true);
-    expect(Array.isArray(response.result.data.sample_images)).toBe(true);
+    expect(Array.isArray(response.result.data.scene_images)).toBe(true);
   });
 });

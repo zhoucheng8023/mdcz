@@ -20,14 +20,14 @@ export interface ScrapeResult {
   studio?: string;
   publisher?: string;
   score?: string;
-  poster_url?: string;
-  thumb_url?: string;
-  fanart_url?: string;
-  output_path?: string;
-  scene_images?: string[];
+  posterUrl?: string;
+  thumbUrl?: string;
+  fanartUrl?: string;
+  outputPath?: string;
+  sceneImages?: string[];
   /** Maps field names to the website that provided the value. */
   sources?: Record<string, string>;
-  error_msg?: string;
+  errorMessage?: string;
 }
 
 interface ScrapeState {

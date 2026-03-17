@@ -80,7 +80,7 @@ export class KMProduceCrawler extends BaseCrawler {
       thumb_url: thumbUrl,
       poster_url: undefined,
       fanart_url: undefined,
-      sample_images: [],
+      scene_images: [],
       trailer_url: undefined,
       website: Website.KM_PRODUCE,
     };

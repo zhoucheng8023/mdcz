@@ -15,7 +15,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   number: "ABC-123",
   actors: ["Actor A"],
   genres: ["Drama"],
-  sample_images: ["https://example.com/old-scene.jpg"],
+  scene_images: ["https://example.com/old-scene.jpg"],
   website: Website.DMM,
   ...overrides,
 });
@@ -189,18 +189,18 @@ describe("buildMaintenanceCommitItem", () => {
   it("preserves local scene images when selecting the old scene-image set", () => {
     const entry = createEntry(
       createCrawlerData({
-        sample_images: [],
+        scene_images: [],
       }),
     );
     const preview: MaintenancePreviewItem = {
       entryId: entry.id,
       status: "ready",
       proposedCrawlerData: createCrawlerData({
-        sample_images: ["https://example.com/new-scene.jpg"],
+        scene_images: ["https://example.com/new-scene.jpg"],
       }),
       fieldDiffs: [
         createImageCollectionDiff({
-          field: "sample_images",
+          field: "scene_images",
           label: "场景图",
           oldValue: [],
           newValue: ["https://example.com/new-scene.jpg"],
@@ -216,10 +216,10 @@ describe("buildMaintenanceCommitItem", () => {
     };
 
     const item = buildMaintenanceCommitItem(entry, preview, {
-      sample_images: "old",
+      scene_images: "old",
     });
 
-    expect(item.crawlerData?.sample_images).toEqual([]);
+    expect(item.crawlerData?.scene_images).toEqual([]);
     expect(item.assetDecisions).toEqual({
       sceneImages: "preserve",
     });

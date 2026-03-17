@@ -13,7 +13,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   number: "ABC-123",
   actors: ["Actor A"],
   genres: ["Drama"],
-  sample_images: ["https://example.com/remote-scene.jpg"],
+  scene_images: ["https://example.com/remote-scene.jpg"],
   website: Website.DMM,
   ...overrides,
 });
@@ -65,12 +65,12 @@ describe("toDetailViewItemFromScrapeResult", () => {
       studio: "Studio A",
       publisher: "Publisher A",
       score: "4.5",
-      poster_url: "https://example.com/poster.jpg",
-      thumb_url: "https://example.com/thumb.jpg",
-      fanart_url: "https://example.com/fanart.jpg",
-      output_path: "/output",
-      scene_images: ["https://example.com/scene-1.jpg"],
-      error_msg: "Failed",
+      posterUrl: "https://example.com/poster.jpg",
+      thumbUrl: "https://example.com/thumb.jpg",
+      fanartUrl: "https://example.com/fanart.jpg",
+      outputPath: "/output",
+      sceneImages: ["https://example.com/scene-1.jpg"],
+      errorMessage: "Failed",
     };
 
     expect(toDetailViewItemFromScrapeResult(result)).toEqual({

@@ -20,7 +20,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   number: "ABC-123",
   actors: [],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });
@@ -192,7 +192,7 @@ describe("NfoGenerator", () => {
     expect(parsed.thumb_source_url).toBe("https://remote.example.com/thumb.jpg");
     expect(parsed.fanart_source_url).toBe("https://remote.example.com/fanart.jpg");
     expect(parsed.trailer_source_url).toBe("https://remote.example.com/trailer.mp4");
-    expect(parsed.sample_images).toEqual([]);
+    expect(parsed.scene_images).toEqual([]);
   });
 
   it("writes streamdetails when local video metadata is available", () => {
@@ -232,17 +232,17 @@ describe("NfoGenerator", () => {
       createCrawlerData({
         thumb_url: "https://remote.example.com/thumb.jpg",
         thumb_source_url: "https://remote.example.com/thumb.jpg",
-        sample_images: ["https://remote.example.com/scene-001.jpg", "https://remote.example.com/scene-002.jpg"],
+        scene_images: ["https://remote.example.com/scene-001.jpg", "https://remote.example.com/scene-002.jpg"],
       }),
     );
     const parsed = parseNfo(xml);
 
     expect(xml).toContain("<fanart>");
     expect(xml).toContain("<mdcz>");
-    expect(xml).toContain("<sample_images>");
+    expect(xml).toContain("<scene_images>");
     expect(parsed.fanart_url).toBe("https://remote.example.com/thumb.jpg");
     expect(parsed.fanart_source_url).toBe("https://remote.example.com/thumb.jpg");
-    expect(parsed.sample_images).toEqual([
+    expect(parsed.scene_images).toEqual([
       "https://remote.example.com/scene-001.jpg",
       "https://remote.example.com/scene-002.jpg",
     ]);

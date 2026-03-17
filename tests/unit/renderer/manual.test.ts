@@ -38,7 +38,7 @@ describe("readNfo", () => {
     number: "ABC-123",
     actors: [],
     genres: [],
-    sample_images: [],
+    scene_images: [],
     website: Website.DMM,
   };
 
@@ -95,7 +95,7 @@ describe("updateNfo", () => {
         number: "ABC-123",
         actors: [],
         genres: [],
-        sample_images: [],
+        scene_images: [],
         website: Website.DMM,
       }),
       "/media/ABC-123.mp4",

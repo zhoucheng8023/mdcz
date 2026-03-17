@@ -82,7 +82,7 @@ export class PrestigeCrawler extends BaseCrawler {
       thumb_url: toMedia(data.packageImage?.path),
       poster_url: toMedia(data.thumbnail?.path),
       fanart_url: undefined,
-      sample_images: (data.media ?? [])
+      scene_images: (data.media ?? [])
         .map((item) => toMedia(item.path))
         .filter((value): value is string => Boolean(value)),
       trailer_url: toMedia(data.movie?.path),

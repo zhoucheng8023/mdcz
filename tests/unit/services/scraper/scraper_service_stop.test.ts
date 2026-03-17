@@ -86,7 +86,7 @@ describe("ScraperService stop flow", () => {
         number: "ABP-123",
         actors: [],
         genres: [],
-        sample_images: [],
+        scene_images: [],
         website: config.scrape.enabledSites[0],
       },
     });
@@ -134,7 +134,7 @@ describe("ScraperService stop flow", () => {
         number: "ABP-456",
         actors: [],
         genres: [],
-        sample_images: [],
+        scene_images: [],
         website: config.scrape.enabledSites[0],
       },
     });

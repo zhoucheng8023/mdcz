@@ -135,11 +135,11 @@ const buildMdczNode = (data: CrawlerData): Record<string, unknown> | undefined =
     thumbSourceUrl ??
     toRemoteImageSourceUrl(data.thumb_url);
   const trailerSourceUrl = data.trailer_source_url ?? toRemoteImageSourceUrl(data.trailer_url);
-  const sampleImageUrls = data.sample_images
+  const sceneImageUrls = data.scene_images
     .map((value) => toRemoteImageSourceUrl(value))
     .filter((value): value is string => Boolean(value));
 
-  if (!thumbSourceUrl && !posterSourceUrl && !fanartSourceUrl && !trailerSourceUrl && sampleImageUrls.length === 0) {
+  if (!thumbSourceUrl && !posterSourceUrl && !fanartSourceUrl && !trailerSourceUrl && sceneImageUrls.length === 0) {
     return undefined;
   }
 
@@ -148,7 +148,7 @@ const buildMdczNode = (data: CrawlerData): Record<string, unknown> | undefined =
     poster_source_url: posterSourceUrl,
     fanart_source_url: fanartSourceUrl,
     trailer_source_url: trailerSourceUrl,
-    sample_images: sampleImageUrls.length > 0 ? { image: sampleImageUrls } : undefined,
+    scene_images: sceneImageUrls.length > 0 ? { image: sceneImageUrls } : undefined,
   };
 };
 
@@ -267,7 +267,7 @@ function buildSourceComment(data: CrawlerData, sources: SourceMap): string {
     { key: "plot", label: "plot", detail: () => `${data.plot?.length ?? 0} chars` },
     { key: "actors", label: "actors", detail: () => `${data.actors.length} actors` },
     { key: "thumb_url", label: "thumb_url" },
-    { key: "sample_images", label: "sample_images", detail: () => `${data.sample_images.length} images` },
+    { key: "scene_images", label: "scene_images", detail: () => `${data.scene_images.length} images` },
     { key: "studio", label: "studio" },
     { key: "genres", label: "genres", detail: () => `${data.genres.length} genres` },
   ];

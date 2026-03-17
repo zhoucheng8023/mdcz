@@ -15,7 +15,7 @@ const makeCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData => (
   number: "ABF-075",
   actors: ["Actor A"],
   genres: ["Genre A"],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });
@@ -146,16 +146,16 @@ describe("FieldAggregator", () => {
       const aggregator = new FieldAggregator({});
 
       const results = new Map<Website, CrawlerData>([
-        [Website.DMM, makeCrawlerData({ sample_images: ["https://a.jpg", "https://b.jpg"], website: Website.DMM })],
-        [Website.JAVDB, makeCrawlerData({ sample_images: ["https://b.jpg", "https://c.jpg"], website: Website.JAVDB })],
+        [Website.DMM, makeCrawlerData({ scene_images: ["https://a.jpg", "https://b.jpg"], website: Website.DMM })],
+        [Website.JAVDB, makeCrawlerData({ scene_images: ["https://b.jpg", "https://c.jpg"], website: Website.JAVDB })],
       ]);
 
       const { data, imageAlternatives, sources } = aggregator.aggregate(results);
-      expect(data.sample_images).toEqual(["https://a.jpg", "https://b.jpg"]);
-      expect(imageAlternatives.sample_images).toEqual([["https://b.jpg", "https://c.jpg"]]);
-      expect(imageAlternatives.sample_images_source).toBe(Website.DMM);
-      expect(imageAlternatives.sample_image_sources).toEqual([Website.JAVDB]);
-      expect(sources.sample_images).toBe(Website.DMM);
+      expect(data.scene_images).toEqual(["https://a.jpg", "https://b.jpg"]);
+      expect(imageAlternatives.scene_images).toEqual([["https://b.jpg", "https://c.jpg"]]);
+      expect(imageAlternatives.scene_images_source).toBe(Website.DMM);
+      expect(imageAlternatives.scene_image_sources).toEqual([Website.JAVDB]);
+      expect(sources.scene_images).toBe(Website.DMM);
     });
 
     it("respects maxActors limit", () => {

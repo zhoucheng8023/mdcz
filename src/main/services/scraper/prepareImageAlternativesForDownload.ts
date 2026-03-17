@@ -20,11 +20,11 @@ const normalizeUrl = (input?: string): string | null => {
   return null;
 };
 
-const cloneSampleImageAlternatives = (sets: ImageAlternatives["sample_images"] | undefined): string[][] =>
+const cloneSceneImageAlternatives = (sets: ImageAlternatives["scene_images"] | undefined): string[][] =>
   (sets ?? []).map((urls) => [...urls]);
 
-const cloneSampleImageAlternativeSources = (
-  sources: ImageAlternatives["sample_image_sources"] | undefined,
+const cloneSceneImageAlternativeSources = (
+  sources: ImageAlternatives["scene_image_sources"] | undefined,
 ): Website[] => [...(sources ?? [])];
 
 const expandDmmPrimaryImageAlternatives = (
@@ -80,14 +80,14 @@ const isDmmPrimaryImageSource = (
 export const prepareImageAlternativesForDownload = (
   data: Pick<CrawlerData, "number" | "website" | "thumb_url" | "poster_url">,
   imageAlternatives: Partial<ImageAlternatives> = {},
-  sources?: Pick<SourceMap, "thumb_url" | "poster_url" | "sample_images">,
+  sources?: Pick<SourceMap, "thumb_url" | "poster_url" | "scene_images">,
 ): Partial<ImageAlternatives> => {
   const prepared: Partial<ImageAlternatives> = {
     thumb_url: [...(imageAlternatives.thumb_url ?? [])],
     poster_url: [...(imageAlternatives.poster_url ?? [])],
-    sample_images: cloneSampleImageAlternatives(imageAlternatives.sample_images),
-    sample_images_source: imageAlternatives.sample_images_source ?? sources?.sample_images,
-    sample_image_sources: cloneSampleImageAlternativeSources(imageAlternatives.sample_image_sources),
+    scene_images: cloneSceneImageAlternatives(imageAlternatives.scene_images),
+    scene_images_source: imageAlternatives.scene_images_source ?? sources?.scene_images,
+    scene_image_sources: cloneSceneImageAlternativeSources(imageAlternatives.scene_image_sources),
   };
 
   return {

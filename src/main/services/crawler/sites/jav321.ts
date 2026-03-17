@@ -225,7 +225,7 @@ export class Jav321Crawler extends BaseCrawler {
     const thumbUrl = $("img.img-responsive").first().attr("src");
     const thumbUrlAbsolute = thumbUrl ? toAbsoluteUrl(JAV321_BASE_URL, thumbUrl) : undefined;
 
-    const sampleImages = uniqueStrings(
+    const sceneImages = uniqueStrings(
       $("a[href*='/snapshot/']")
         .toArray()
         .map((element: CheerioInput) => {
@@ -258,7 +258,7 @@ export class Jav321Crawler extends BaseCrawler {
       thumb_url: thumbUrlAbsolute,
       poster_url: undefined,
       fanart_url: undefined,
-      sample_images: sampleImages,
+      scene_images: sceneImages,
       trailer_url: undefined,
       website: Website.JAV321,
     };

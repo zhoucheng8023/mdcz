@@ -50,7 +50,7 @@ export class Fc2Crawler extends BaseFc2Crawler {
       posterUrl,
       plot: $("meta[name='description']").attr("content")?.trim(),
       releaseDate: parseDate($("div.items_article_Releasedate p").first().text()) ?? undefined,
-      sampleImageUrls: $("ul.items_article_SampleImagesArea li a")
+      sceneImageUrls: $("ul.items_article_SampleImagesArea li a")
         .toArray()
         .map((element) => toAbsoluteUrl(BASE_URL, $(element).attr("href")))
         .filter((value): value is string => Boolean(value)),

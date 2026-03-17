@@ -50,7 +50,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   genres: [],
   studio: "プレステージ",
   publisher: "ABSOLUTELY FANTASIA",
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });

@@ -92,7 +92,7 @@ export class AmazonPosterToolService {
       number: basename(normalizedNfoPath, extname(normalizedNfoPath)),
       actors: [],
       genres: [],
-      sample_images: [],
+      scene_images: [],
       website: Website.JAVDB,
       poster_url: "lookup",
     };

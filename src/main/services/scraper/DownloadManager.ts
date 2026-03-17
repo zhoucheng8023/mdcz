@@ -162,12 +162,12 @@ const getSceneImageSets = (
   const sets: SceneImageSet[] = [];
   const candidates: SceneImageSet[] = [
     {
-      urls: data.sample_images,
-      source: imageAlternatives.sample_images_source,
+      urls: data.scene_images,
+      source: imageAlternatives.scene_images_source,
     },
-    ...(imageAlternatives.sample_images ?? []).map((urls, index) => ({
+    ...(imageAlternatives.scene_images ?? []).map((urls, index) => ({
       urls,
-      source: imageAlternatives.sample_image_sources?.[index],
+      source: imageAlternatives.scene_image_sources?.[index],
     })),
   ];
   for (const candidate of candidates) {

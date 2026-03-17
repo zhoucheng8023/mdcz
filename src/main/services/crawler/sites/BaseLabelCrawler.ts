@@ -92,7 +92,7 @@ export abstract class BaseLabelCrawler extends BaseCrawler {
       thumb_url: thumbUrl,
       poster_url: posterUrl,
       fanart_url: undefined,
-      sample_images: $("a.pop_img")
+      scene_images: $("a.pop_img")
         .toArray()
         .map((element) => toAbsoluteUrl(this.config.baseUrl, $(element).attr("href")))
         .filter((value): value is string => Boolean(value)),

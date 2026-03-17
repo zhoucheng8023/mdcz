@@ -176,7 +176,7 @@ const fieldPrioritiesSchema = z.object({
   poster_url: z
     .array(z.enum(Website))
     .default([Website.AVBASE, Website.MGSTAGE, Website.DMM, Website.JAVDB, Website.JAVBUS, Website.FC2]),
-  sample_images: z
+  scene_images: z
     .array(z.enum(Website))
     .default([Website.AVBASE, Website.MGSTAGE, Website.DMM, Website.JAVDB, Website.JAVBUS]),
   studio: z.array(z.enum(Website)).default([Website.AVBASE, Website.DMM, Website.JAVDB, Website.JAVBUS, Website.FC2]),

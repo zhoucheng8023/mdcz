@@ -55,7 +55,7 @@ const ARRAY_VALUE_FIELDS: DiffableField[] = [
   { key: "genres", label: "标签" },
 ];
 
-const IMAGE_COLLECTION_FIELDS: DiffableField[] = [{ key: "sample_images", label: "场景图" }];
+const IMAGE_COLLECTION_FIELDS: DiffableField[] = [{ key: "scene_images", label: "场景图" }];
 
 const IMAGE_ASSET_FIELD_MAP = {
   thumb_url: "thumb",
@@ -273,7 +273,7 @@ const buildImageFieldDiff = (
 };
 
 const buildImageCollectionFieldDiff = (
-  field: "sample_images",
+  field: "scene_images",
   label: string,
   oldData: CrawlerData,
   newData: CrawlerData,
@@ -371,7 +371,7 @@ export function partitionCrawlerDataWithOptions(
   }
 
   for (const { key, label } of IMAGE_COLLECTION_FIELDS) {
-    const diff = buildImageCollectionFieldDiff(key as "sample_images", label, oldData, newData, entry);
+    const diff = buildImageCollectionFieldDiff(key as "scene_images", label, oldData, newData, entry);
     if (!diff.changed && !hasPreviewContent(diff, "old")) {
       continue;
     }

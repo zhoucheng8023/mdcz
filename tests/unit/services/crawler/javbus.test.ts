@@ -78,7 +78,7 @@ describe("JavbusCrawler", () => {
     expect(data.publisher).toBe("PublisherName");
     expect(data.director).toBe("DirectorName");
     expect(data.series).toBe("SeriesName");
-    expect(data.sample_images).toEqual([
+    expect(data.scene_images).toEqual([
       "https://www.javbus.com/pics/sample1.jpg",
       "https://www.javbus.com/pics/sample2.jpg",
     ]);

@@ -44,7 +44,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
     },
   ],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });

@@ -40,7 +40,7 @@ class StubCrawlerProvider extends CrawlerProvider {
             number: input.number,
             actors: [],
             genres: [],
-            sample_images: [],
+            scene_images: [],
             website: input.site,
           },
         },

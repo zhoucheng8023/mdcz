@@ -191,7 +191,7 @@ export const parseNfo = (xml: string): CrawlerData => {
       : [];
   const fanartUrl = fanartThumbs[0];
   const mdczNode = toRecord(movieNode.mdcz);
-  const mdczSampleImagesNode = toRecord(mdczNode?.sample_images);
+  const mdczSceneImagesNode = toRecord(mdczNode?.scene_images);
 
   const rating = ratingText ? Number.parseFloat(ratingText) : undefined;
   const durationSeconds = parseDurationSeconds(movieNode);
@@ -221,7 +221,7 @@ export const parseNfo = (xml: string): CrawlerData => {
     poster_source_url: toStringValue(mdczNode?.poster_source_url),
     fanart_source_url: toStringValue(mdczNode?.fanart_source_url),
     trailer_source_url: toStringValue(mdczNode?.trailer_source_url),
-    sample_images: toStringArray(mdczSampleImagesNode?.image),
+    scene_images: toStringArray(mdczSceneImagesNode?.image),
     trailer_url: toStringValue(movieNode.trailer),
     website,
   };

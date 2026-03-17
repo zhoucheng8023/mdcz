@@ -162,7 +162,7 @@ export class JavdbCrawler extends BaseCrawler {
     const trailerUrl = extractAttr($, "video#preview-video source", "src") ?? undefined;
     const trailerUrlAbsolute = toAbsoluteUrl(JAVDB_BASE_URL, trailerUrl);
 
-    const sampleImageUrls = $("div.tile-images.preview-images a.tile-item")
+    const sceneImageUrls = $("div.tile-images.preview-images a.tile-item")
       .toArray()
       .map((element: CheerioInput) => $(element).attr("href"))
       .filter((href: string | undefined): href is string => typeof href === "string" && href.length > 0)
@@ -196,7 +196,7 @@ export class JavdbCrawler extends BaseCrawler {
       thumb_url: thumbUrlAbsolute,
       poster_url: posterUrl,
       fanart_url: undefined,
-      sample_images: sampleImageUrls,
+      scene_images: sceneImageUrls,
       trailer_url: trailerUrlAbsolute,
       website: Website.JAVDB,
     };

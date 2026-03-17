@@ -29,7 +29,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   number: "ABC-123",
   actors: [],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });
@@ -228,7 +228,7 @@ describe("DownloadManager keep flags", () => {
         poster_url: "https://example.com/poster.jpg",
         fanart_url: "https://example.com/fanart.jpg",
         trailer_url: "https://example.com/trailer.mp4",
-        sample_images: ["https://example.com/scene-001.jpg"],
+        scene_images: ["https://example.com/scene-001.jpg"],
       }),
       createConfig(),
     );
@@ -313,7 +313,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"],
+        scene_images: ["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -349,7 +349,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["https://example.com/scene-001.jpg"],
+        scene_images: ["https://example.com/scene-001.jpg"],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -394,7 +394,7 @@ describe("DownloadManager keep flags", () => {
       root,
       createCrawlerData({
         thumb_url: "https://example.com/thumb.jpg",
-        sample_images: ["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"],
+        scene_images: ["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -428,7 +428,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["javascript:void(0)", "https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"],
+        scene_images: ["javascript:void(0)", "https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -662,7 +662,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["https://example.com/scene-new-1.jpg"],
+        scene_images: ["https://example.com/scene-new-1.jpg"],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -688,7 +688,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: [],
+        scene_images: [],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -711,7 +711,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: [],
+        scene_images: [],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -741,7 +741,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["https://example.com/scene-bad-1.jpg"],
+        scene_images: ["https://example.com/scene-bad-1.jpg"],
       }),
       createDownloadConfig({
         downloadThumb: false,
@@ -826,11 +826,11 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["https://fast.example.com/set-a-1.jpg", "https://slow.example.com/set-a-2.jpg"],
+        scene_images: ["https://fast.example.com/set-a-1.jpg", "https://slow.example.com/set-a-2.jpg"],
       }),
       config,
       {
-        sample_images: [["https://alt.example.com/set-b-1.jpg", "https://alt.example.com/set-b-2.jpg"]],
+        scene_images: [["https://alt.example.com/set-b-1.jpg", "https://alt.example.com/set-b-2.jpg"]],
       },
     );
 
@@ -887,7 +887,7 @@ describe("DownloadManager keep flags", () => {
     const assets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: [
+        scene_images: [
           "https://best.example.com/set-a-1.jpg",
           "https://best.example.com/set-a-2.jpg",
           "https://best.example.com/set-a-3.jpg",
@@ -895,7 +895,7 @@ describe("DownloadManager keep flags", () => {
       }),
       config,
       {
-        sample_images: [
+        scene_images: [
           [
             "https://fallback.example.com/set-b-1.jpg",
             "https://fallback.example.com/set-b-2.jpg",
@@ -959,11 +959,11 @@ describe("DownloadManager keep flags", () => {
     const firstAssets = await manager.downloadAll(
       root,
       createCrawlerData({
-        sample_images: ["https://blocked.example.com/scene-001.jpg"],
+        scene_images: ["https://blocked.example.com/scene-001.jpg"],
       }),
       config,
       {
-        sample_images: [["https://blocked.example.com/scene-002.jpg"], ["https://cdn.example.com/scene-004.jpg"]],
+        scene_images: [["https://blocked.example.com/scene-002.jpg"], ["https://cdn.example.com/scene-004.jpg"]],
       },
     );
 
@@ -989,11 +989,11 @@ describe("DownloadManager keep flags", () => {
     const secondAssets = await reloadedManager.downloadAll(
       secondRoot,
       createCrawlerData({
-        sample_images: ["https://blocked.example.com/scene-005.jpg"],
+        scene_images: ["https://blocked.example.com/scene-005.jpg"],
       }),
       config,
       {
-        sample_images: [["https://cdn.example.com/scene-006.jpg"]],
+        scene_images: [["https://cdn.example.com/scene-006.jpg"]],
       },
     );
 

@@ -15,20 +15,20 @@ export enum DmmCategory {
 }
 
 type CheerioInput = Parameters<CheerioAPI>[0];
-const DMM_SAMPLE_IMAGE_PATTERN = /jp-\d+\.(?:jpe?g|png|webp)$/iu;
+const DMM_SCENE_IMAGE_PATTERN = /jp-\d+\.(?:jpe?g|png|webp)$/iu;
 const DMM_PRIMARY_IMAGE_PATTERN = /p[sl]\.(?:jpe?g|png|webp)$/iu;
 
-const normalizeDmmSampleImageUrl = (value: string | undefined): string | undefined => {
+const normalizeDmmSceneImageUrl = (value: string | undefined): string | undefined => {
   if (!value || DMM_PRIMARY_IMAGE_PATTERN.test(value)) {
     return undefined;
   }
 
-  if (DMM_SAMPLE_IMAGE_PATTERN.test(value)) {
+  if (DMM_SCENE_IMAGE_PATTERN.test(value)) {
     return value;
   }
 
   const normalized = value.replace(/-(\d+)\.(jpe?g|png|webp)$/iu, "jp-$1.$2");
-  return DMM_SAMPLE_IMAGE_PATTERN.test(normalized) ? normalized : undefined;
+  return DMM_SCENE_IMAGE_PATTERN.test(normalized) ? normalized : undefined;
 };
 
 export interface DmmJsonLd {
@@ -108,7 +108,7 @@ export const parseMonoLikeDetail = ($: CheerioAPI): Partial<CrawlerData> | null 
     extractAttr($, "meta[property='og:image']", "content") ?? extractAttr($, "a[name='package-image'] img", "src");
   const thumbUrl = thumb?.replace("ps.jpg", "pl.jpg");
 
-  const sampleImages = uniqueStrings(
+  const sceneImages = uniqueStrings(
     [
       ...$("#sample-image-block a")
         .toArray()
@@ -116,7 +116,7 @@ export const parseMonoLikeDetail = ($: CheerioAPI): Partial<CrawlerData> | null 
       ...$("a[name='sample-image'] img")
         .toArray()
         .map((element: CheerioInput) => $(element).attr("data-lazy") ?? $(element).attr("src")),
-    ].map((url) => normalizeDmmSampleImageUrl(url)),
+    ].map((url) => normalizeDmmSceneImageUrl(url)),
   );
 
   const plot =
@@ -140,7 +140,7 @@ export const parseMonoLikeDetail = ($: CheerioAPI): Partial<CrawlerData> | null 
     rating: Number.isFinite(rating) ? rating : undefined,
     thumb_url: thumbUrl,
     poster_url: thumbUrl?.replace("pl.jpg", "ps.jpg"),
-    sample_images: sampleImages,
+    scene_images: sceneImages,
   };
 };
 
@@ -162,9 +162,9 @@ export const parseDigitalDetail = ($: CheerioAPI): Partial<CrawlerData> | null =
   const thumbFromJson = images[0];
   const thumbUrl = thumbFromJson ?? base?.thumb_url;
 
-  // Merge sample images from JSON-LD (skip first image = thumb) and HTML sources
+  // Merge scene images from JSON-LD (skip first image = thumb) and HTML sources
   const jsonLdSamples = images.length > 1 ? images.slice(1) : [];
-  const htmlSamples = base?.sample_images ?? [];
+  const htmlSamples = base?.scene_images ?? [];
   const mergedSamples = uniqueStrings([...jsonLdSamples, ...htmlSamples]);
 
   return {
@@ -178,7 +178,7 @@ export const parseDigitalDetail = ($: CheerioAPI): Partial<CrawlerData> | null =
     rating: Number.isFinite(ratingFromJson) ? ratingFromJson : base?.rating,
     thumb_url: thumbUrl,
     poster_url: thumbUrl?.replace("pl.jpg", "ps.jpg") ?? base?.poster_url,
-    sample_images: mergedSamples.length > 0 ? mergedSamples : base?.sample_images,
+    scene_images: mergedSamples.length > 0 ? mergedSamples : base?.scene_images,
     trailer_url: trailerFromJson ?? base?.trailer_url,
   };
 };

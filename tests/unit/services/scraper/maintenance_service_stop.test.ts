@@ -59,7 +59,7 @@ const createCommitItem = (id: string): MaintenanceCommitItem => ({
       number: id.toUpperCase(),
       actors: [],
       genres: [],
-      sample_images: [],
+      scene_images: [],
       website: Website.DMM,
     },
     assets: {
@@ -115,7 +115,7 @@ describe("MaintenanceService stop flow", () => {
           number: "ABP-123",
           actors: [],
           genres: [],
-          sample_images: [],
+          scene_images: [],
           website: Website.DMM,
         },
       } satisfies ScrapeResult,

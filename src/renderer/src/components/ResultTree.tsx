@@ -154,7 +154,7 @@ export function ResultTree() {
         active: selectedResultId === result.id,
         title: result.number || "Unknown",
         subtitle: result.title || getFileNameFromPath(result.path),
-        errorText: result.error_msg,
+        errorText: result.errorMessage,
         status: result.status,
         onClick: () => setSelectedResultId(result.id),
         menuContent: buildMenuContent(result),

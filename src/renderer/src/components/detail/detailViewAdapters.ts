@@ -36,12 +36,12 @@ export const toDetailViewItemFromScrapeResult = (result: ScrapeResult): DetailVi
   studio: result.studio,
   publisher: result.publisher,
   score: result.score,
-  posterUrl: result.poster_url,
-  thumbUrl: result.thumb_url,
-  fanartUrl: result.fanart_url,
-  outputPath: result.output_path,
-  sceneImages: result.scene_images,
-  errorMessage: result.error_msg,
+  posterUrl: result.posterUrl,
+  thumbUrl: result.thumbUrl,
+  fanartUrl: result.fanartUrl,
+  outputPath: result.outputPath,
+  sceneImages: result.sceneImages,
+  errorMessage: result.errorMessage,
 });
 
 export const toDetailViewItemFromMaintenanceEntry = (
@@ -91,7 +91,7 @@ export const toDetailViewItemFromMaintenanceEntry = (
       ? undefined
       : entry.assets.sceneImages.length > 0
         ? entry.assets.sceneImages
-        : data?.sample_images,
+        : data?.scene_images,
     errorMessage,
   };
 };

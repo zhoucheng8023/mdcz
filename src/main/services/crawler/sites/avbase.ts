@@ -35,7 +35,7 @@ interface AvbaseProductRelation {
   name?: string | null;
 }
 
-interface AvbaseSampleImage {
+interface AvbaseSceneImage {
   l?: string | null;
 }
 
@@ -50,7 +50,7 @@ interface AvbaseProduct {
   iteminfo?: AvbaseItemInfo | null;
   label?: AvbaseProductRelation | null;
   maker?: AvbaseProductRelation | null;
-  sample_image_urls?: AvbaseSampleImage[] | null;
+  sample_image_urls?: AvbaseSceneImage[] | null;
   series?: AvbaseProductRelation | null;
   thumbnail_url?: string | null;
 }
@@ -172,7 +172,7 @@ const pickFirstNonEmpty = (
   return undefined;
 };
 
-const productSampleCount = (product: AvbaseProduct): number => {
+const productSceneCount = (product: AvbaseProduct): number => {
   return product.sample_image_urls?.length ?? 0;
 };
 
@@ -194,12 +194,12 @@ const productMetadataScore = (product: AvbaseProduct): number => {
 const workScore = (work: AvbaseSearchWork): [number, number, number, number] => {
   const products = work.products ?? [];
   const metadataScore = products.reduce((total, product) => total + productMetadataScore(product), 0);
-  const sampleCount = Math.max(...products.map((product) => productSampleCount(product)), 0);
+  const sceneCount = Math.max(...products.map((product) => productSceneCount(product)), 0);
   const timestamp = new Date(work.min_date ?? "").getTime();
   return [
     products.length,
     metadataScore,
-    sampleCount,
+    sceneCount,
     Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY,
   ];
 };
@@ -338,16 +338,16 @@ export class AvbaseCrawler extends BaseCrawler {
     const title = stripTrailingActorsFromTitle(rawTitle, actors);
     const products = work?.products ?? [];
 
-    const sampleProduct = [...products].sort((left, right) => {
-      const sampleDifference = productSampleCount(right) - productSampleCount(left);
-      if (sampleDifference !== 0) {
-        return sampleDifference;
+    const sceneProduct = [...products].sort((left, right) => {
+      const sceneDifference = productSceneCount(right) - productSceneCount(left);
+      if (sceneDifference !== 0) {
+        return sceneDifference;
       }
 
       return productMetadataScore(right) - productMetadataScore(left);
     })[0];
 
-    const sampleImages = (sampleProduct?.sample_image_urls ?? [])
+    const sceneImages = (sceneProduct?.sample_image_urls ?? [])
       .map((image) => toNonEmptyString(image.l))
       .filter((image): image is string => Boolean(image));
 
@@ -367,7 +367,7 @@ export class AvbaseCrawler extends BaseCrawler {
       ),
       thumb_url: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.image_url)),
       poster_url: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.thumbnail_url)),
-      sample_images: sampleImages,
+      scene_images: sceneImages,
       website: Website.AVBASE,
     };
   }

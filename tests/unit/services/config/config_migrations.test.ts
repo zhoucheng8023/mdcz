@@ -90,7 +90,7 @@ function buildV030Config(overrides: Record<string, unknown> = {}): Record<string
         genres: ["javdb", "fc2", "dmm", "javbus", "km_produce"],
         cover_url: ["dmm", "fc2", "javdb", "javbus", "km_produce"],
         poster_url: ["dmm", "fc2", "javdb", "javbus", "km_produce"],
-        sample_images: ["mgstage", "dmm", "javbus", "javdb"],
+        scene_images: ["mgstage", "dmm", "javbus", "javdb"],
         studio: ["dmm", "fc2", "javdb", "javbus", "km_produce"],
         director: ["dmm", "javdb"],
         publisher: ["dmm", "fc2", "javdb"],

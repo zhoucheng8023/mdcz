@@ -9,7 +9,7 @@ const baseCrawlerData: CrawlerData = {
   number: "ABC-123",
   actors: ["Actor A"],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.JAVDB,
   poster_url: "https://javdb.com/poster.jpg",
 };

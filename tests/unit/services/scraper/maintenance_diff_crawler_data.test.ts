@@ -13,7 +13,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   actors: ["Actor A"],
   actor_profiles: [{ name: "Actor A", photo_url: ".actors/Actor A.jpg" }],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });
@@ -242,7 +242,7 @@ describe("diffCrawlerData", () => {
         thumb_source_url: "https://example.com/current-thumb.jpg",
         trailer_url: "trailer.mp4",
         trailer_source_url: "https://example.com/current-trailer.mp4",
-        sample_images: ["https://example.com/current-scene.jpg"],
+        scene_images: ["https://example.com/current-scene.jpg"],
       }),
     );
     const existingCrawlerData = getEntryCrawlerData(entry);
@@ -252,14 +252,14 @@ describe("diffCrawlerData", () => {
       createCrawlerData({
         thumb_url: "https://example.com/current-thumb.jpg",
         trailer_url: "https://example.com/current-trailer.mp4",
-        sample_images: ["https://example.com/current-scene.jpg"],
+        scene_images: ["https://example.com/current-scene.jpg"],
       }),
       {
         entry,
       },
     );
 
-    expect(result.fieldDiffs.find((diff) => ["thumb_url", "trailer_url", "sample_images"].includes(diff.field))).toBe(
+    expect(result.fieldDiffs.find((diff) => ["thumb_url", "trailer_url", "scene_images"].includes(diff.field))).toBe(
       undefined,
     );
     expect(result.unchangedFieldDiffs).toContainEqual({
@@ -288,7 +288,7 @@ describe("diffCrawlerData", () => {
     });
     expect(result.unchangedFieldDiffs).toContainEqual({
       kind: "imageCollection",
-      field: "sample_images",
+      field: "scene_images",
       label: "场景图",
       oldValue: ["https://example.com/current-scene.jpg"],
       newValue: ["https://example.com/current-scene.jpg"],
@@ -305,7 +305,7 @@ describe("diffCrawlerData", () => {
   it("emits a scene-image diff when persisted urls change even if old preview uses local extrafanart", () => {
     const entry = createEntry(
       createCrawlerData({
-        sample_images: ["https://example.com/old-scene.jpg"],
+        scene_images: ["https://example.com/old-scene.jpg"],
       }),
     );
     const existingCrawlerData = getEntryCrawlerData(entry);
@@ -313,7 +313,7 @@ describe("diffCrawlerData", () => {
     const result = partitionCrawlerDataWithOptions(
       existingCrawlerData,
       createCrawlerData({
-        sample_images: ["https://example.com/new-scene.jpg"],
+        scene_images: ["https://example.com/new-scene.jpg"],
       }),
       {
         entry,
@@ -322,7 +322,7 @@ describe("diffCrawlerData", () => {
 
     expect(result.fieldDiffs).toContainEqual({
       kind: "imageCollection",
-      field: "sample_images",
+      field: "scene_images",
       label: "场景图",
       oldValue: ["https://example.com/old-scene.jpg"],
       newValue: ["https://example.com/new-scene.jpg"],
@@ -338,18 +338,18 @@ describe("diffCrawlerData", () => {
 
   it("uses old sample image urls as the preview baseline when no local scene assets exist", () => {
     const oldData = createCrawlerData({
-      sample_images: ["https://example.com/scene-a.jpg"],
+      scene_images: ["https://example.com/scene-a.jpg"],
     });
     const newData = createCrawlerData({
-      sample_images: ["https://example.com/scene-a.jpg"],
+      scene_images: ["https://example.com/scene-a.jpg"],
     });
 
     const result = partitionCrawlerDataWithOptions(oldData, newData, {});
 
-    expect(result.fieldDiffs.find((diff) => diff.field === "sample_images")).toBeUndefined();
+    expect(result.fieldDiffs.find((diff) => diff.field === "scene_images")).toBeUndefined();
     expect(result.unchangedFieldDiffs).toContainEqual({
       kind: "imageCollection",
-      field: "sample_images",
+      field: "scene_images",
       label: "场景图",
       oldValue: ["https://example.com/scene-a.jpg"],
       newValue: ["https://example.com/scene-a.jpg"],

@@ -33,7 +33,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
     number: "ABC-123",
     actors: [],
     genres: [],
-    sample_images: [],
+    scene_images: [],
     website: Website.DMM,
     ...overrides,
   };

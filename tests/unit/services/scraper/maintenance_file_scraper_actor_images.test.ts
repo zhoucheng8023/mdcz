@@ -39,7 +39,7 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
   actors: ["Actor A"],
   actor_profiles: [{ name: "Actor A", photo_url: "https://img.example.com/actor-a.png" }],
   genres: [],
-  sample_images: [],
+  scene_images: [],
   website: Website.DMM,
   ...overrides,
 });

@@ -7,9 +7,9 @@ export type SourceMap = Partial<Record<keyof CrawlerData, Website>>;
 export interface ImageAlternatives {
   thumb_url: string[];
   poster_url: string[];
-  sample_images: string[][];
-  sample_images_source?: Website;
-  sample_image_sources?: Website[];
+  scene_images: string[][];
+  scene_images_source?: Website;
+  scene_image_sources?: Website[];
 }
 
 /** Result of aggregating crawler data from multiple sources. */
@@ -64,5 +64,5 @@ export const FIELD_STRATEGIES: Partial<Record<keyof CrawlerData, AggregationStra
   plot_zh: "longest",
   actors: "first_non_empty",
   genres: "first_non_empty",
-  sample_images: "first_non_empty",
+  scene_images: "first_non_empty",
 };

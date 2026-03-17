@@ -273,7 +273,7 @@ export class FileScraper {
 
     return {
       ...crawlerData,
-      sample_images: [...sceneImageUrls],
+      scene_images: [...sceneImageUrls],
     };
   }
 }

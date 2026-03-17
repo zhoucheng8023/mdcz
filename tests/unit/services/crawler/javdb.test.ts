@@ -113,7 +113,7 @@ describe("JavdbCrawler", () => {
     expect(data.thumb_url).toBe("https://javdb.com/covers/cover1.jpg");
     expect(data.poster_url).toBe("https://javdb.com/thumbs/cover1.jpg");
     expect(data.trailer_url).toBe("https://cdn.example.com/trailer.mp4");
-    expect(data.sample_images).toEqual(["https://javdb.com/images/1.jpg", "https://javdb.com/images/2.jpg"]);
+    expect(data.scene_images).toEqual(["https://javdb.com/images/1.jpg", "https://javdb.com/images/2.jpg"]);
   });
 
   it("keeps only female actors when a mixed-gender row is marked per actor", async () => {

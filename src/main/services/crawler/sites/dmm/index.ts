@@ -158,7 +158,7 @@ export class DmmCrawler extends BaseDmmCrawler {
       thumb_url: baseData.thumb_url,
       poster_url: baseData.poster_url ?? baseData.thumb_url?.replace("pl.jpg", "ps.jpg"),
       fanart_url: baseData.fanart_url,
-      sample_images: baseData.sample_images ?? [],
+      scene_images: baseData.scene_images ?? [],
       trailer_url: baseData.trailer_url,
       website: Website.DMM,
     };

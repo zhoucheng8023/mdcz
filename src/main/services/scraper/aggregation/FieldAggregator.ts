@@ -30,15 +30,15 @@ type ResolvedField = {
   value: unknown;
   source?: Website;
   alternatives?: string[];
-  sampleImageAlternatives?: string[][];
-  sampleImageAlternativeSources?: Website[];
+  sceneImageAlternatives?: string[][];
+  sceneImageAlternativeSources?: Website[];
 };
 
 const EMPTY_IMAGE_ALTERNATIVES: ImageAlternatives = {
   thumb_url: [],
   poster_url: [],
-  sample_images: [],
-  sample_image_sources: [],
+  scene_images: [],
+  scene_image_sources: [],
 };
 
 type PrimaryImageAlternativeField = "thumb_url" | "poster_url";
@@ -84,10 +84,10 @@ export class FieldAggregator {
       const result = this.applyStrategy(field, strategy, ordered);
       if (isPrimaryImageField(field)) {
         imageAlternatives[field] = result.alternatives ?? [];
-      } else if (field === "sample_images") {
-        imageAlternatives.sample_images = result.sampleImageAlternatives ?? [];
-        imageAlternatives.sample_images_source = result.source;
-        imageAlternatives.sample_image_sources = result.sampleImageAlternativeSources ?? [];
+      } else if (field === "scene_images") {
+        imageAlternatives.scene_images = result.sceneImageAlternatives ?? [];
+        imageAlternatives.scene_images_source = result.source;
+        imageAlternatives.scene_image_sources = result.sceneImageAlternativeSources ?? [];
       }
       if (result.value !== undefined && result.value !== null) {
         sources[field] = result.source;
@@ -114,7 +114,7 @@ export class FieldAggregator {
       thumb_url: resolve("thumb_url"),
       poster_url: resolve("poster_url"),
       fanart_url: resolve("fanart_url"),
-      sample_images: resolve("sample_images") ?? [],
+      scene_images: resolve("scene_images") ?? [],
       trailer_url: resolve("trailer_url"),
       website: resolve("website") ?? firstEntry.data.website,
     };
@@ -180,8 +180,8 @@ export class FieldAggregator {
   }
 
   private firstNonEmpty(field: keyof CrawlerData, entries: SourceEntry[]): ResolvedField {
-    if (field === "sample_images") {
-      return this.firstNonEmptySampleImages(entries);
+    if (field === "scene_images") {
+      return this.firstNonEmptySceneImages(entries);
     }
 
     for (const entry of entries) {
@@ -200,7 +200,7 @@ export class FieldAggregator {
     return { value: undefined };
   }
 
-  private firstNonEmptySampleImages(entries: SourceEntry[]): ResolvedField {
+  private firstNonEmptySceneImages(entries: SourceEntry[]): ResolvedField {
     const alternatives: string[][] = [];
     const alternativeSources: Website[] = [];
     const seenSets = new Set<string>();
@@ -208,7 +208,7 @@ export class FieldAggregator {
     let source: Website | undefined;
 
     for (const entry of entries) {
-      const urls = this.normalizeSampleImageSet(entry.data.sample_images);
+      const urls = this.normalizeSceneImageSet(entry.data.scene_images);
       if (urls.length === 0) {
         continue;
       }
@@ -233,8 +233,8 @@ export class FieldAggregator {
     return {
       value: winner,
       source,
-      sampleImageAlternatives: alternatives,
-      sampleImageAlternativeSources: alternativeSources,
+      sceneImageAlternatives: alternatives,
+      sceneImageAlternativeSources: alternativeSources,
     };
   }
 
@@ -325,7 +325,7 @@ export class FieldAggregator {
     };
   }
 
-  private normalizeSampleImageSet(values: string[]): string[] {
+  private normalizeSceneImageSet(values: string[]): string[] {
     const seen = new Set<string>();
     const urls: string[] = [];
 

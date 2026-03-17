@@ -213,7 +213,7 @@ export abstract class BaseCrawler implements SiteAdapter {
       website: data.website ?? context.site,
       actors: data.actors ?? [],
       genres: data.genres ?? [],
-      sample_images: data.sample_images ?? [],
+      scene_images: data.scene_images ?? [],
     };
   }
 }

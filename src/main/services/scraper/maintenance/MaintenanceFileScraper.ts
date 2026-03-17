@@ -677,7 +677,7 @@ export class MaintenanceFileScraper {
       number: crawlerData.number || entry.fileInfo.number,
       actors: [],
       genres: [],
-      sample_images: [],
+      scene_images: [],
       trailer_url: entry.assets.trailer ? basename(entry.assets.trailer) : undefined,
       website: crawlerData.website,
     };

@@ -49,7 +49,7 @@ export abstract class BaseFc2Crawler extends BaseCrawler {
       plot?: string;
       releaseDate?: string;
       rating?: number;
-      sampleImageUrls?: string[];
+      sceneImageUrls?: string[];
       trailerUrl?: string;
     },
   ): CrawlerData {
@@ -70,7 +70,7 @@ export abstract class BaseFc2Crawler extends BaseCrawler {
       thumb_url: fields.thumbUrl,
       poster_url: fields.posterUrl,
       fanart_url: undefined,
-      sample_images: fields.sampleImageUrls ?? [],
+      scene_images: fields.sceneImageUrls ?? [],
       trailer_url: fields.trailerUrl,
       website: this.site(),
     };

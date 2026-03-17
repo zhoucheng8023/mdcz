@@ -88,7 +88,7 @@ describe("DmmCrawler", () => {
     expect(data.thumb_url).toBe("https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497pl.jpg");
     expect(data.poster_url).toBe("https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497ps.jpg");
     expect(data.trailer_url).toBe("https://cdn.example.com/trailer.mp4");
-    expect(data.sample_images).toEqual([
+    expect(data.scene_images).toEqual([
       "https://img.example.com/1.jpg",
       "https://img.example.com/2.jpg",
       "https://img.example.com/3.jpg",

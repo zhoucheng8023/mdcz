@@ -49,7 +49,7 @@ export interface CrawlerData {
   poster_source_url?: string;
   fanart_source_url?: string;
   trailer_source_url?: string;
-  sample_images: string[];
+  scene_images: string[];
   trailer_url?: string;
   website: Website;
 }
@@ -202,7 +202,7 @@ export interface MaintenancePreviewResult {
 export interface MaintenanceImageAlternatives {
   thumb_url?: string[];
   poster_url?: string[];
-  sample_images?: string[][];
+  scene_images?: string[][];
 }
 
 export interface MaintenanceAssetDecisions {
