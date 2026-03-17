@@ -63,7 +63,7 @@ export class NetworkClient {
 
   constructor(options: NetworkClientOptions = {}) {
     this.options = {
-      timeoutMs: options.timeoutMs ?? 30_000,
+      timeoutMs: options.timeoutMs ?? 10_000,
       browserImpersonation: options.browserImpersonation ?? "chrome142",
       getProxyUrl: options.getProxyUrl,
       getTimeoutMs: options.getTimeoutMs,

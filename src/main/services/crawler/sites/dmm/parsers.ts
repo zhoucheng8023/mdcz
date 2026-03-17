@@ -15,6 +15,21 @@ export enum DmmCategory {
 }
 
 type CheerioInput = Parameters<CheerioAPI>[0];
+const DMM_SAMPLE_IMAGE_PATTERN = /jp-\d+\.(?:jpe?g|png|webp)$/iu;
+const DMM_PRIMARY_IMAGE_PATTERN = /p[sl]\.(?:jpe?g|png|webp)$/iu;
+
+const normalizeDmmSampleImageUrl = (value: string | undefined): string | undefined => {
+  if (!value || DMM_PRIMARY_IMAGE_PATTERN.test(value)) {
+    return undefined;
+  }
+
+  if (DMM_SAMPLE_IMAGE_PATTERN.test(value)) {
+    return value;
+  }
+
+  const normalized = value.replace(/-(\d+)\.(jpe?g|png|webp)$/iu, "jp-$1.$2");
+  return DMM_SAMPLE_IMAGE_PATTERN.test(normalized) ? normalized : undefined;
+};
 
 export interface DmmJsonLd {
   aggregateRating?: { ratingValue?: number };
@@ -93,14 +108,16 @@ export const parseMonoLikeDetail = ($: CheerioAPI): Partial<CrawlerData> | null 
     extractAttr($, "meta[property='og:image']", "content") ?? extractAttr($, "a[name='package-image'] img", "src");
   const thumbUrl = thumb?.replace("ps.jpg", "pl.jpg");
 
-  const sampleImages = uniqueStrings([
-    ...$("#sample-image-block a")
-      .toArray()
-      .map((element: CheerioInput) => $(element).attr("href")),
-    ...$("a[name='sample-image'] img")
-      .toArray()
-      .map((element: CheerioInput) => $(element).attr("data-lazy") ?? $(element).attr("src")),
-  ]).map((url) => url.replace(/-(\d+)\.jpg$/u, "jp-$1.jpg"));
+  const sampleImages = uniqueStrings(
+    [
+      ...$("#sample-image-block a")
+        .toArray()
+        .map((element: CheerioInput) => $(element).attr("href")),
+      ...$("a[name='sample-image'] img")
+        .toArray()
+        .map((element: CheerioInput) => $(element).attr("data-lazy") ?? $(element).attr("src")),
+    ].map((url) => normalizeDmmSampleImageUrl(url)),
+  );
 
   const plot =
     extractText($, ".wrapper-detailContents ~ div p.mg-b20") ??

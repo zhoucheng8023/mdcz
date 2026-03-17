@@ -24,7 +24,7 @@ const networkSchema = z.object({
   proxyType: z.enum(ProxyType).default(ProxyType.NONE),
   proxy: z.string().default(""),
   useProxy: z.boolean().default(false),
-  timeout: z.number().int().min(1).max(300).default(20),
+  timeout: z.number().int().min(1).max(300).default(10),
   retryCount: z.number().int().min(0).max(10).default(3),
   javdbCookie: z.string().default(""),
   javbusCookie: z.string().default(""),

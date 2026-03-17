@@ -124,6 +124,7 @@ export class FileScraper {
         aggregationResult.imageAlternatives,
         aggregationResult.sources,
       );
+      let resolvedSceneImageUrls: string[] | undefined;
       const assets = await this.deps.downloadManager.downloadAll(
         plan.outputDir,
         preparedOutputData.data,
@@ -133,13 +134,16 @@ export class FileScraper {
           onSceneProgress: (downloaded, total) => {
             this.deps.signalService.showLogText(`[${fileInfo.number}] Scene images: ${downloaded}/${total}`);
           },
+          onResolvedSceneImageUrls: (urls) => {
+            resolvedSceneImageUrls = urls;
+          },
           signal,
         },
       );
       throwIfAborted(signal);
       this.setProgress(progress, 75);
 
-      const preparedData = preparedOutputData.data;
+      const preparedData = this.applyDownloadedSceneImageMetadata(preparedOutputData.data, resolvedSceneImageUrls);
       let savedNfoPath: string | undefined;
       if (configuration.download.downloadNfo) {
         if (configuration.download.keepNfo && (await pathExists(plan.nfoPath))) {
@@ -257,5 +261,19 @@ export class FileScraper {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`Failed to move file to failed folder: ${message}`);
     }
+  }
+
+  private applyDownloadedSceneImageMetadata(
+    crawlerData: CrawlerData,
+    sceneImageUrls: string[] | undefined,
+  ): CrawlerData {
+    if (sceneImageUrls === undefined) {
+      return crawlerData;
+    }
+
+    return {
+      ...crawlerData,
+      sample_images: [...sceneImageUrls],
+    };
   }
 }

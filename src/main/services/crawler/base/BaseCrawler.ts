@@ -15,7 +15,7 @@ import type {
 } from "./types";
 
 const DEFAULT_OPTIONS = {
-  timeoutMs: 20_000,
+  timeoutMs: 10_000,
   cookies: undefined,
   referer: undefined,
   userAgent: undefined,
