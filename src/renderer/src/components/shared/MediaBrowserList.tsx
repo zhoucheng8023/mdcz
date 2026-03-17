@@ -57,15 +57,18 @@ function MediaBrowserListItem({ item }: { item: MediaBrowserItem }) {
       <ContextMenuTrigger asChild>
         <div
           className={cn(
-            "group flex w-full items-center gap-3 rounded-xl border px-3 py-3 transition-all select-none",
+            "group flex w-full items-stretch rounded-xl border transition-all select-none",
             item.active ? "border-primary/60 bg-primary/5" : "border-transparent hover:border-border hover:bg-muted/30",
           )}
         >
-          {item.selectionControl && <div className="shrink-0">{item.selectionControl}</div>}
+          {item.selectionControl && <div className="flex shrink-0 items-center px-3 py-3">{item.selectionControl}</div>}
           <button
             type="button"
             onClick={item.onClick}
-            className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left outline-none"
+            className={cn(
+              "flex min-w-0 flex-1 items-center justify-between gap-3 border-0 bg-transparent text-left outline-none",
+              item.selectionControl ? "py-3 pr-3" : "px-3 py-3",
+            )}
           >
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">

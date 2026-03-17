@@ -78,7 +78,6 @@ const truncateText = (value: string, maxChars: number): string => Array.from(val
 const buildMovieTags = (data: CrawlerData): string[] => {
   return Array.from(
     new Set([
-      ...buildStringNodes(toArray(data.genres)),
       ...buildManagedMovieTags({
         contentType: data.content_type,
       }),
@@ -207,7 +206,7 @@ export class NfoGenerator {
       "#text": data.number,
     };
     movie.genre = Array.from(new Set(buildStringNodes(toArray(data.genres))));
-    movie.tag = tags;
+    movie.tag = tags.length > 0 ? tags : undefined;
     movie.actor = buildActorNodes(toArray(data.actors), data.actor_profiles);
 
     // Image thumbs - prefer local asset paths, fall back to URLs

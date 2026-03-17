@@ -12,7 +12,7 @@ export const MAINTENANCE_PRESET_META: Record<MaintenancePresetId, MaintenancePre
   read_local: {
     id: "read_local",
     label: "读取本地",
-    description: "扫描本地文件，读取现有 NFO 与资源状态；扫描即完成，无需执行",
+    description: "扫描本地文件，读取现有 NFO 与资源状态",
     executeSummary: ["读取选中项目的本地视频与 NFO 信息", "整理并展示本地元数据与资源状态"],
     supportsExecution: false,
   },

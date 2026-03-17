@@ -18,7 +18,7 @@ const DEFAULT_AVJOHO_HEADERS = {
   "accept-language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7",
 };
 const EMPTY_FIELD_PATTERN = /^[-–—―ー]+$/u;
-const PROFILE_FIELD_ORDER = ["デビュー", "趣味・特技", "専属メーカー", "X（旧Twitter）"] as const;
+const PROFILE_FIELD_ORDER = ["デビュー", "趣味・特技", "専属メーカー", "X"] as const;
 const AGENCY_FIELD_NAMES = ["所属事務所", "所属プロダクション", "所属", "事務所"] as const;
 
 export interface AvjohoActorSourceDependencies {
@@ -110,7 +110,7 @@ const buildDescription = (_displayName: string, fields: Map<string, string>): st
     lines.push(`${label}: ${value}`);
   }
 
-  return lines.length > 0 ? lines.join("\n") : undefined;
+  return lines.length > 0 ? lines.join("\n\n") : undefined;
 };
 
 const pickFieldValue = (fields: Map<string, string>, labels: readonly string[]): string | undefined => {

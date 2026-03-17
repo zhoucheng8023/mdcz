@@ -89,6 +89,7 @@ describe("AvjohoActorSource", () => {
       warnings: [],
     });
     expect(result.profile?.description).toContain("デビュー: 2022年7月5日");
+    expect(result.profile?.description).toContain("デビュー: 2022年7月5日\n\n趣味・特技: アニメ、舞台鑑賞");
     expect(result.profile?.description).toContain("趣味・特技: アニメ、舞台鑑賞");
     expect(result.profile?.description).toContain("専属メーカー: VENUS");
     expect(result.profile?.description).not.toContain("生年月日");

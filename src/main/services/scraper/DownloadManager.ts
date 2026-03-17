@@ -86,6 +86,7 @@ interface DownloadManagerOptions {
 
 const IMAGE_HOST_COOLDOWN_MS = 5 * 60 * 1000;
 const SCENE_IMAGE_ATTEMPT_TIMEOUT_MS = 1_500;
+const SCENE_IMAGE_MIN_BYTES = 4_096;
 const IMAGE_PROBE_TERMINAL_MISS_STATUS_CODES = new Set([404, 410]);
 const IMAGE_HOST_FAILURE_POLICY: CooldownFailurePolicy = {
   threshold: 2,
@@ -191,8 +192,8 @@ const buildSceneImageFileName = (sceneFolder: string, index: number): string => 
   return `scene-${String(index + 1).padStart(3, "0")}.jpg`;
 };
 
-const buildSceneImageTempFileName = (index: number): string =>
-  `.scene-candidate-${String(index + 1).padStart(3, "0")}.jpg`;
+const buildSceneImageTempFileName = (setIndex: number, index: number): string =>
+  `.scene-set-${String(setIndex + 1).padStart(2, "0")}-candidate-${String(index + 1).padStart(3, "0")}.jpg`;
 
 const formatCooldownDetails = (cooldownUntil: number, remainingMs: number): string =>
   `${remainingMs}ms remaining until ${new Date(cooldownUntil).toISOString()}`;
@@ -413,6 +414,8 @@ export class DownloadManager {
       return [];
     }
 
+    let bestPaths: string[] = [];
+
     for (const [setIndex, urls] of sceneImageSets.entries()) {
       throwIfAborted(callbacks?.signal);
       const attemptedUrls = urls.slice(0, targetSceneCount);
@@ -423,28 +426,40 @@ export class DownloadManager {
       const downloadedPaths = await this.downloadSceneImageSet(
         outputDir,
         sceneFolder,
+        setIndex,
         attemptedUrls,
         maxConcurrent,
         callbacks,
       );
-      if (downloadedPaths) {
+      if (downloadedPaths.length === attemptedUrls.length) {
+        await this.cleanupTemporarySceneImages(bestPaths);
         return downloadedPaths;
       }
 
+      if (downloadedPaths.length > bestPaths.length) {
+        await this.cleanupTemporarySceneImages(bestPaths);
+        bestPaths = downloadedPaths;
+      } else {
+        await this.cleanupTemporarySceneImages(downloadedPaths);
+      }
+
       callbacks?.onSceneProgress?.(0, attemptedUrls.length);
-      this.logger.info(`Scene image set ${setIndex + 1}/${sceneImageSets.length} failed; trying next set`);
+      this.logger.info(
+        `Scene image set ${setIndex + 1}/${sceneImageSets.length} incomplete (${downloadedPaths.length}/${attemptedUrls.length}); trying next set`,
+      );
     }
 
-    return [];
+    return bestPaths;
   }
 
   private async downloadSceneImageSet(
     outputDir: string,
     sceneFolder: string,
+    setIndex: number,
     urls: string[],
     maxConcurrent: number,
     callbacks?: DownloadCallbacks,
-  ): Promise<string[] | null> {
+  ): Promise<string[]> {
     if (urls.length === 0) {
       return [];
     }
@@ -453,29 +468,26 @@ export class DownloadManager {
 
     const results: Array<string | null> = new Array(urls.length).fill(null);
     const temporaryPaths = new Set<string>();
-    const state = {
-      nextIndex: 0,
-      failed: false,
-    };
+    let nextIndex = 0;
 
     const workerCount = Math.min(urls.length, Math.max(1, maxConcurrent));
     const runWorker = async (): Promise<void> => {
-      while (!state.failed) {
+      while (true) {
         throwIfAborted(callbacks?.signal);
-        const candidateIndex = state.nextIndex++;
+        const candidateIndex = nextIndex++;
         const url = urls[candidateIndex];
         if (!url) {
           return;
         }
 
-        const tempPath = join(outputDir, sceneFolder, buildSceneImageTempFileName(candidateIndex));
+        const tempPath = join(outputDir, sceneFolder, buildSceneImageTempFileName(setIndex, candidateIndex));
         const downloadedPath = await this.downloadAndValidateImage(url, tempPath, {
           timeoutMs: SCENE_IMAGE_ATTEMPT_TIMEOUT_MS,
+          minBytes: SCENE_IMAGE_MIN_BYTES,
           signal: callbacks?.signal,
         });
         if (!downloadedPath) {
-          state.failed = true;
-          return;
+          continue;
         }
 
         temporaryPaths.add(downloadedPath);
@@ -492,15 +504,8 @@ export class DownloadManager {
       }
       throw error;
     }
-    const downloadedPaths = results.filter((item): item is string => Boolean(item));
-    if (state.failed || downloadedPaths.length !== urls.length) {
-      for (const filePath of temporaryPaths) {
-        await unlink(filePath).catch(() => undefined);
-      }
-      return null;
-    }
 
-    return downloadedPaths;
+    return results.filter((item): item is string => Boolean(item));
   }
 
   private buildPrimaryImageTasks(
@@ -708,7 +713,7 @@ export class DownloadManager {
   private async downloadAndValidateImage(
     url: string,
     outputPath: string,
-    options: { timeoutMs?: number; signal?: AbortSignal } = {},
+    options: { timeoutMs?: number; minBytes?: number; signal?: AbortSignal } = {},
   ): Promise<string | null> {
     const candidate = await this.downloadValidatedImageCandidate(url, outputPath, options);
     return candidate?.path ?? null;
@@ -717,7 +722,7 @@ export class DownloadManager {
   private async downloadValidatedImageCandidate(
     url: string,
     outputPath: string,
-    options: { timeoutMs?: number; signal?: AbortSignal } = {},
+    options: { timeoutMs?: number; minBytes?: number; signal?: AbortSignal } = {},
   ): Promise<{ path: string; width: number; height: number } | null> {
     throwIfAborted(options.signal);
     const downloadedPath = await this.safeDownload(url, outputPath, options);
@@ -726,7 +731,7 @@ export class DownloadManager {
     }
 
     try {
-      const validation = await validateImage(downloadedPath);
+      const validation = await validateImage(downloadedPath, options.minBytes);
       if (validation.valid) {
         return {
           path: downloadedPath,
@@ -743,6 +748,12 @@ export class DownloadManager {
 
     await unlink(downloadedPath).catch(() => undefined);
     return null;
+  }
+
+  private async cleanupTemporarySceneImages(paths: string[]): Promise<void> {
+    for (const filePath of paths) {
+      await unlink(filePath).catch(() => undefined);
+    }
   }
 
   private isHigherResolutionCandidate(

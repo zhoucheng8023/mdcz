@@ -336,6 +336,35 @@ describe("DownloadManager keep flags", () => {
     expect(networkClient.download).toHaveBeenCalledTimes(2);
   });
 
+  it("uses a smaller minimum byte threshold for scene images than primary artwork", async () => {
+    const { root, manager } = await createDownloadSubject();
+    vi.spyOn(imageUtils, "validateImage").mockImplementation(async (_filePath: string, minBytes = 8192) => {
+      if (minBytes <= 4096) {
+        return { valid: true, width: 640, height: 360 };
+      }
+
+      return { valid: false, width: 0, height: 0, reason: "file_too_small" };
+    });
+
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: ["https://example.com/scene-001.jpg"],
+      }),
+      createDownloadConfig({
+        downloadThumb: false,
+        downloadPoster: false,
+        downloadTrailer: false,
+        downloadFanart: false,
+      }),
+    );
+
+    expect(assets.sceneImages).toEqual([join(root, "extrafanart", "fanart1.jpg")]);
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/scene-001.jpg",
+    );
+  });
+
   it("creates missing fanart from an existing kept thumb", async () => {
     const { root, manager, networkClient } = await createDownloadSubject({
       "thumb.jpg": "thumb",
@@ -821,6 +850,72 @@ describe("DownloadManager keep flags", () => {
       "https://alt.example.com/set-b-1.jpg",
       "https://alt.example.com/set-b-2.jpg",
     ]);
+  });
+
+  it("keeps the scene image set with the most successful downloads when no set completes", async () => {
+    const { root, manager, networkClient } = await createDownloadSubject();
+    mockImageValidation(true);
+    networkClient.download.mockImplementation(async (url: string, outputPath: string) => {
+      if (url.endsWith("set-a-3.jpg") || url.endsWith("set-b-2.jpg") || url.endsWith("set-b-3.jpg")) {
+        throw new Error("Request timeout");
+      }
+
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `downloaded:${url}`, "utf8");
+      return outputPath;
+    });
+
+    const config = createConfig({
+      download: {
+        ...defaultConfiguration.download,
+        downloadThumb: false,
+        downloadPoster: false,
+        downloadFanart: false,
+        downloadTrailer: false,
+        keepSceneImages: false,
+        sceneImageConcurrency: 1,
+      },
+      aggregation: {
+        ...defaultConfiguration.aggregation,
+        behavior: {
+          ...defaultConfiguration.aggregation.behavior,
+          maxSceneImages: 3,
+        },
+      },
+    });
+
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        sample_images: [
+          "https://best.example.com/set-a-1.jpg",
+          "https://best.example.com/set-a-2.jpg",
+          "https://best.example.com/set-a-3.jpg",
+        ],
+      }),
+      config,
+      {
+        sample_images: [
+          [
+            "https://fallback.example.com/set-b-1.jpg",
+            "https://fallback.example.com/set-b-2.jpg",
+            "https://fallback.example.com/set-b-3.jpg",
+          ],
+        ],
+      },
+    );
+
+    expect(assets.sceneImages).toEqual([
+      join(root, "extrafanart", "fanart1.jpg"),
+      join(root, "extrafanart", "fanart2.jpg"),
+    ]);
+    await expect(readFile(join(root, "extrafanart", "fanart1.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://best.example.com/set-a-1.jpg",
+    );
+    await expect(readFile(join(root, "extrafanart", "fanart2.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://best.example.com/set-a-2.jpg",
+    );
+    await expect(access(join(root, "extrafanart", "fanart3.jpg"))).rejects.toThrow();
   });
 
   it("cools down a failing image host and skips remaining scene downloads for that host across runs", async () => {
