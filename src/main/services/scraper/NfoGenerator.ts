@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { toArray } from "@main/utils/common";
+import { classifyMovie } from "@main/utils/movieClassification";
 import { buildManagedMovieTags } from "@main/utils/movieMetadata";
-import type { ActorProfile, CrawlerData, DownloadedAssets, VideoMeta } from "@shared/types";
+import type { ActorProfile, CrawlerData, DownloadedAssets, FileInfo, VideoMeta } from "@shared/types";
 import { XMLBuilder } from "fast-xml-parser";
 import type { SourceMap } from "./aggregation/types";
 
@@ -75,9 +76,26 @@ const toRemoteImageSourceUrl = (value: string | undefined): string | undefined =
 
 const truncateText = (value: string, maxChars: number): string => Array.from(value).slice(0, maxChars).join("");
 
-const buildMovieTags = (data: CrawlerData): string[] => {
+const buildMovieTags = (data: CrawlerData, fileInfo: FileInfo | undefined): string[] => {
+  const classificationTags: string[] = [];
+  if (fileInfo) {
+    const classification = classifyMovie(fileInfo, data);
+    if (classification.umr) {
+      classificationTags.push("破解");
+    } else if (classification.leak) {
+      classificationTags.push("流出");
+    } else if (classification.uncensored) {
+      classificationTags.push("无码");
+    }
+
+    if (classification.subtitled) {
+      classificationTags.push("中文字幕");
+    }
+  }
+
   return Array.from(
     new Set([
+      ...classificationTags,
       ...buildManagedMovieTags({
         contentType: data.content_type,
       }),
@@ -156,6 +174,7 @@ export interface NfoOptions {
   assets?: DownloadedAssets;
   sources?: SourceMap;
   videoMeta?: VideoMeta;
+  fileInfo?: FileInfo;
 }
 
 export class NfoGenerator {
@@ -166,9 +185,10 @@ export class NfoGenerator {
     const assets = options?.assets;
     const sources = options?.sources;
     const videoMeta = options?.videoMeta;
+    const fileInfo = options?.fileInfo;
     const durationSeconds = videoMeta?.durationSeconds ?? data.durationSeconds;
     const runtimeMinutes = durationSeconds ? Math.round(durationSeconds / 60) : undefined;
-    const tags = buildMovieTags(data);
+    const tags = buildMovieTags(data, fileInfo);
     const videoNode = buildVideoNode(videoMeta);
 
     const movie: Record<string, unknown> = {};

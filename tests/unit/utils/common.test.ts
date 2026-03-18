@@ -51,15 +51,9 @@ Reason: Custom {
 
 describe("toArray", () => {
   it("normalizes undefined, arrays, and singleton values", () => {
-    const cases = [
-      { input: undefined, expected: [] },
-      { input: [1, 2], expected: [1, 2] },
-      { input: "hello", expected: ["hello"] },
-    ];
-
-    for (const { input, expected } of cases) {
-      expect(toArray(input)).toEqual(expected);
-    }
+    expect(toArray<number>(undefined)).toEqual([]);
+    expect(toArray<number>([1, 2])).toEqual([1, 2]);
+    expect(toArray("hello")).toEqual(["hello"]);
   });
 });
 

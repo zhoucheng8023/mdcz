@@ -202,7 +202,11 @@ const expectSceneImages = async (
 
   await Promise.all(
     expectedUrls.map(async (url, index) => {
-      await expect(readFile(expectedPaths[index]!, "utf8")).resolves.toBe(`downloaded:${url}`);
+      const expectedPath = expectedPaths[index];
+      if (!expectedPath) {
+        throw new Error(`Missing expected path for scene image index ${index}`);
+      }
+      await expect(readFile(expectedPath, "utf8")).resolves.toBe(`downloaded:${url}`);
     }),
   );
 };
@@ -218,6 +222,28 @@ class FakeNetworkClient {
       resolvedUrl: url,
     }),
   );
+}
+
+interface SecondaryArtworkCase {
+  seed: Record<string, string>;
+  data: CrawlerData;
+  config: ReturnType<typeof createDownloadConfig>;
+  alternatives: { thumb_url?: string[] };
+  setup: (networkClient: FakeNetworkClient) => void;
+  assert: (
+    root: string,
+    assets: Awaited<ReturnType<DownloadManager["downloadAll"]>>,
+    networkClient: FakeNetworkClient,
+  ) => Promise<void>;
+}
+
+interface SceneRefreshCase {
+  seed: Record<string, string>;
+  data: CrawlerData;
+  config: ReturnType<typeof createDownloadConfig>;
+  options: Parameters<DownloadManager["downloadAll"]>[4];
+  setup: () => void;
+  assert: (root: string, assets: Awaited<ReturnType<DownloadManager["downloadAll"]>>) => Promise<void>;
 }
 
 describe("DownloadManager keep flags", () => {
@@ -365,7 +391,7 @@ describe("DownloadManager keep flags", () => {
   });
 
   it("only derives secondary artwork when a kept thumb is actually available", async () => {
-    const cases = [
+    const cases: SecondaryArtworkCase[] = [
       {
         seed: { "thumb.jpg": "thumb" },
         data: createCrawlerData(),
@@ -695,7 +721,7 @@ describe("DownloadManager keep flags", () => {
   });
 
   it("replaces, retains, or clears scene image sets based on refresh intent and validation", async () => {
-    const cases = [
+    const cases: SceneRefreshCase[] = [
       {
         seed: {
           "extrafanart/fanart1.jpg": "old-1",

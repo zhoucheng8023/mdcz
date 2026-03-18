@@ -9,7 +9,7 @@ import { load } from "cheerio";
 import type { OfficialActressSummary } from "../shared";
 import { buildFieldDescription, getOwnText, parseActressProfileFields, toAbsoluteUrl, toUniqueNames } from "../shared";
 
-export const parseFalenoLikeRoster = (html: string, baseUrl: string): OfficialActressSummary[] => {
+export const parseFalenoRoster = (html: string, baseUrl: string): OfficialActressSummary[] => {
   const $ = load(html);
   return $(".box_actress01 li")
     .toArray()
@@ -26,7 +26,7 @@ export const parseFalenoLikeRoster = (html: string, baseUrl: string): OfficialAc
     .filter((entry) => Boolean(entry.name) && Boolean(entry.url));
 };
 
-export const parseFalenoLikeDetail = (html: string, baseUrl: string, fallbackName: string): ActorProfile | null => {
+export const parseFalenoDetail = (html: string, baseUrl: string, fallbackName: string): ActorProfile | null => {
   const $ = load(html);
   const heading = $(".bar02_category h1, h1").first();
   const fields = new Map(parseActressProfileFields($));

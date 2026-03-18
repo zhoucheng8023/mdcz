@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { NfoGenerator } from "@main/services/scraper/NfoGenerator";
 import { parseNfo } from "@main/utils/nfo";
 import { Website } from "@shared/enums";
-import type { CrawlerData, DownloadedAssets } from "@shared/types";
+import type { CrawlerData, DownloadedAssets, FileInfo } from "@shared/types";
 import { afterEach, describe, expect, it } from "vitest";
 
 const tempDirs: string[] = [];
@@ -38,6 +38,15 @@ const createAssets = (): DownloadedAssets => ({
     "/tmp/out/trailer.mp4",
     "/tmp/out/extrafanart/fanart1.jpg",
   ],
+});
+
+const createFileInfo = (overrides: Partial<FileInfo> = {}): FileInfo => ({
+  filePath: "/tmp/ABC-123.mp4",
+  fileName: "ABC-123",
+  extension: ".mp4",
+  number: "ABC-123",
+  isSubtitled: false,
+  ...overrides,
 });
 
 describe("NfoGenerator", () => {
@@ -135,6 +144,39 @@ describe("NfoGenerator", () => {
 
     expect(xml).toContain("<genre>Drama</genre>");
     expect(xml).not.toContain("<tag>");
+  });
+
+  it("injects classification tags when fileInfo is provided", () => {
+    const uncensoredXml = new NfoGenerator().buildXml(createCrawlerData(), {
+      fileInfo: createFileInfo({
+        isSubtitled: true,
+        isUncensored: true,
+      }),
+    });
+    expect(uncensoredXml).toContain("<tag>无码</tag>");
+    expect(uncensoredXml).toContain("<tag>中文字幕</tag>");
+
+    const umrXml = new NfoGenerator().buildXml(
+      createCrawlerData({
+        title: "高清无码 破解版",
+      }),
+      {
+        fileInfo: createFileInfo(),
+      },
+    );
+    expect(umrXml).toContain("<tag>破解</tag>");
+    expect(umrXml).not.toContain("<tag>无码</tag>");
+
+    const leakXml = new NfoGenerator().buildXml(
+      createCrawlerData({
+        genres: ["流出"],
+      }),
+      {
+        fileInfo: createFileInfo(),
+      },
+    );
+    expect(leakXml).toContain("<tag>流出</tag>");
+    expect(leakXml).not.toContain("<tag>无码</tag>");
   });
 
   it("round-trips release metadata and derives year only when available", () => {

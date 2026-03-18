@@ -3,9 +3,9 @@ import type { Website } from "@shared/enums";
 import { hasMatchingName, OFFICIAL_HEADERS } from "../shared";
 import type { OfficialActorSourceDependencies, OfficialLookupRequest, OfficialLookupResult } from "../types";
 import { BaseStudioOfficialAdapter } from "./BaseStudioOfficialAdapter";
-import { parseFalenoLikeDetail, parseFalenoLikeRoster } from "./falenoLike";
+import { parseFalenoDetail, parseFalenoRoster } from "./falenoParser";
 
-interface FalenoLikeOfficialAdapterConfig {
+interface FalenoOfficialAdapterConfig {
   key: string;
   baseUrl: string;
   hintHosts: string[];
@@ -16,12 +16,12 @@ interface FalenoLikeOfficialAdapterConfig {
   website: Website;
 }
 
-export abstract class BaseFalenoLikeOfficialAdapter extends BaseStudioOfficialAdapter<
-  ReturnType<typeof parseFalenoLikeRoster>
+export abstract class BaseFalenoOfficialAdapter extends BaseStudioOfficialAdapter<
+  ReturnType<typeof parseFalenoRoster>
 > {
   protected constructor(
     deps: OfficialActorSourceDependencies,
-    protected readonly config: FalenoLikeOfficialAdapterConfig,
+    protected readonly config: FalenoOfficialAdapterConfig,
   ) {
     super(deps, {
       key: config.key,
@@ -43,7 +43,7 @@ export abstract class BaseFalenoLikeOfficialAdapter extends BaseStudioOfficialAd
       headers: OFFICIAL_HEADERS,
     });
     const profile =
-      parseFalenoLikeDetail(html, this.config.baseUrl, actress.name || query.fallbackName) ??
+      parseFalenoDetail(html, this.config.baseUrl, actress.name || query.fallbackName) ??
       (actress.photoUrl
         ? {
             name: actress.name,
@@ -75,7 +75,7 @@ export abstract class BaseFalenoLikeOfficialAdapter extends BaseStudioOfficialAd
           headers: OFFICIAL_HEADERS,
         },
       );
-      return parseFalenoLikeRoster(html, this.config.baseUrl);
+      return parseFalenoRoster(html, this.config.baseUrl);
     });
   }
 }

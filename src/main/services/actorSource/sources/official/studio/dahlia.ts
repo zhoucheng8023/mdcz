@@ -1,11 +1,11 @@
 import { Website } from "@shared/enums";
 import type { OfficialActorSourceDependencies } from "../types";
-import { BaseFalenoLikeOfficialAdapter } from "./BaseFalenoLikeOfficialAdapter";
+import { BaseFalenoOfficialAdapter } from "./BaseFalenoOfficialAdapter";
 
 const DAHLIA_BASE_URL = "https://dahlia-av.jp";
 const DAHLIA_STUDIO_PATTERN = /(dahlia|ダリア)/iu;
 
-export class DahliaOfficialAdapter extends BaseFalenoLikeOfficialAdapter {
+export class DahliaOfficialAdapter extends BaseFalenoOfficialAdapter {
   constructor(deps: OfficialActorSourceDependencies) {
     super(deps, {
       key: "dahlia",

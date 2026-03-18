@@ -161,6 +161,81 @@ describe("FileOrganizer naming settings", () => {
     }
   });
 
+  it("adds multipart suffixes to videos while keeping NFO on the base name", () => {
+    const organizer = new FileOrganizer();
+    const explicitPartPlan = organizer.plan(
+      createFileInfo({
+        filePath: "/input/XYZ-999-CD1.mp4",
+        fileName: "XYZ-999-CD1",
+        part: {
+          number: 1,
+          suffix: "-CD1",
+        },
+      }),
+      createCrawlerData({
+        number: "XYZ-999",
+      }),
+      createConfig({
+        naming: {
+          fileTemplate: "{number}",
+          partStyle: "disc",
+        },
+      }),
+    );
+
+    expect(parse(explicitPartPlan.targetVideoPath).name).toBe("XYZ-999-CEN-CD1");
+    expect(parse(explicitPartPlan.nfoPath).name).toBe("XYZ-999-CEN");
+
+    const numericPartPlan = organizer.plan(
+      createFileInfo({
+        filePath: "/input/XYZ-999-2.mp4",
+        fileName: "XYZ-999-2",
+        part: {
+          number: 2,
+          suffix: "-2",
+        },
+      }),
+      createCrawlerData({
+        number: "XYZ-999",
+      }),
+      createConfig({
+        naming: {
+          fileTemplate: "{number}",
+          partStyle: "disc",
+        },
+      }),
+    );
+
+    expect(parse(numericPartPlan.targetVideoPath).name).toBe("XYZ-999-CEN-disc2");
+    expect(parse(numericPartPlan.nfoPath).name).toBe("XYZ-999-CEN");
+  });
+
+  it("preserves input extension and explicit multipart suffix casing when renaming", () => {
+    const organizer = new FileOrganizer();
+    const plan = organizer.plan(
+      createFileInfo({
+        filePath: "/input/XYZ-999-Part1.MP4",
+        fileName: "XYZ-999-Part1",
+        extension: ".MP4",
+        part: {
+          number: 1,
+          suffix: "-Part1",
+        },
+      }),
+      createCrawlerData({
+        number: "XYZ-999",
+      }),
+      createConfig({
+        naming: {
+          fileTemplate: "{number}",
+        },
+      }),
+    );
+
+    expect(parse(plan.targetVideoPath).base).toBe("XYZ-999-CEN-Part1.MP4");
+    expect(parse(plan.nfoPath).base).toBe("XYZ-999-CEN.nfo");
+  });
+
   it("keeps video and NFO basenames aligned across move and rename modes", () => {
     const cases = [
       {
@@ -350,6 +425,38 @@ describe("FileOrganizer naming settings", () => {
       nfoPath: join(validRoot, "XYZ-999-CEN.nfo"),
     });
     expect(diskSpaceSpy).not.toHaveBeenCalled();
+
+    const multipartRoot = await createTempDir();
+    const multipartSourcePath = join(multipartRoot, "FC2-123456-1.mp4");
+    await writeFile(multipartSourcePath, "video", "utf8");
+    await writeFile(join(multipartRoot, "FC2-123456-2.mp4"), "video", "utf8");
+    await writeFile(join(multipartRoot, "FC2-123456-花絮.mp4"), "video", "utf8");
+
+    const multipartPlan = organizer.plan(
+      createFileInfo({
+        filePath: multipartSourcePath,
+        fileName: "FC2-123456-1",
+        number: "FC2-123456",
+        part: {
+          number: 1,
+          suffix: "-1",
+        },
+      }),
+      createCrawlerData({
+        number: "FC2-123456",
+      }),
+      createConfig({
+        behavior: {
+          successFileMove: false,
+          successFileRename: true,
+        },
+      }),
+    );
+
+    await expect(organizer.ensureOutputReady(multipartPlan, multipartSourcePath)).resolves.toMatchObject({
+      targetVideoPath: join(multipartRoot, "FC2-123456-cd1.mp4"),
+      nfoPath: join(multipartRoot, "FC2-123456.nfo"),
+    });
 
     const invalidRoot = await createTempDir();
     const invalidSourcePath = join(invalidRoot, "source.mp4");

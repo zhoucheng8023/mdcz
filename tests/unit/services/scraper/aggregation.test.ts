@@ -75,8 +75,8 @@ describe("FieldAggregator", () => {
     for (const { aggregator, results, field, expectedValue, expectedSource } of cases) {
       const { data, sources } = aggregator.aggregate(results);
 
-      expect((data as Record<string, unknown>)[field]).toBe(expectedValue);
-      expect((sources as Record<string, unknown>)[field]).toBe(expectedSource);
+      expect(data[field as keyof CrawlerData]).toBe(expectedValue);
+      expect(sources[field as keyof CrawlerData]).toBe(expectedSource);
     }
   });
 
@@ -138,9 +138,9 @@ describe("FieldAggregator", () => {
     for (const { aggregator, results, field, expectedValue, expectedSource } of cases) {
       const { data, sources } = aggregator.aggregate(results);
 
-      expect((data as Record<string, unknown>)[field]).toEqual(expectedValue);
+      expect(data[field as keyof CrawlerData]).toEqual(expectedValue);
       if (expectedSource !== undefined) {
-        expect((sources as Record<string, unknown>)[field]).toBe(expectedSource);
+        expect(sources[field as keyof CrawlerData]).toBe(expectedSource);
       }
     }
   });

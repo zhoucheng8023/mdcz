@@ -79,6 +79,11 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
 const LANGUAGE_OPTIONS = ["zh-CN", "zh-TW", "ja-JP", "en-US"];
 const ACTOR_OVERVIEW_SOURCE_OPTIONS = ["official", "avjoho", "avbase"];
 const ACTOR_IMAGE_SOURCE_OPTIONS = ["local", "gfriends", "official", "avbase"];
+const PART_STYLE_OPTIONS: EnumOption[] = [
+  { value: "cd", label: "cd1 / cd2" },
+  { value: "part", label: "part1 / part2" },
+  { value: "disc", label: "disc1 / disc2" },
+];
 
 // ── Field registry for search/filter ──
 
@@ -138,6 +143,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "naming.leakStyle", label: "流出标记", section: "naming" },
   { key: "naming.uncensoredStyle", label: "无码标记", section: "naming" },
   { key: "naming.censoredStyle", label: "有码标记", section: "naming" },
+  { key: "naming.partStyle", label: "裸数字分盘样式", section: "naming" },
   // translate
   { key: "translate.enableTranslation", label: "启用内容翻译", section: "translate" },
   { key: "translate.engine", label: "翻译引擎", section: "translate" },
@@ -395,6 +401,12 @@ function NamingSection(_props: SectionRenderProps) {
       <TextField name="naming.leakStyle" label="流出标记" />
       <TextField name="naming.uncensoredStyle" label="无码标记" />
       <TextField name="naming.censoredStyle" label="有码标记" />
+      <EnumField
+        name="naming.partStyle"
+        label="裸数字分盘样式"
+        description="仅对原文件名是 -1 / -2 这类裸数字分盘时生效"
+        options={PART_STYLE_OPTIONS}
+      />
     </>
   );
 }

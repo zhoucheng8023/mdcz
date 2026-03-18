@@ -60,8 +60,12 @@ export interface FileInfo {
   extension: string;
   number: string;
   isSubtitled: boolean;
+  isUncensored?: boolean;
   resolution?: string;
-  partNumber?: number;
+  part?: {
+    number: number;
+    suffix: string;
+  };
 }
 
 export type ScrapeResultStatus = "pending" | "processing" | "success" | "failed" | "skipped";

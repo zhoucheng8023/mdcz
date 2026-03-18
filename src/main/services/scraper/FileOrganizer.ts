@@ -10,6 +10,8 @@ import {
   moveFileSafely,
   resolveAvailablePath,
 } from "@main/utils/file";
+import { classifyMovie } from "@main/utils/movieClassification";
+import { parseFileInfo } from "@main/utils/number";
 import { buildSafePath, sanitizePathSegment } from "@main/utils/path";
 import type { CrawlerData, FileInfo } from "@shared/types";
 import { isGeneratedSidecarVideo } from "./sidecars";
@@ -23,11 +25,6 @@ export interface OrganizePlan {
 interface ResolveOutputPlanOptions {
   createDirectories?: boolean;
 }
-
-const UNCENSORED_NUMBER_PATTERNS = [/^FC2-\d+/iu, /^HEYZO-\d+/iu, /^(?:1PON|10MU|CARIB|PACO|MURA|KIN8)[-_]?\d+/iu];
-
-const UMR_HINTS = ["umr", "破解", "universal media record"];
-const LEAK_HINTS = ["流出", "leak"];
 
 const pickActorFolder = (config: Configuration, actors: string[]): string => {
   const cleaned = actors.map((actor) => actor.trim()).filter((actor) => actor.length > 0);
@@ -54,18 +51,18 @@ const appendMarker = (markers: string[], value: string): void => {
   markers.push(marker);
 };
 
-const includesHint = (source: string, hints: string[]): boolean => {
-  const text = source.toLowerCase();
-  return hints.some((hint) => text.includes(hint));
-};
+const isBareNumericPartSuffix = (suffix: string): boolean => /^[-_.\s][12]$/u.test(suffix.trimEnd());
 
-const isLikelyUncensoredNumber = (number: string): boolean => {
-  const normalized = number.trim().toUpperCase();
-  if (!normalized) {
-    return false;
+const formatPartSuffix = (fileInfo: FileInfo, config: Configuration): string => {
+  if (!fileInfo.part) {
+    return "";
   }
 
-  return UNCENSORED_NUMBER_PATTERNS.some((pattern) => pattern.test(normalized));
+  if (!isBareNumericPartSuffix(fileInfo.part.suffix)) {
+    return fileInfo.part.suffix;
+  }
+
+  return `-${config.naming.partStyle}${fileInfo.part.number}`;
 };
 
 const buildNumberWithNamingMarkers = (fileInfo: FileInfo, data: CrawlerData, config: Configuration): string => {
@@ -74,25 +71,21 @@ const buildNumberWithNamingMarkers = (fileInfo: FileInfo, data: CrawlerData, con
     return data.number;
   }
 
+  const classification = classifyMovie(fileInfo, data);
   const markers: string[] = [];
-  if (fileInfo.isSubtitled) {
+  if (classification.subtitled) {
     appendMarker(markers, config.naming.cnwordStyle);
   }
 
-  const textProbe = [data.title, data.title_zh, ...(data.genres ?? [])]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ")
-    .toLowerCase();
-
-  if (includesHint(textProbe, UMR_HINTS)) {
+  if (classification.umr) {
     appendMarker(markers, config.naming.umrStyle);
   }
 
-  if (includesHint(textProbe, LEAK_HINTS)) {
+  if (classification.leak) {
     appendMarker(markers, config.naming.leakStyle);
   }
 
-  if (isLikelyUncensoredNumber(baseNumber)) {
+  if (classification.uncensored) {
     appendMarker(markers, config.naming.uncensoredStyle);
   } else {
     appendMarker(markers, config.naming.censoredStyle);
@@ -147,6 +140,7 @@ export class FileOrganizer {
     const title = data.title_zh?.trim() || data.title;
     const actorFolder = pickActorFolder(config, data.actors ?? []);
     const styledNumber = buildNumberWithNamingMarkers(fileInfo, data, config);
+    const partSuffix = formatPartSuffix(fileInfo, config);
     const formattedReleaseDate = formatReleaseDateByRule(data.release_date, config.naming.releaseRule);
     const templateData = {
       title,
@@ -168,11 +162,12 @@ export class FileOrganizer {
       sanitizePathSegment(buildSafePath(config.naming.fileTemplate, templateData)) || styledNumber,
       config.naming.fileNameMax,
     );
+    const nfoBaseName = fileInfo.part ? fileBaseName : parse(sourceVideo.base).name;
     const targetVideoFileName = config.behavior.successFileRename
-      ? `${fileBaseName}${fileInfo.extension}`
+      ? `${fileBaseName}${partSuffix}${fileInfo.extension}`
       : sourceVideo.base;
     const targetVideoPath = join(outputDir, targetVideoFileName);
-    const nfoPath = join(outputDir, `${parse(targetVideoPath).name}.nfo`);
+    const nfoPath = join(outputDir, `${config.behavior.successFileRename ? fileBaseName : nfoBaseName}.nfo`);
 
     return {
       outputDir,
@@ -199,10 +194,20 @@ export class FileOrganizer {
     const sameDirectoryOutput = sourceDir === resolve(outputRoot);
 
     if (sameDirectoryOutput) {
+      const sourceFileInfo = parseFileInfo(sourceFilePath);
       const videoFiles = await listVideoFiles(sourceDir, false);
-      const otherVideos = videoFiles.filter(
-        (filePath) => resolve(filePath) !== resolve(sourceFilePath) && !isGeneratedSidecarVideo(filePath),
-      );
+      const otherVideos = videoFiles.filter((filePath) => {
+        if (resolve(filePath) === resolve(sourceFilePath) || isGeneratedSidecarVideo(filePath)) {
+          return false;
+        }
+
+        const siblingFileInfo = parseFileInfo(filePath);
+        if (sourceFileInfo.number === siblingFileInfo.number && (sourceFileInfo.part || siblingFileInfo.part)) {
+          return false;
+        }
+
+        return true;
+      });
       if (otherVideos.length > 0) {
         this.logger.warn(`Cannot organize in place because multiple video files exist in ${sourceDir}`);
         throw new Error("成功后不移动文件时，仅支持源目录内存在单个视频文件");
@@ -220,7 +225,11 @@ export class FileOrganizer {
 
     const targetVideoPath = await resolveAvailablePath(plan.targetVideoPath, sourceFilePath);
     const outputDir = dirname(targetVideoPath);
-    const nfoPath = join(outputDir, `${parse(targetVideoPath).name}.nfo`);
+    const originalVideoBaseName = parse(plan.targetVideoPath).name;
+    const originalNfoBaseName = parse(plan.nfoPath).name;
+    const resolvedVideoBaseName = parse(targetVideoPath).name;
+    const nfoBaseName = originalVideoBaseName === originalNfoBaseName ? resolvedVideoBaseName : originalNfoBaseName;
+    const nfoPath = join(outputDir, `${nfoBaseName}.nfo`);
 
     return {
       outputDir,

@@ -11,12 +11,13 @@ import { parseFileInfo } from "@main/utils/number";
 import { probeVideoMetadata } from "@main/utils/video";
 import type { CrawlerData, FileInfo, ScrapeResult, VideoMeta } from "@shared/types";
 import { isAbortError, throwIfAborted } from "./abort";
-import type { AggregationService } from "./aggregation";
+import type { AggregationResult, AggregationService } from "./aggregation";
 import type { DownloadManager } from "./DownloadManager";
 import type { FileOrganizer } from "./FileOrganizer";
 import type { NfoGenerator } from "./NfoGenerator";
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
+import { isGeneratedSidecarVideo } from "./sidecars";
 import type { TranslateService } from "./TranslateService";
 
 export interface FileScraperDependencies {
@@ -40,6 +41,7 @@ export class FileScraper {
   private readonly logger = loggerService.getLogger("FileScraper");
 
   private readonly actorImageService: ActorImageService;
+  private readonly aggregationPromiseCache = new Map<string, Promise<AggregationResult | null>>();
 
   constructor(private readonly deps: FileScraperDependencies) {
     this.actorImageService = deps.actorImageService ?? new ActorImageService();
@@ -66,7 +68,7 @@ export class FileScraper {
         step: "search",
       });
 
-      const aggregationResult = await this.deps.aggregationService.aggregate(fileInfo.number, configuration, signal);
+      const aggregationResult = await this.aggregateMetadata(fileInfo, configuration, signal);
       throwIfAborted(signal);
 
       if (!aggregationResult) {
@@ -153,6 +155,7 @@ export class FileScraper {
             assets,
             sources: aggregationResult.sources,
             videoMeta,
+            fileInfo,
           });
         }
       }
@@ -241,6 +244,29 @@ export class FileScraper {
       this.logger.warn(`Translation failed for ${crawlerData.number}: ${message}`);
       return crawlerData;
     }
+  }
+
+  private aggregateMetadata(
+    fileInfo: FileInfo,
+    configuration: Configuration,
+    signal?: AbortSignal,
+  ): Promise<AggregationResult | null> {
+    const cacheKey = fileInfo.number.trim().toUpperCase();
+    if (!cacheKey || isGeneratedSidecarVideo(fileInfo.filePath)) {
+      return this.deps.aggregationService.aggregate(fileInfo.number, configuration, signal);
+    }
+
+    const cached = this.aggregationPromiseCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const request = this.deps.aggregationService.aggregate(fileInfo.number, configuration, signal).catch((error) => {
+      this.aggregationPromiseCache.delete(cacheKey);
+      throw error;
+    });
+    this.aggregationPromiseCache.set(cacheKey, request);
+    return request;
   }
 
   private setProgress(progress: FileScrapeProgress, stepPercent: number): void {

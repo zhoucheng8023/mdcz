@@ -15,21 +15,21 @@ interface StudioOfficialAdapterConfig {
 export abstract class BaseStudioOfficialAdapter<TRoster> extends BaseRosterOfficialAdapter<TRoster> {
   protected constructor(
     deps: OfficialActorSourceDependencies,
-    private readonly config: StudioOfficialAdapterConfig,
+    private readonly baseConfig: StudioOfficialAdapterConfig,
   ) {
     super(deps, {
-      key: config.key,
-      rateLimitedHosts: config.rateLimitedHosts,
+      key: baseConfig.key,
+      rateLimitedHosts: baseConfig.rateLimitedHosts,
     });
   }
 
   matchesHints(hints: ActorSourceHint[]): boolean {
     return hints.some(
       (hint) =>
-        hint.website === this.config.website ||
-        (this.config.studioPattern?.test(hint.studio ?? "") ?? false) ||
-        (this.config.studioPattern?.test(hint.publisher ?? "") ?? false) ||
-        this.config.hintHosts.some((host) => matchesSourceHost(hint, host)),
+        hint.website === this.baseConfig.website ||
+        (this.baseConfig.studioPattern?.test(hint.studio ?? "") ?? false) ||
+        (this.baseConfig.studioPattern?.test(hint.publisher ?? "") ?? false) ||
+        this.baseConfig.hintHosts.some((host) => matchesSourceHost(hint, host)),
     );
   }
 }

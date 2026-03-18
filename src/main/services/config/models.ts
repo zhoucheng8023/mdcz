@@ -19,6 +19,7 @@ const DEFAULT_ENABLED_SITES: Website[] = [
 ];
 
 const DEFAULT_SITE_ORDER: Website[] = [...DEFAULT_ENABLED_SITES];
+const PART_STYLE_OPTIONS = ["cd", "part", "disc"] as const;
 
 const networkSchema = z.object({
   proxyType: z.enum(ProxyType).default(ProxyType.NONE),
@@ -57,6 +58,7 @@ const namingSchema = z.object({
   leakStyle: z.string().default("-流出"),
   uncensoredStyle: z.string().default(""),
   censoredStyle: z.string().default(""),
+  partStyle: z.enum(PART_STYLE_OPTIONS).default("cd"),
 });
 
 const translateSchema = z.object({

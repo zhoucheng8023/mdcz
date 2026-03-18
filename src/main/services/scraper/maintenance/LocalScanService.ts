@@ -90,7 +90,7 @@ export class LocalScanService {
     const fileInfo = parseFileInfo(videoPath);
     const dir = dirname(videoPath);
 
-    const assets = await this.discoverAssets(dir, fileInfo.fileName, sceneImagesFolder);
+    const assets = await this.discoverAssets(dir, fileInfo, sceneImagesFolder);
     let crawlerData: CrawlerData | undefined;
     let scanError: string | undefined;
 
@@ -120,11 +120,11 @@ export class LocalScanService {
   /** Discover assets (NFO, images, trailer, actor photos) in a video directory. */
   private async discoverAssets(
     dir: string,
-    videoFileName: string,
+    fileInfo: LocalScanEntry["fileInfo"],
     sceneImagesFolder: string,
   ): Promise<DiscoveredAssets> {
     const [nfo, thumb, poster, fanart, trailer, sceneImages, actorPhotos] = await Promise.all([
-      this.findNfo(dir, videoFileName),
+      this.findNfo(dir, fileInfo),
       findAssetByName(dir, "thumb", IMAGE_EXTENSIONS),
       findAssetByName(dir, "poster", IMAGE_EXTENSIONS),
       findAssetByName(dir, "fanart", IMAGE_EXTENSIONS),
@@ -145,7 +145,7 @@ export class LocalScanService {
   }
 
   /** Find the NFO file in a directory, preferring one that matches the video filename. */
-  private async findNfo(dir: string, videoFileName: string): Promise<string | undefined> {
+  private async findNfo(dir: string, fileInfo: LocalScanEntry["fileInfo"]): Promise<string | undefined> {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       const nfoEntries = entries.filter((e) => e.isFile() && extname(e.name).toLowerCase() === ".nfo");
@@ -153,8 +153,17 @@ export class LocalScanService {
       if (nfoEntries.length === 0) return undefined;
 
       // Prefer NFO whose base name matches the video file
-      const videoBaseName = parse(videoFileName).name.toLowerCase();
-      const match = nfoEntries.find((e) => parse(e.name).name.toLowerCase() === videoBaseName);
+      const videoBaseName = parse(fileInfo.fileName).name.toLowerCase();
+      const partlessBaseName =
+        fileInfo.part && fileInfo.fileName.endsWith(fileInfo.part.suffix)
+          ? fileInfo.fileName.slice(0, -fileInfo.part.suffix.length).toLowerCase()
+          : undefined;
+      const preferredBaseNames = [partlessBaseName, videoBaseName, "movie"].filter((value): value is string =>
+        Boolean(value),
+      );
+      const match = preferredBaseNames
+        .map((baseName) => nfoEntries.find((e) => parse(e.name).name.toLowerCase() === baseName))
+        .find(Boolean);
 
       return join(dir, (match ?? nfoEntries[0]).name);
     } catch {

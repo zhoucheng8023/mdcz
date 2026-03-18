@@ -1,11 +1,11 @@
 import { Website } from "@shared/enums";
 import type { OfficialActorSourceDependencies } from "../types";
-import { BaseFalenoLikeOfficialAdapter } from "./BaseFalenoLikeOfficialAdapter";
+import { BaseFalenoOfficialAdapter } from "./BaseFalenoOfficialAdapter";
 
 const FALENO_BASE_URL = "https://faleno.jp";
 const FALENO_STUDIO_PATTERN = /(faleno|ファレノ)/iu;
 
-export class FalenoOfficialAdapter extends BaseFalenoLikeOfficialAdapter {
+export class FalenoOfficialAdapter extends BaseFalenoOfficialAdapter {
   constructor(deps: OfficialActorSourceDependencies) {
     super(deps, {
       key: "faleno",

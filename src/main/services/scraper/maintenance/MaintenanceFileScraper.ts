@@ -5,6 +5,7 @@ import { loggerService } from "@main/services/LoggerService";
 import { probeVideoMetadata } from "@main/utils/video";
 import type {
   CrawlerData,
+  DiscoveredAssets,
   DownloadedAssets,
   FieldDiff,
   LocalScanEntry,
@@ -122,6 +123,7 @@ export class MaintenanceFileScraper {
       const savedNfoPath = await this.generatePreparedNfo(
         fileInfo.filePath,
         fileInfo.number,
+        fileInfo,
         plan,
         preparedCrawlerData,
         assets,
@@ -323,6 +325,7 @@ export class MaintenanceFileScraper {
   private async generatePreparedNfo(
     sourceVideoPath: string,
     number: string,
+    fileInfo: LocalScanEntry["fileInfo"],
     plan: PreparedMaintenanceFile["plan"],
     preparedCrawlerData: CrawlerData | undefined,
     assets: DownloadedAssets,
@@ -344,6 +347,7 @@ export class MaintenanceFileScraper {
       assets,
       sources: aggregationSources,
       videoMeta,
+      fileInfo,
     });
   }
 

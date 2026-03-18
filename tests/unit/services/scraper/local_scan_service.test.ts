@@ -45,4 +45,39 @@ describe("LocalScanService", () => {
 
     expect(entries).toEqual([]);
   });
+
+  it("skips FC2 feature sidecars and prefers the multipart base NFO over movie.nfo", async () => {
+    const root = await createTempDir();
+    const movieDir = join(root, "FC2-123456");
+    const partPath = join(movieDir, "FC2-123456-cd1.mp4");
+    const featurePath = join(movieDir, "FC2-123456-花絮.mp4");
+    const multipartNfoPath = join(movieDir, "FC2-123456.nfo");
+    const partNfoPath = join(movieDir, "FC2-123456-cd1.nfo");
+    const movieNfoPath = join(movieDir, "movie.nfo");
+
+    await mkdir(movieDir, { recursive: true });
+    await writeFile(partPath, "video");
+    await writeFile(featurePath, "feature");
+    await writeFile(multipartNfoPath, "<movie />");
+    await writeFile(partNfoPath, "<movie />");
+    await writeFile(movieNfoPath, "<movie />");
+
+    const entries = await new LocalScanService().scan(root, "extrafanart");
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.videoPath).toBe(partPath);
+    expect(entries[0]?.nfoPath).toBe(multipartNfoPath);
+  });
+
+  it("does not treat non-FC2 files with feature keywords as generated sidecars", async () => {
+    const root = await createTempDir();
+    const videoPath = join(root, "ABC-123-特典.mp4");
+
+    await writeFile(videoPath, "video");
+
+    const entries = await new LocalScanService().scan(root, "extrafanart");
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.videoPath).toBe(videoPath);
+  });
 });
