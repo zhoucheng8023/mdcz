@@ -79,6 +79,18 @@ interface AvbaseWork {
   work_id?: string | null;
 }
 
+interface ResolvedAvbaseProductMetadata {
+  studio?: string;
+  director?: string;
+  publisher?: string;
+  series?: string;
+  plot?: string;
+  durationSeconds?: number;
+  thumbUrl?: string;
+  posterUrl?: string;
+  sceneImages: string[];
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
@@ -215,6 +227,7 @@ const compareScores = (left: [number, number, number, number], right: [number, n
 };
 
 type AvbasePageProps = NonNullable<NonNullable<AvbaseNextData["props"]>["pageProps"]>;
+type AvbaseProductContainer = Pick<AvbaseSearchWork, "products"> | Pick<AvbaseWork, "products">;
 
 const ACTOR_BLOCK_LABELS = ["出演者・メモ", "出演者"] as const;
 
@@ -272,6 +285,77 @@ const readPageProps = ($: CheerioAPI): AvbasePageProps | undefined => {
   return (parsed as AvbaseNextData).props?.pageProps;
 };
 
+const readSearchWorks = ($: CheerioAPI): AvbaseSearchWork[] => readPageProps($)?.works ?? [];
+
+const readDetailWork = ($: CheerioAPI): AvbaseWork | null | undefined => readPageProps($)?.work;
+
+const getProducts = (value: AvbaseProductContainer | null | undefined): AvbaseProduct[] => value?.products ?? [];
+
+/**
+ * AVBase can return multiple storefront variants for the same `work_id`.
+ * Match by exact normalized code first, then pick the richest product payload.
+ */
+const pickBestSearchWork = (works: AvbaseSearchWork[], expectedNumber: string): AvbaseSearchWork | undefined => {
+  const candidates = works.filter((work) => normalizeCode(work.work_id) === normalizeCode(expectedNumber));
+  if (candidates.length === 0) {
+    return undefined;
+  }
+
+  return candidates.reduce<AvbaseSearchWork | undefined>((winner, current) => {
+    if (!winner) {
+      return current;
+    }
+
+    return compareScores(workScore(current), workScore(winner)) > 0 ? current : winner;
+  }, undefined);
+};
+
+const resolveWorkActors = ($: CheerioAPI, work: AvbaseWork | null | undefined): string[] => {
+  const domActors = readDomActors($);
+  if (domActors.length > 0) {
+    return domActors;
+  }
+
+  const castActors = uniqueStrings((work?.casts ?? []).map((entry) => toNonEmptyString(entry.actor?.name)));
+  if (castActors.length > 0) {
+    return castActors;
+  }
+
+  return uniqueStrings((work?.actors ?? []).map((actor) => toNonEmptyString(actor.name)));
+};
+
+const pickSceneImageProduct = (products: AvbaseProduct[]): AvbaseProduct | undefined => {
+  return [...products].sort((left, right) => {
+    const sceneDifference = productSceneCount(right) - productSceneCount(left);
+    if (sceneDifference !== 0) {
+      return sceneDifference;
+    }
+
+    return productMetadataScore(right) - productMetadataScore(left);
+  })[0];
+};
+
+const resolveProductMetadata = (products: AvbaseProduct[]): ResolvedAvbaseProductMetadata => {
+  const sceneImages =
+    pickSceneImageProduct(products)
+      ?.sample_image_urls?.map((image) => toNonEmptyString(image.l))
+      .filter((image): image is string => Boolean(image)) ?? [];
+
+  return {
+    studio: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.maker?.name)),
+    director: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.iteminfo?.director)),
+    publisher: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.label?.name)),
+    series: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.series?.name)),
+    plot: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.iteminfo?.description)),
+    durationSeconds: parseMinutesToSeconds(
+      pickFirstNonEmpty(products, (product) => toNonEmptyString(product.iteminfo?.volume)),
+    ),
+    thumbUrl: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.image_url)),
+    posterUrl: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.thumbnail_url)),
+    sceneImages,
+  };
+};
+
 export class AvbaseCrawler extends BaseCrawler {
   site(): Website {
     return Website.AVBASE;
@@ -288,26 +372,7 @@ export class AvbaseCrawler extends BaseCrawler {
   }
 
   protected async parseSearchPage(context: Context, $: CheerioAPI, _searchUrl: string): Promise<string | null> {
-    const pageProps = readPageProps($);
-    const works = pageProps?.works ?? [];
-    const expected = normalizeCode(context.number);
-
-    const candidates = works.filter((work) => normalizeCode(work.work_id) === expected);
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    const best = candidates.reduce(
-      (winner, current) => {
-        if (!winner) {
-          return current;
-        }
-
-        return compareScores(workScore(current), workScore(winner)) > 0 ? current : winner;
-      },
-      candidates[0] as AvbaseSearchWork | undefined,
-    );
-
+    const best = pickBestSearchWork(readSearchWorks($), context.number);
     const workId = toNonEmptyString(best?.work_id);
     if (!workId) {
       return null;
@@ -318,56 +383,34 @@ export class AvbaseCrawler extends BaseCrawler {
   }
 
   protected async parseDetailPage(context: Context, $: CheerioAPI): Promise<CrawlerData | null> {
-    const pageProps = readPageProps($);
-    const work = pageProps?.work;
+    const work = readDetailWork($);
     const number = toNonEmptyString(work?.work_id) ?? normalizeText(context.number);
     const rawTitle = toNonEmptyString(work?.title);
     if (!number || !rawTitle) {
       return null;
     }
 
-    const domActors = readDomActors($);
-    const castActors = uniqueStrings((work?.casts ?? []).map((entry) => toNonEmptyString(entry.actor?.name)));
-    const actors =
-      domActors.length > 0
-        ? domActors
-        : castActors.length > 0
-          ? castActors
-          : uniqueStrings((work?.actors ?? []).map((actor) => toNonEmptyString(actor.name)));
+    const actors = resolveWorkActors($, work);
     const genres = uniqueStrings((work?.genres ?? []).map((genre) => toNonEmptyString(genre.name)));
     const title = stripTrailingActorsFromTitle(rawTitle, actors);
-    const products = work?.products ?? [];
-
-    const sceneProduct = [...products].sort((left, right) => {
-      const sceneDifference = productSceneCount(right) - productSceneCount(left);
-      if (sceneDifference !== 0) {
-        return sceneDifference;
-      }
-
-      return productMetadataScore(right) - productMetadataScore(left);
-    })[0];
-
-    const sceneImages = (sceneProduct?.sample_image_urls ?? [])
-      .map((image) => toNonEmptyString(image.l))
-      .filter((image): image is string => Boolean(image));
+    const products = getProducts(work);
+    const metadata = resolveProductMetadata(products);
 
     return {
       title,
       number,
       actors,
       genres,
-      studio: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.maker?.name)),
-      director: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.iteminfo?.director)),
-      publisher: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.label?.name)),
-      series: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.series?.name)),
-      plot: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.iteminfo?.description)),
+      studio: metadata.studio,
+      director: metadata.director,
+      publisher: metadata.publisher,
+      series: metadata.series,
+      plot: metadata.plot,
       release_date: parseAvbaseDate(work?.min_date ?? undefined),
-      durationSeconds: parseMinutesToSeconds(
-        pickFirstNonEmpty(products, (product) => toNonEmptyString(product.iteminfo?.volume)),
-      ),
-      thumb_url: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.image_url)),
-      poster_url: pickFirstNonEmpty(products, (product) => toNonEmptyString(product.thumbnail_url)),
-      scene_images: sceneImages,
+      durationSeconds: metadata.durationSeconds,
+      thumb_url: metadata.thumbUrl,
+      poster_url: metadata.posterUrl,
+      scene_images: metadata.sceneImages,
       website: Website.AVBASE,
     };
   }

@@ -1,30 +1,28 @@
-import { copyFile, unlink } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { Configuration } from "@main/services/config/models";
 import { loggerService } from "@main/services/LoggerService";
-import { moveFileSafely, pathExists } from "@main/utils/file";
 import { probeVideoMetadata } from "@main/utils/video";
 import type {
   CrawlerData,
-  DiscoveredAssets,
   DownloadedAssets,
   FieldDiff,
   LocalScanEntry,
-  MaintenanceAssetDecisions,
   MaintenanceImageAlternatives,
   PathDiff,
   ScrapeResult,
   VideoMeta,
 } from "@shared/types";
 import { isAbortError, throwIfAborted } from "../abort";
-import type { SourceMap } from "../aggregation/types";
-import type { OrganizePlan } from "../FileOrganizer";
 import type { FileScrapeProgress, FileScraperDependencies } from "../FileScraper";
 import { prepareCrawlerDataForMovieOutput } from "../prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "../prepareImageAlternativesForDownload";
-import { partitionCrawlerDataWithOptions } from "./diffCrawlerData";
-import { diffPaths } from "./diffPaths";
+import { MaintenanceArtifactResolver } from "./MaintenanceArtifactResolver";
+import {
+  type CommittedMaintenanceFile,
+  MaintenancePreparationService,
+  type PreparedMaintenanceFile,
+} from "./MaintenancePreparationService";
 import type { MaintenancePreset } from "./presets";
 
 export interface MaintenanceProcessResult {
@@ -46,37 +44,29 @@ export interface MaintenancePreviewFileResult {
   imageAlternatives?: MaintenanceImageAlternatives;
 }
 
-interface PreparedMaintenanceFile {
-  crawlerData?: CrawlerData;
-  fieldDiffs?: FieldDiff[];
-  unchangedFieldDiffs?: FieldDiff[];
-  aggregationSources?: SourceMap;
-  imageAlternatives: MaintenanceImageAlternatives;
-  plan?: OrganizePlan;
-  pathDiff?: PathDiff;
-}
-
-interface CommittedMaintenanceFile {
-  crawlerData?: CrawlerData;
-  imageAlternatives?: MaintenanceImageAlternatives;
-  assetDecisions?: MaintenanceAssetDecisions;
-}
-
-interface ResolvedMaintenanceArtifacts {
-  nfoPath?: string;
-  assets: DiscoveredAssets;
-}
-
 export class MaintenanceFileScraper {
   private readonly logger = loggerService.getLogger("MaintenanceFileScraper");
 
   private readonly actorImageService: ActorImageService;
+
+  private readonly preparationService: MaintenancePreparationService;
+
+  private readonly artifactResolver = new MaintenanceArtifactResolver();
 
   constructor(
     private readonly deps: FileScraperDependencies,
     private readonly preset: MaintenancePreset,
   ) {
     this.actorImageService = deps.actorImageService ?? new ActorImageService();
+    this.preparationService = new MaintenancePreparationService(
+      {
+        aggregationService: deps.aggregationService,
+        translateService: deps.translateService,
+        fileOrganizer: deps.fileOrganizer,
+        signalService: deps.signalService,
+      },
+      preset,
+    );
   }
 
   async processFile(
@@ -87,115 +77,73 @@ export class MaintenanceFileScraper {
     committed?: CommittedMaintenanceFile,
   ): Promise<MaintenanceProcessResult> {
     const { fileInfo } = entry;
-    const { steps } = this.preset;
     this.logger.info(`[${this.preset.id}] Processing ${fileInfo.number} (${fileInfo.fileName})`);
     this.setProgress(progress, 0);
 
     try {
       throwIfAborted(signal);
       const prepared = committed
-        ? await this.prepareCommittedFile(entry, config, committed, {
+        ? await this.preparationService.prepareCommittedFile(entry, config, committed, {
             createDirectories: true,
-            progress,
+            onProgress: (stepPercent) => this.setProgress(progress, stepPercent),
           })
-        : await this.prepareFile(entry, config, signal, {
+        : await this.preparationService.prepareFile(entry, config, {
             createDirectories: true,
-            progress,
             emitLogs: true,
+            onProgress: (stepPercent) => this.setProgress(progress, stepPercent),
+            signal,
           });
       const { crawlerData, fieldDiffs, unchangedFieldDiffs, aggregationSources, imageAlternatives, plan, pathDiff } =
         prepared;
-      const preparedOutputData = crawlerData
-        ? await prepareCrawlerDataForMovieOutput(this.actorImageService, config, crawlerData, {
-            enabled: Boolean(plan && (steps.generateNfo || steps.download)),
-            movieDir: plan?.outputDir,
-            sourceVideoPath: fileInfo.filePath,
-            actorSourceProvider: this.deps.actorSourceProvider,
-            signal,
-          })
-        : {
-            data: crawlerData,
-            actorPhotoPaths: [],
-          };
+      const preparedOutputData = await this.prepareOutputCrawlerData(
+        fileInfo.filePath,
+        config,
+        crawlerData,
+        plan,
+        signal,
+      );
       throwIfAborted(signal);
       const preparedCrawlerData = preparedOutputData.data;
       const preparedActorPhotoPaths = preparedOutputData.actorPhotoPaths;
-
-      // Step 4: Download assets (if enabled)
-      let assets: DownloadedAssets = {
-        thumb: entry.assets.thumb,
-        poster: entry.assets.poster,
-        fanart: entry.assets.fanart,
-        sceneImages: entry.assets.sceneImages,
-        trailer: entry.assets.trailer,
-        downloaded: [],
-      };
-
-      if (steps.download && plan && preparedCrawlerData) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] Downloading resources...`);
-        const forceReplace = this.getForcedPrimaryImageRefresh(entry, preparedCrawlerData);
-        const downloadImageAlternatives = prepareImageAlternativesForDownload(
-          preparedCrawlerData,
-          imageAlternatives,
-          aggregationSources,
-        );
-        assets = await this.deps.downloadManager.downloadAll(
-          plan.outputDir,
-          preparedCrawlerData,
-          config,
-          downloadImageAlternatives,
-          {
-            onSceneProgress: (downloaded, total) => {
-              this.deps.signalService.showLogText(`[${fileInfo.number}] Scene images: ${downloaded}/${total}`);
-            },
-            forceReplace,
-            assetDecisions: committed?.assetDecisions,
-            signal,
-          },
-        );
-      }
+      const assets = await this.downloadPreparedAssets(
+        entry,
+        config,
+        plan?.outputDir,
+        preparedCrawlerData,
+        imageAlternatives,
+        aggregationSources,
+        committed,
+        signal,
+      );
 
       throwIfAborted(signal);
       this.setProgress(progress, 75);
 
-      // Step 5: Generate NFO (if enabled)
-      let savedNfoPath: string | undefined;
-      if (steps.generateNfo && plan && preparedCrawlerData) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] Generating NFO...`);
-        let videoMeta: VideoMeta | undefined;
-        try {
-          videoMeta = await probeVideoMetadata(fileInfo.filePath);
-        } catch {
-          this.logger.warn(`Video probe failed for ${fileInfo.filePath}`);
-        }
-        savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedCrawlerData, {
-          assets,
-          sources: aggregationSources,
-          videoMeta,
-        });
-      }
+      const savedNfoPath = await this.generatePreparedNfo(
+        fileInfo.filePath,
+        fileInfo.number,
+        plan,
+        preparedCrawlerData,
+        assets,
+        aggregationSources,
+      );
 
       throwIfAborted(signal);
       this.setProgress(progress, 80);
 
-      // Step 6: Organize files (if enabled)
-      let outputVideoPath = fileInfo.filePath;
-      if (steps.organize && plan) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] Organizing files...`);
-        outputVideoPath = await this.deps.fileOrganizer.organizeVideo(fileInfo, plan, config);
-      }
+      const outputVideoPath = await this.organizePreparedVideo(fileInfo, plan, config);
 
       throwIfAborted(signal);
-      const resolvedArtifacts = await this.resolveArtifacts(
+      const resolvedArtifacts = await this.artifactResolver.resolve({
         entry,
         plan,
         outputVideoPath,
         assets,
         savedNfoPath,
         preparedActorPhotoPaths,
-        committed?.assetDecisions,
-      );
-      const resolvedAssets = this.toDownloadedAssets(assets, resolvedArtifacts.assets);
+        assetDecisions: committed?.assetDecisions,
+      });
+      const resolvedAssets = this.artifactResolver.toDownloadedAssets(assets, resolvedArtifacts.assets);
       const updatedEntry = this.buildUpdatedEntry(entry, preparedCrawlerData, {
         fileInfo: { ...fileInfo, filePath: outputVideoPath },
         currentDir: plan?.outputDir ?? dirname(outputVideoPath),
@@ -235,9 +183,10 @@ export class MaintenanceFileScraper {
     signal?: AbortSignal,
   ): Promise<MaintenancePreviewFileResult> {
     try {
-      const prepared = await this.prepareFile(entry, config, signal, {
+      const prepared = await this.preparationService.prepareFile(entry, config, {
         createDirectories: false,
         emitLogs: false,
+        signal,
       });
 
       return {
@@ -265,369 +214,6 @@ export class MaintenanceFileScraper {
         status: "failed",
         error,
       },
-    };
-  }
-
-  private async prepareFile(
-    entry: LocalScanEntry,
-    config: Configuration,
-    signal: AbortSignal | undefined,
-    options: {
-      createDirectories: boolean;
-      emitLogs: boolean;
-      progress?: FileScrapeProgress;
-    },
-  ): Promise<PreparedMaintenanceFile> {
-    const { fileInfo } = entry;
-    const { steps } = this.preset;
-    let crawlerData: CrawlerData | undefined;
-    let aggregationSources: SourceMap | undefined;
-    let imageAlternatives: MaintenanceImageAlternatives = {};
-
-    throwIfAborted(signal);
-
-    if (!steps.aggregate && entry.scanError) {
-      throw new Error(entry.scanError);
-    }
-
-    if (steps.aggregate) {
-      if (options.emitLogs) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] Fetching metadata online...`);
-      }
-
-      const aggregationResult = await this.deps.aggregationService.aggregate(fileInfo.number, config, signal);
-      throwIfAborted(signal);
-
-      if (!aggregationResult) {
-        throw new Error("联网获取元数据失败：无数据返回");
-      }
-
-      crawlerData = aggregationResult.data;
-      aggregationSources = aggregationResult.sources;
-      imageAlternatives = aggregationResult.imageAlternatives;
-    } else {
-      crawlerData = entry.crawlerData;
-    }
-
-    if (options.progress) {
-      this.setProgress(options.progress, 30);
-    }
-
-    if (steps.translate) {
-      if (!crawlerData) {
-        throw new Error("无元数据可供翻译");
-      }
-
-      if (options.emitLogs) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] Translating metadata...`);
-      }
-      crawlerData = await this.translateCrawlerDataOrFallback(crawlerData, config, signal);
-    }
-
-    throwIfAborted(signal);
-
-    const comparisonBase = steps.aggregate ? this.buildDiffBaseline(entry, crawlerData) : undefined;
-    const { fieldDiffs, unchangedFieldDiffs } =
-      comparisonBase && crawlerData && steps.aggregate
-        ? partitionCrawlerDataWithOptions(comparisonBase, crawlerData, {
-            includeTranslatedFields: config.translate.enableTranslation,
-            entry,
-            imageAlternatives,
-          })
-        : { fieldDiffs: undefined, unchangedFieldDiffs: undefined };
-
-    if (options.progress) {
-      this.setProgress(options.progress, 50);
-    }
-
-    const needsPlan = steps.download || steps.generateNfo || steps.organize;
-    let plan: OrganizePlan | undefined;
-    let pathDiff: PathDiff | undefined;
-
-    if (needsPlan) {
-      if (!crawlerData) {
-        throw new Error("本地 NFO 不存在或无法解析，无法执行后续步骤");
-      }
-
-      const rawPlan = this.deps.fileOrganizer.plan(fileInfo, crawlerData, config);
-      plan = await this.deps.fileOrganizer.resolveOutputPlan(rawPlan, fileInfo.filePath, {
-        createDirectories: options.createDirectories,
-      });
-      pathDiff = diffPaths(entry, plan);
-    }
-
-    return {
-      crawlerData,
-      fieldDiffs,
-      unchangedFieldDiffs,
-      aggregationSources,
-      imageAlternatives,
-      plan,
-      pathDiff,
-    };
-  }
-
-  private async prepareCommittedFile(
-    entry: LocalScanEntry,
-    config: Configuration,
-    committed: CommittedMaintenanceFile,
-    options: {
-      createDirectories: boolean;
-      progress?: FileScrapeProgress;
-    },
-  ): Promise<PreparedMaintenanceFile> {
-    const { fileInfo } = entry;
-    const { steps } = this.preset;
-
-    if (!steps.aggregate && entry.scanError) {
-      throw new Error(entry.scanError);
-    }
-
-    const crawlerData = committed.crawlerData ?? entry.crawlerData;
-    const comparisonBase = steps.aggregate ? this.buildDiffBaseline(entry, crawlerData) : undefined;
-    const { fieldDiffs, unchangedFieldDiffs } =
-      comparisonBase && crawlerData && steps.aggregate
-        ? partitionCrawlerDataWithOptions(comparisonBase, crawlerData, {
-            includeTranslatedFields: config.translate.enableTranslation,
-            entry,
-            imageAlternatives: committed.imageAlternatives,
-          })
-        : { fieldDiffs: undefined, unchangedFieldDiffs: undefined };
-
-    if (options.progress) {
-      this.setProgress(options.progress, 50);
-    }
-
-    const needsPlan = steps.download || steps.generateNfo || steps.organize;
-    let plan: OrganizePlan | undefined;
-    let pathDiff: PathDiff | undefined;
-
-    if (needsPlan) {
-      if (!crawlerData) {
-        throw new Error("未提供最终元数据，无法执行写入");
-      }
-
-      const rawPlan = this.deps.fileOrganizer.plan(fileInfo, crawlerData, config);
-      plan = await this.deps.fileOrganizer.resolveOutputPlan(rawPlan, fileInfo.filePath, {
-        createDirectories: options.createDirectories,
-      });
-      pathDiff = diffPaths(entry, plan);
-    }
-
-    return {
-      crawlerData,
-      fieldDiffs,
-      unchangedFieldDiffs,
-      imageAlternatives: committed.imageAlternatives ?? {},
-      plan,
-      pathDiff,
-    };
-  }
-
-  private async translateCrawlerDataOrFallback(
-    crawlerData: CrawlerData,
-    config: Configuration,
-    signal?: AbortSignal,
-  ): Promise<CrawlerData> {
-    throwIfAborted(signal);
-
-    try {
-      return await this.deps.translateService.translateCrawlerData(crawlerData, config, signal);
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw error;
-      }
-
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Translation failed for ${crawlerData.number}: ${message}`);
-      return crawlerData;
-    }
-  }
-
-  private async resolveArtifacts(
-    entry: LocalScanEntry,
-    plan: OrganizePlan | undefined,
-    outputVideoPath: string,
-    assets: DownloadedAssets,
-    savedNfoPath?: string,
-    preparedActorPhotoPaths: string[] = [],
-    assetDecisions?: MaintenanceAssetDecisions,
-  ): Promise<ResolvedMaintenanceArtifacts> {
-    if (!plan) {
-      const nfoPath = savedNfoPath ?? entry.nfoPath;
-      return {
-        nfoPath,
-        assets: {
-          thumb: assets.thumb,
-          poster: assets.poster,
-          fanart: assets.fanart,
-          sceneImages: assets.sceneImages,
-          trailer: assets.trailer,
-          nfo: nfoPath,
-          actorPhotos: preparedActorPhotoPaths.length > 0 ? preparedActorPhotoPaths : entry.assets.actorPhotos,
-        },
-      };
-    }
-
-    const outputDir = dirname(outputVideoPath);
-    const nfoPath = await this.resolveNfoPath(entry, plan, savedNfoPath);
-
-    return {
-      nfoPath,
-      assets: {
-        thumb: await this.resolvePrimaryAsset(entry.assets.thumb, assets.thumb, outputDir),
-        poster: await this.resolvePrimaryAsset(entry.assets.poster, assets.poster, outputDir),
-        fanart: await this.resolvePrimaryAsset(entry.assets.fanart, assets.fanart, outputDir),
-        sceneImages: await this.resolveAssetCollection(entry.assets.sceneImages, assets.sceneImages, outputDir),
-        trailer: await this.resolvePrimaryAsset(entry.assets.trailer, assets.trailer, outputDir, {
-          discardExisting: assetDecisions?.trailer === "replace" && !assets.trailer,
-        }),
-        nfo: nfoPath,
-        actorPhotos:
-          preparedActorPhotoPaths.length > 0
-            ? preparedActorPhotoPaths
-            : await this.resolveAssetCollection(entry.assets.actorPhotos, [], outputDir),
-      },
-    };
-  }
-
-  private async resolveNfoPath(
-    entry: LocalScanEntry,
-    plan: OrganizePlan,
-    savedNfoPath?: string,
-  ): Promise<string | undefined> {
-    if (savedNfoPath) {
-      await this.removeStaleOriginalNfo(entry.nfoPath, savedNfoPath);
-      return savedNfoPath;
-    }
-
-    const movedNfoPath = await this.moveKnownAsset(entry.nfoPath, plan.nfoPath);
-    if (movedNfoPath) {
-      await this.ensureMovieNfoAlias(movedNfoPath);
-    }
-    return movedNfoPath;
-  }
-
-  private async resolvePrimaryAsset(
-    sourcePath: string | undefined,
-    preferredPath: string | undefined,
-    outputDir: string,
-    options: {
-      discardExisting?: boolean;
-    } = {},
-  ): Promise<string | undefined> {
-    if (preferredPath) {
-      return preferredPath;
-    }
-
-    if (!sourcePath) {
-      return undefined;
-    }
-
-    const targetPath = join(outputDir, basename(sourcePath));
-    if (options.discardExisting) {
-      await this.removeKnownAsset(sourcePath, targetPath);
-      return undefined;
-    }
-
-    return await this.moveKnownAsset(sourcePath, targetPath);
-  }
-
-  private async resolveAssetCollection(
-    sourcePaths: string[],
-    preferredPaths: string[],
-    outputDir: string,
-  ): Promise<string[]> {
-    if (preferredPaths.length > 0) {
-      return preferredPaths;
-    }
-
-    const resolved: string[] = [];
-    for (const sourcePath of sourcePaths) {
-      const targetPath = join(outputDir, basename(dirname(sourcePath)), basename(sourcePath));
-      const movedPath = await this.moveKnownAsset(sourcePath, targetPath);
-      if (movedPath) {
-        resolved.push(movedPath);
-      }
-    }
-    return resolved;
-  }
-
-  private async moveKnownAsset(sourcePath: string | undefined, targetPath: string): Promise<string | undefined> {
-    if (!sourcePath) {
-      return undefined;
-    }
-
-    if (sourcePath === targetPath) {
-      return (await pathExists(sourcePath)) ? sourcePath : undefined;
-    }
-
-    if (!(await pathExists(sourcePath))) {
-      return (await pathExists(targetPath)) ? targetPath : undefined;
-    }
-
-    if (await pathExists(targetPath)) {
-      return targetPath;
-    }
-
-    return await moveFileSafely(sourcePath, targetPath);
-  }
-
-  private async removeKnownAsset(sourcePath: string | undefined, targetPath: string): Promise<void> {
-    const candidates = new Set([sourcePath, targetPath].filter((value): value is string => Boolean(value)));
-    for (const filePath of candidates) {
-      if (!(await pathExists(filePath))) {
-        continue;
-      }
-
-      await unlink(filePath).catch(() => undefined);
-    }
-  }
-
-  private async removeStaleOriginalNfo(originalNfoPath: string | undefined, savedNfoPath: string): Promise<void> {
-    if (!originalNfoPath) {
-      return;
-    }
-
-    const movieNfoPath = join(dirname(savedNfoPath), "movie.nfo");
-    if (originalNfoPath === savedNfoPath || originalNfoPath === movieNfoPath) {
-      return;
-    }
-
-    if (!(await pathExists(originalNfoPath))) {
-      return;
-    }
-
-    try {
-      await unlink(originalNfoPath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to remove stale NFO ${originalNfoPath}: ${message}`);
-    }
-  }
-
-  private async ensureMovieNfoAlias(nfoPath: string): Promise<void> {
-    const movieNfoPath = join(dirname(nfoPath), "movie.nfo");
-    if (movieNfoPath === nfoPath || !(await pathExists(nfoPath))) {
-      return;
-    }
-
-    try {
-      await copyFile(nfoPath, movieNfoPath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to sync movie.nfo alias for ${nfoPath}: ${message}`);
-    }
-  }
-
-  private toDownloadedAssets(currentAssets: DownloadedAssets, resolvedAssets: DiscoveredAssets): DownloadedAssets {
-    return {
-      thumb: resolvedAssets.thumb,
-      poster: resolvedAssets.poster,
-      fanart: resolvedAssets.fanart,
-      sceneImages: resolvedAssets.sceneImages,
-      trailer: resolvedAssets.trailer,
-      downloaded: currentAssets.downloaded,
     };
   }
 
@@ -663,24 +249,115 @@ export class MaintenanceFileScraper {
     this.deps.signalService.setProgress(value, fileIndex, totalFiles);
   }
 
-  private buildDiffBaseline(entry: LocalScanEntry, crawlerData: CrawlerData | undefined): CrawlerData | undefined {
-    if (entry.crawlerData) {
-      return entry.crawlerData;
+  private async prepareOutputCrawlerData(
+    sourceVideoPath: string,
+    config: Configuration,
+    crawlerData: CrawlerData | undefined,
+    plan: PreparedMaintenanceFile["plan"],
+    signal?: AbortSignal,
+  ): Promise<{ data: CrawlerData | undefined; actorPhotoPaths: string[] }> {
+    if (!crawlerData) {
+      return {
+        data: crawlerData,
+        actorPhotoPaths: [],
+      };
     }
 
-    if (!crawlerData) {
+    return await prepareCrawlerDataForMovieOutput(this.actorImageService, config, crawlerData, {
+      enabled: Boolean(plan && (this.preset.steps.generateNfo || this.preset.steps.download)),
+      movieDir: plan?.outputDir,
+      sourceVideoPath,
+      actorSourceProvider: this.deps.actorSourceProvider,
+      signal,
+    });
+  }
+
+  private async downloadPreparedAssets(
+    entry: LocalScanEntry,
+    config: Configuration,
+    outputDir: string | undefined,
+    preparedCrawlerData: CrawlerData | undefined,
+    imageAlternatives: MaintenanceImageAlternatives,
+    aggregationSources: PreparedMaintenanceFile["aggregationSources"],
+    committed: CommittedMaintenanceFile | undefined,
+    signal?: AbortSignal,
+  ): Promise<DownloadedAssets> {
+    const assets: DownloadedAssets = {
+      thumb: entry.assets.thumb,
+      poster: entry.assets.poster,
+      fanart: entry.assets.fanart,
+      sceneImages: entry.assets.sceneImages,
+      trailer: entry.assets.trailer,
+      downloaded: [],
+    };
+
+    if (!(this.preset.steps.download && outputDir && preparedCrawlerData)) {
+      return assets;
+    }
+
+    const { fileInfo } = entry;
+    this.deps.signalService.showLogText(`[${fileInfo.number}] Downloading resources...`);
+    const forceReplace = this.getForcedPrimaryImageRefresh(entry, preparedCrawlerData);
+    const downloadImageAlternatives = prepareImageAlternativesForDownload(
+      preparedCrawlerData,
+      imageAlternatives,
+      aggregationSources,
+    );
+
+    return await this.deps.downloadManager.downloadAll(
+      outputDir,
+      preparedCrawlerData,
+      config,
+      downloadImageAlternatives,
+      {
+        onSceneProgress: (downloaded, total) => {
+          this.deps.signalService.showLogText(`[${fileInfo.number}] Scene images: ${downloaded}/${total}`);
+        },
+        forceReplace,
+        assetDecisions: committed?.assetDecisions,
+        signal,
+      },
+    );
+  }
+
+  private async generatePreparedNfo(
+    sourceVideoPath: string,
+    number: string,
+    plan: PreparedMaintenanceFile["plan"],
+    preparedCrawlerData: CrawlerData | undefined,
+    assets: DownloadedAssets,
+    aggregationSources: PreparedMaintenanceFile["aggregationSources"],
+  ): Promise<string | undefined> {
+    if (!(this.preset.steps.generateNfo && plan && preparedCrawlerData)) {
       return undefined;
     }
 
-    return {
-      title: "",
-      number: crawlerData.number || entry.fileInfo.number,
-      actors: [],
-      genres: [],
-      scene_images: [],
-      trailer_url: entry.assets.trailer ? basename(entry.assets.trailer) : undefined,
-      website: crawlerData.website,
-    };
+    this.deps.signalService.showLogText(`[${number}] Generating NFO...`);
+    let videoMeta: VideoMeta | undefined;
+    try {
+      videoMeta = await probeVideoMetadata(sourceVideoPath);
+    } catch {
+      this.logger.warn(`Video probe failed for ${sourceVideoPath}`);
+    }
+
+    return await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedCrawlerData, {
+      assets,
+      sources: aggregationSources,
+      videoMeta,
+    });
+  }
+
+  private async organizePreparedVideo(
+    fileInfo: LocalScanEntry["fileInfo"],
+    plan: PreparedMaintenanceFile["plan"],
+    config: Configuration,
+  ): Promise<string> {
+    if (!(this.preset.steps.organize && plan)) {
+      return fileInfo.filePath;
+    }
+
+    this.deps.signalService.showLogText(`[${fileInfo.number}] Organizing files...`);
+    return await this.deps.fileOrganizer.organizeVideo(fileInfo, plan, config);
   }
 
   private getForcedPrimaryImageRefresh(

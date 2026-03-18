@@ -109,6 +109,35 @@ describe("JavdbCrawler", () => {
         },
       },
       {
+        number: "ABW-123",
+        searchUrl: "https://javdb.com/search?q=ABW-123&locale=zh",
+        detailUrl: "https://javdb.com/v/fuzzy1",
+        searchHtml: `
+          <html><body>
+            <a class="box" href="/v/fuzzy1">
+              <div class="video-title"><strong>Completely Different Title</strong></div>
+              <div class="meta">ABW 123 2024-02-08</div>
+            </a>
+          </body></html>
+        `,
+        detailHtml: `
+          <html><body>
+            <h2 class="title is-4">
+              <strong class="current-title">ABW-123 Fuzzy Match Title</strong>
+            </h2>
+            <a class="button is-white copy-to-clipboard" data-clipboard-text="ABW-123">copy</a>
+          </body></html>
+        `,
+        cookies: undefined,
+        assert: (data: ReturnType<JavdbCrawler["crawl"]> extends Promise<infer T> ? T : never) => {
+          if (!data.result.success) {
+            throw new Error("expected success");
+          }
+          expect(data.result.data.number).toBe("ABW-123");
+          expect(data.result.data.title).toBe("ABW-123 Fuzzy Match Title");
+        },
+      },
+      {
         number: "MIDE-999",
         searchUrl: "https://javdb.com/search?q=MIDE-999&locale=zh",
         detailUrl: "https://javdb.com/v/fallback1",

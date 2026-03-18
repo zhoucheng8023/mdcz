@@ -23,6 +23,28 @@ const findActorLinksBySymbol = ($: CheerioAPI, symbolClass: "female" | "male"): 
   return Array.from(new Set(links));
 };
 
+type JavdbSearchResult = {
+  href: string;
+  title: string;
+  meta: string;
+};
+
+const pickJavdbSearchResultUrl = (
+  baseUrl: string,
+  results: JavdbSearchResult[],
+  expectedNumber: string,
+): string | null => {
+  const expectedTitle = expectedNumber.toUpperCase();
+  const exact = results.find((item) => item.title.toUpperCase().includes(expectedTitle));
+  if (exact) {
+    return toAbsoluteUrl(baseUrl, exact.href) ?? null;
+  }
+
+  const normalizedExpected = normalizeCode(expectedNumber);
+  const fuzzy = results.find((item) => normalizeCode(item.title + item.meta).includes(normalizedExpected));
+  return fuzzy ? (toAbsoluteUrl(baseUrl, fuzzy.href) ?? null) : null;
+};
+
 export class JavdbCrawler extends BaseCrawler {
   site(): Website {
     return Website.JAVDB;
@@ -74,19 +96,7 @@ export class JavdbCrawler extends BaseCrawler {
     }
 
     const base = this.resolveBaseUrl(context, JAVDB_BASE_URL);
-    const expected = context.number.toUpperCase();
-    const exact = results.find((item) => item.title.toUpperCase().includes(expected));
-    if (exact) {
-      return toAbsoluteUrl(base, exact.href) ?? null;
-    }
-
-    const cleanExpected = normalizeCode(context.number);
-    const fuzzy = results.find((item) => normalizeCode(item.title + item.meta).includes(cleanExpected));
-    if (fuzzy) {
-      return toAbsoluteUrl(base, fuzzy.href) ?? null;
-    }
-
-    return null;
+    return pickJavdbSearchResultUrl(base, results, context.number);
   }
 
   protected async parseDetailPage(context: Context, $: CheerioAPI, _detailUrl: string): Promise<CrawlerData | null> {

@@ -10,6 +10,7 @@ import { extractParentTextByLabelSelector, toAbsoluteUrl } from "./helpers";
 const JAVBUS_BASE_URL = "https://www.javbus.com";
 
 type CheerioInput = Parameters<CheerioAPI>[0];
+type JavbusSearchResult = { detailUrl: string; matched: boolean };
 
 const isAgeVerificationPage = ($: CheerioAPI): boolean => {
   const title = $("title").first().text().trim();
@@ -41,6 +42,32 @@ const buildPosterUrl = (thumbUrl: string | undefined): string | undefined => {
   return undefined;
 };
 
+const normalizeSearchResultPath = (href: string): string => {
+  return normalizeCode(href.split(/[?#]/u)[0] ?? href);
+};
+
+const buildJavbusFallbackDetailUrl = (number: string): string => {
+  return `${JAVBUS_BASE_URL}/${encodeURIComponent(number.toUpperCase())}`;
+};
+
+const pickJavbusSearchResult = (candidateHrefs: string[], expectedNumber: string): JavbusSearchResult => {
+  const expected = normalizeCode(expectedNumber);
+
+  for (const href of candidateHrefs) {
+    if (normalizeSearchResultPath(href).endsWith(`/${expected}`)) {
+      return {
+        detailUrl: toAbsoluteUrl(JAVBUS_BASE_URL, href) ?? buildJavbusFallbackDetailUrl(expectedNumber),
+        matched: true,
+      };
+    }
+  }
+
+  return {
+    detailUrl: buildJavbusFallbackDetailUrl(expectedNumber),
+    matched: false,
+  };
+};
+
 export class JavbusCrawler extends BaseCrawler {
   site(): Website {
     return Website.JAVBUS;
@@ -67,22 +94,19 @@ export class JavbusCrawler extends BaseCrawler {
       throw new Error("Javbus age verification page detected; provide JAVBUS_COOKIE or use an accessible network");
     }
 
-    const expected = normalizeCode(context.number);
     const candidates = $("a.movie-box")
       .toArray()
       .map((element: CheerioInput) => $(element).attr("href"))
       .filter((href: string | undefined): href is string => typeof href === "string" && href.length > 0);
 
-    for (const href of candidates) {
-      const normalized = normalizeCode(href.split("?")[0]?.split("#")[0] ?? href);
-      if (normalized.endsWith(`/${expected}`)) {
-        return toAbsoluteUrl(JAVBUS_BASE_URL, href) ?? null;
-      }
+    const result = pickJavbusSearchResult(candidates, context.number);
+    if (!result.matched) {
+      this.logger.debug(
+        `No javbus search match for ${context.number} via ${searchUrl}, fallback to ${result.detailUrl}`,
+      );
     }
 
-    const fallbackUrl = `${JAVBUS_BASE_URL}/${encodeURIComponent(context.number.toUpperCase())}`;
-    this.logger.debug(`No javbus search match for ${context.number} via ${searchUrl}, fallback to ${fallbackUrl}`);
-    return fallbackUrl;
+    return result.detailUrl;
   }
 
   protected async parseDetailPage(context: Context, $: CheerioAPI, _detailUrl: string): Promise<CrawlerData | null> {
