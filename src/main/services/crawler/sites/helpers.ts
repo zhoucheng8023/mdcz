@@ -1,3 +1,4 @@
+import { normalizeCode, normalizeText } from "@main/utils/normalization";
 import type { CheerioAPI } from "cheerio";
 
 import { extractList, extractText } from "../base/parser";
@@ -27,6 +28,83 @@ export const toAbsoluteUrl = (baseUrl: string, value: string | undefined): strin
   }
 
   return new URL(value, baseUrl).href;
+};
+
+const normalizeSearchResultHref = (href: string): string => {
+  const hrefWithoutQuery = href.split(/[?#]/u)[0] ?? href;
+  return normalizeCode(hrefWithoutQuery);
+};
+
+type CheerioInput = Parameters<CheerioAPI>[0];
+
+const findLabeledParent = (
+  $: CheerioAPI,
+  labelSelector: string,
+  labels: string[],
+): { element: CheerioInput; text: string } | undefined => {
+  const candidates = $(labelSelector)
+    .toArray()
+    .map((element: CheerioInput) => ({
+      element,
+      text: $(element).text().trim(),
+    }));
+
+  return candidates.find((entry) => labels.some((label) => entry.text.includes(label)));
+};
+
+/**
+ * Search result URLs often encode the same number with separator variants such as `_` or `-`.
+ * Prefer the first href whose normalized form contains the expected number, then fall back to the first candidate.
+ */
+export const pickSearchResultDetailUrl = (
+  baseUrl: string,
+  candidateHrefs: Array<string | undefined>,
+  expectedNumber: string,
+): string | null => {
+  const candidates = candidateHrefs.filter((href): href is string => typeof href === "string" && href.length > 0);
+  const normalizedExpected = normalizeCode(expectedNumber);
+
+  if (normalizedExpected) {
+    for (const href of candidates) {
+      if (normalizeSearchResultHref(href).includes(normalizedExpected)) {
+        return toAbsoluteUrl(baseUrl, href) ?? null;
+      }
+    }
+  }
+
+  return candidates[0] ? (toAbsoluteUrl(baseUrl, candidates[0]) ?? null) : null;
+};
+
+export const extractParentTextByLabelSelector = (
+  $: CheerioAPI,
+  labelSelector: string,
+  labels: string[],
+): string | undefined => {
+  const labeledParent = findLabeledParent($, labelSelector, labels);
+  if (!labeledParent) {
+    return undefined;
+  }
+
+  const clone = $(labeledParent.element).parent().clone();
+  clone.find(labelSelector).remove();
+  const text = normalizeText(clone.text());
+  return text || undefined;
+};
+
+export const extractParentLinksByLabelSelector = ($: CheerioAPI, labelSelector: string, labels: string[]): string[] => {
+  const labeledParent = findLabeledParent($, labelSelector, labels);
+  if (!labeledParent) {
+    return [];
+  }
+
+  return uniqueStrings(
+    $(labeledParent.element)
+      .parent()
+      .find("a")
+      .toArray()
+      .map((element: CheerioInput) => normalizeText($(element).text()))
+      .filter((value: string) => value.length > 0),
+  );
 };
 
 export const normalizeFc2Number = (value: string): string => {

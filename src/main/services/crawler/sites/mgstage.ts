@@ -5,7 +5,7 @@ import type { CheerioAPI } from "cheerio";
 import { BaseCrawler } from "../base/BaseCrawler";
 import { extractText, parseDate } from "../base/parser";
 import type { Context } from "../base/types";
-import { extractByLabel, toAbsoluteUrl, uniqueStrings } from "./helpers";
+import { extractByLabel, pickSearchResultDetailUrl, toAbsoluteUrl, uniqueStrings } from "./helpers";
 
 const MGSTAGE_BASE_URL = "https://www.mgstage.com";
 
@@ -34,21 +34,12 @@ export class MGStageCrawler extends BaseCrawler {
   }
 
   protected async parseSearchPage(context: Context, $: CheerioAPI, _searchUrl: string): Promise<string | null> {
-    const expected = context.number.toUpperCase().replace(/-/gu, "");
-
     const candidates = $("a[href*='/product/product_detail/']")
       .toArray()
       .map((element: CheerioInput) => $(element).attr("href"))
       .filter((href: string | undefined): href is string => Boolean(href));
 
-    for (const href of candidates) {
-      const normalized = href.toUpperCase().replace(/-/gu, "");
-      if (normalized.includes(expected)) {
-        return toAbsoluteUrl(MGSTAGE_BASE_URL, href) ?? null;
-      }
-    }
-
-    return candidates[0] ? (toAbsoluteUrl(MGSTAGE_BASE_URL, candidates[0]) ?? null) : null;
+    return pickSearchResultDetailUrl(MGSTAGE_BASE_URL, candidates, context.number);
   }
 
   protected async parseDetailPage(context: Context, $: CheerioAPI, _detailUrl: string): Promise<CrawlerData | null> {

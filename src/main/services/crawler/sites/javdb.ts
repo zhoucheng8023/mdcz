@@ -5,54 +5,11 @@ import type { CheerioAPI } from "cheerio";
 import { BaseCrawler } from "../base/BaseCrawler";
 import { extractAttr, extractText, parseDate } from "../base/parser";
 import type { Context } from "../base/types";
-import { toAbsoluteUrl } from "./helpers";
+import { extractParentLinksByLabelSelector, extractParentTextByLabelSelector, toAbsoluteUrl } from "./helpers";
 
 const JAVDB_BASE_URL = "https://javdb.com";
 
 type CheerioInput = Parameters<CheerioAPI>[0];
-
-const findStrongRow = ($: CheerioAPI, labels: string[]): string | undefined => {
-  const candidates = $("strong")
-    .toArray()
-    .map((element: CheerioInput) => {
-      const text = $(element).text().trim();
-      return { element, text };
-    });
-
-  const row = candidates.find((entry) => labels.some((label) => entry.text.includes(label)));
-  if (!row) {
-    return undefined;
-  }
-
-  const parent = $(row.element).parent();
-  const clone = parent.clone();
-  clone.find("strong").remove();
-  const text = clone.text().replace(/\s+/gu, " ").trim();
-  return text.length > 0 ? text : undefined;
-};
-
-const findStrongLinks = ($: CheerioAPI, labels: string[]): string[] => {
-  const candidates = $("strong")
-    .toArray()
-    .map((element: CheerioInput) => {
-      const text = $(element).text().trim();
-      return { element, text };
-    });
-
-  const row = candidates.find((entry) => labels.some((label) => entry.text.includes(label)));
-  if (!row) {
-    return [];
-  }
-
-  const parent = $(row.element).parent();
-  const links = parent
-    .find("a")
-    .toArray()
-    .map((element: CheerioInput) => $(element).text().trim())
-    .filter((value: string) => value.length > 0);
-
-  return Array.from(new Set(links));
-};
 
 const findActorLinksBySymbol = ($: CheerioAPI, symbolClass: "female" | "male"): string[] => {
   const selectors = [`strong.${symbolClass}`, `strong.symbol.${symbolClass}`];
@@ -143,17 +100,17 @@ export class JavdbCrawler extends BaseCrawler {
 
     const actorsPrimary = findActorLinksBySymbol($, "female");
     const actorsFallback = findActorLinksBySymbol($, "male");
-    const actorsUnmarked = findStrongLinks($, ["演員:", "Actors:", "演员:"]);
+    const actorsUnmarked = extractParentLinksByLabelSelector($, "strong", ["演員:", "Actors:", "演员:"]);
     const actors =
       actorsPrimary.length > 0 ? actorsPrimary : actorsFallback.length > 0 ? actorsFallback : actorsUnmarked;
 
-    const genres = findStrongLinks($, ["類別:", "Tags:", "类别:"]);
+    const genres = extractParentLinksByLabelSelector($, "strong", ["類別:", "Tags:", "类别:"]);
 
-    const studio = findStrongRow($, ["片商:", "Maker:"])?.trim() || undefined;
-    const publisher = findStrongRow($, ["發行:", "Publisher:"])?.trim() || undefined;
-    const series = findStrongRow($, ["系列:", "Series:"])?.trim() || undefined;
-    const director = findStrongRow($, ["導演:", "Director:"])?.trim() || undefined;
-    const release = parseDate(findStrongRow($, ["日期:", "Released Date:"])) ?? undefined;
+    const studio = extractParentTextByLabelSelector($, "strong", ["片商:", "Maker:"]);
+    const publisher = extractParentTextByLabelSelector($, "strong", ["發行:", "Publisher:"]);
+    const series = extractParentTextByLabelSelector($, "strong", ["系列:", "Series:"]);
+    const director = extractParentTextByLabelSelector($, "strong", ["導演:", "Director:"]);
+    const release = parseDate(extractParentTextByLabelSelector($, "strong", ["日期:", "Released Date:"])) ?? undefined;
 
     const thumbUrl = extractAttr($, "img.video-cover", "src");
     const thumbUrlAbsolute = toAbsoluteUrl(JAVDB_BASE_URL, thumbUrl);
@@ -169,7 +126,7 @@ export class JavdbCrawler extends BaseCrawler {
       .map((href: string) => toAbsoluteUrl(JAVDB_BASE_URL, href))
       .filter((href): href is string => Boolean(href));
 
-    const ratingText = findStrongRow($, ["評分:", "Rating:"]);
+    const ratingText = extractParentTextByLabelSelector($, "strong", ["評分:", "Rating:"]);
     let ratingValue: number | undefined;
     if (ratingText) {
       const match = ratingText.match(/([\d.]+)/u);

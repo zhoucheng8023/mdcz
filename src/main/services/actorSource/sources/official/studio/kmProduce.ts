@@ -5,17 +5,13 @@ import {
   parseActorMeasurements,
   parseActorMetricCm,
 } from "@main/utils/actorProfile";
-import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
 import { Website } from "@shared/enums";
 import type { ActorProfile } from "@shared/types";
 import { load } from "cheerio";
-import type { ActorSourceHint } from "../../../types";
 import {
   buildFieldDescription,
-  createCacheBucket,
   getOwnText,
   hasMatchingName,
-  matchesSourceHost,
   OFFICIAL_HEADERS,
   type OfficialActressSummary,
   parseDefinitionList,
@@ -23,12 +19,8 @@ import {
   toNonEmptyString,
   toUniqueNames,
 } from "../shared";
-import type {
-  OfficialActorSourceDependencies,
-  OfficialLookupRequest,
-  OfficialLookupResult,
-  OfficialSiteAdapter,
-} from "../types";
+import type { OfficialActorSourceDependencies, OfficialLookupRequest, OfficialLookupResult } from "../types";
+import { BaseStudioOfficialAdapter } from "./BaseStudioOfficialAdapter";
 
 const KM_PRODUCE_BASE_URL = "https://www.km-produce.com";
 const KMP_STUDIO_PATTERN = /(km\s*-?\s*produce|kmp|ケイ[・･]エム[・･]プロデュース|ケイエムプロデュース)/iu;
@@ -88,25 +80,15 @@ const parseKmDetail = (html: string, fallback: OfficialActressSummary): ActorPro
   return hasActorProfileContent(profile) ? profile : null;
 };
 
-export class KmProduceOfficialAdapter implements OfficialSiteAdapter {
-  readonly key = "km_produce";
-
-  private readonly rosterResolver = new CachedAsyncResolver<string, OfficialActressSummary[]>();
-
-  private rosterBucket = "";
-
-  constructor(private readonly deps: OfficialActorSourceDependencies) {
-    deps.networkClient.setDomainLimit?.("www.km-produce.com", 1, 1);
-  }
-
-  matchesHints(hints: ActorSourceHint[]): boolean {
-    return hints.some(
-      (hint) =>
-        hint.website === Website.KM_PRODUCE ||
-        KMP_STUDIO_PATTERN.test(hint.studio ?? "") ||
-        KMP_STUDIO_PATTERN.test(hint.publisher ?? "") ||
-        matchesSourceHost(hint, "km-produce.com"),
-    );
+export class KmProduceOfficialAdapter extends BaseStudioOfficialAdapter<OfficialActressSummary[]> {
+  constructor(deps: OfficialActorSourceDependencies) {
+    super(deps, {
+      key: "km_produce",
+      website: Website.KM_PRODUCE,
+      studioPattern: KMP_STUDIO_PATTERN,
+      hintHosts: ["km-produce.com"],
+      rateLimitedHosts: ["www.km-produce.com"],
+    });
   }
 
   async lookup(query: OfficialLookupRequest): Promise<OfficialLookupResult | null> {
@@ -149,13 +131,7 @@ export class KmProduceOfficialAdapter implements OfficialSiteAdapter {
   }
 
   private async loadRoster(): Promise<OfficialActressSummary[]> {
-    const bucket = createCacheBucket();
-    if (bucket !== this.rosterBucket) {
-      this.rosterResolver.clear();
-      this.rosterBucket = bucket;
-    }
-
-    return this.rosterResolver.resolve(this.key, async () => {
+    return await this.loadCachedRoster(async () => {
       const html = await this.deps.networkClient.getText(new URL("/girls", KM_PRODUCE_BASE_URL).toString(), {
         headers: OFFICIAL_HEADERS,
       });

@@ -98,6 +98,37 @@ describe("Jav321Crawler", () => {
         expectedNumber: "EBWH-241",
         expectedActors: ["千咲ちな"],
       },
+      {
+        number: "ABF-075",
+        searchHtml: `
+          <html><body>
+            <a href="/video/ssis99999">wrong</a>
+            <a href="/video/abf075">detail</a>
+          </body></html>
+        `,
+        detailHtmlByUrl: new Map([
+          [
+            "https://www.jav321.com/video/abf075",
+            `
+            <html><body>
+              <div class="panel-heading"><h3>ABF-075 title</h3></div>
+              <div class="panel-body">
+                <div class="row">
+                  <div class="col-md-9">
+                    <b>出演者</b>: <a href="/star/1">Actor A</a><br>
+                    <b>メーカー</b>: <a href="/company/prestige/1">プレステージ</a><br>
+                    <b>品番</b>: ABF-075<br>
+                    <b>配信開始日</b>: 2024-02-08<br>
+                  </div>
+                </div>
+              </div>
+            </body></html>
+          `,
+          ],
+        ]),
+        expectedNumber: "ABF-075",
+        expectedActors: ["Actor A"],
+      },
     ];
 
     for (const { number, searchHtml, detailHtmlByUrl, expectedNumber, expectedActors } of cases) {

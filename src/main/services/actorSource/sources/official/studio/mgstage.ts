@@ -1,23 +1,15 @@
-import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
 import { Website } from "@shared/enums";
 import { load } from "cheerio";
-import type { ActorSourceHint } from "../../../types";
 import {
-  createCacheBucket,
   hasMatchingName,
   MGSTAGE_HEADERS,
-  matchesSourceHost,
   type OfficialActressSummary,
   toAbsoluteUrl,
   toNonEmptyString,
   toUniqueNames,
 } from "../shared";
-import type {
-  OfficialActorSourceDependencies,
-  OfficialLookupRequest,
-  OfficialLookupResult,
-  OfficialSiteAdapter,
-} from "../types";
+import type { OfficialActorSourceDependencies, OfficialLookupRequest, OfficialLookupResult } from "../types";
+import { BaseStudioOfficialAdapter } from "./BaseStudioOfficialAdapter";
 
 const MGSTAGE_BASE_URL = "https://www.mgstage.com";
 const MGSTAGE_ASSET_BASE_URL = "https://static.mgstage.com";
@@ -58,20 +50,14 @@ const buildSearchUrl = (name: string): string => {
   return url.toString();
 };
 
-export class MgstageOfficialAdapter implements OfficialSiteAdapter {
-  readonly key = "mgstage";
-
-  private readonly rosterResolver = new CachedAsyncResolver<string, OfficialActressSummary[]>();
-
-  private rosterBucket = "";
-
-  constructor(private readonly deps: OfficialActorSourceDependencies) {
-    deps.networkClient.setDomainLimit?.("www.mgstage.com", 1, 1);
-    deps.networkClient.setDomainLimit?.("static.mgstage.com", 1, 1);
-  }
-
-  matchesHints(hints: ActorSourceHint[]): boolean {
-    return hints.some((hint) => hint.website === Website.MGSTAGE || matchesSourceHost(hint, "mgstage.com"));
+export class MgstageOfficialAdapter extends BaseStudioOfficialAdapter<OfficialActressSummary[]> {
+  constructor(deps: OfficialActorSourceDependencies) {
+    super(deps, {
+      key: "mgstage",
+      website: Website.MGSTAGE,
+      hintHosts: ["mgstage.com"],
+      rateLimitedHosts: ["www.mgstage.com", "static.mgstage.com"],
+    });
   }
 
   async lookup(query: OfficialLookupRequest): Promise<OfficialLookupResult | null> {
@@ -117,13 +103,7 @@ export class MgstageOfficialAdapter implements OfficialSiteAdapter {
   }
 
   private async loadRoster(): Promise<OfficialActressSummary[]> {
-    const bucket = createCacheBucket();
-    if (bucket !== this.rosterBucket) {
-      this.rosterResolver.clear();
-      this.rosterBucket = bucket;
-    }
-
-    return this.rosterResolver.resolve(this.key, async () => {
+    return await this.loadCachedRoster(async () => {
       const html = await this.deps.networkClient.getText(
         new URL("/list/actress_list.php", MGSTAGE_BASE_URL).toString(),
         {

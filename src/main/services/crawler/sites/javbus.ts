@@ -5,7 +5,7 @@ import type { CheerioAPI } from "cheerio";
 import { BaseCrawler } from "../base/BaseCrawler";
 import { extractText, parseDate } from "../base/parser";
 import type { Context } from "../base/types";
-import { toAbsoluteUrl } from "./helpers";
+import { extractParentTextByLabelSelector, toAbsoluteUrl } from "./helpers";
 
 const JAVBUS_BASE_URL = "https://www.javbus.com";
 
@@ -91,31 +91,9 @@ export class JavbusCrawler extends BaseCrawler {
       return null;
     }
 
-    const readHeaderValue = (labels: string[]): string | undefined => {
-      const headers = $("span.header")
-        .toArray()
-        .map((element: CheerioInput) => {
-          const headerText = $(element).text().trim();
-          return {
-            element,
-            headerText,
-          };
-        });
-
-      const target = headers.find((entry) => labels.some((label) => entry.headerText.includes(label)));
-      if (!target) {
-        return undefined;
-      }
-
-      const parent = $(target.element).parent();
-      const clone = parent.clone();
-      clone.find("span.header").remove();
-      const value = clone.text().replace(/\s+/gu, " ").trim();
-      return value.length > 0 ? value : undefined;
-    };
-
-    const number = readHeaderValue(["識別碼", "识别码", "ID"]) ?? context.number;
-    const release = parseDate(readHeaderValue(["發行日期", "发行日期", "Released"])) ?? undefined;
+    const number = extractParentTextByLabelSelector($, "span.header", ["識別碼", "识别码", "ID"]) ?? context.number;
+    const release =
+      parseDate(extractParentTextByLabelSelector($, "span.header", ["發行日期", "发行日期", "Released"])) ?? undefined;
 
     const actors = $("div.star-name a")
       .map((_index: number, element: CheerioInput) => $(element).text().trim())

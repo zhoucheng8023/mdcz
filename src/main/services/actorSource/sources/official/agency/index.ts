@@ -5,18 +5,14 @@ import {
   parseActorMeasurements,
   parseActorMetricCm,
 } from "@main/utils/actorProfile";
-import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
 import type { ActorProfile } from "@shared/types";
 import { load } from "cheerio";
-import type { ActorSourceHint } from "../../../types";
 import {
   buildFieldDescription,
-  createCacheBucket,
   extractBackgroundImageUrl,
   extractTextWithBreaks,
   getOwnText,
   hasMatchingName,
-  matchesSourceHost,
   OFFICIAL_HEADERS,
   type OfficialActressSummary,
   toAbsoluteUrl,
@@ -29,6 +25,7 @@ import type {
   OfficialLookupResult,
   OfficialSiteAdapter,
 } from "../types";
+import { BaseAgencyOfficialAdapter } from "./BaseAgencyOfficialAdapter";
 
 const TPOWERS_BASE_URL = "https://www.t-powers.co.jp";
 const CMORE_BASE_URL = "https://cmore.jp";
@@ -157,21 +154,14 @@ const parseCmoreDetail = (html: string, fallback: OfficialActressSummary): Actor
   return hasActorProfileContent(profile) ? profile : null;
 };
 
-class TpowersOfficialAdapter implements OfficialSiteAdapter {
-  readonly key = "tpowers";
-
-  private readonly rosterResolver = new CachedAsyncResolver<string, OfficialActressSummary[]>();
-
-  private rosterBucket = "";
-
-  constructor(private readonly deps: OfficialActorSourceDependencies) {
-    deps.networkClient.setDomainLimit?.("www.t-powers.co.jp", 1, 1);
-  }
-
-  matchesHints(hints: ActorSourceHint[]): boolean {
-    return hints.some(
-      (hint) => TPOWERS_AGENCY_PATTERN.test(hint.agency ?? "") || matchesSourceHost(hint, "t-powers.co.jp"),
-    );
+class TpowersOfficialAdapter extends BaseAgencyOfficialAdapter<OfficialActressSummary[]> {
+  constructor(deps: OfficialActorSourceDependencies) {
+    super(deps, {
+      key: "tpowers",
+      agencyPattern: TPOWERS_AGENCY_PATTERN,
+      hintHosts: ["t-powers.co.jp"],
+      rateLimitedHosts: ["www.t-powers.co.jp"],
+    });
   }
 
   async lookup(query: OfficialLookupRequest): Promise<OfficialLookupResult | null> {
@@ -201,13 +191,7 @@ class TpowersOfficialAdapter implements OfficialSiteAdapter {
   }
 
   private async loadRoster(): Promise<OfficialActressSummary[]> {
-    const bucket = createCacheBucket();
-    if (bucket !== this.rosterBucket) {
-      this.rosterResolver.clear();
-      this.rosterBucket = bucket;
-    }
-
-    return this.rosterResolver.resolve(this.key, async () => {
+    return await this.loadCachedRoster(async () => {
       const html = await this.deps.networkClient.getText(new URL("/talent/", TPOWERS_BASE_URL).toString(), {
         headers: OFFICIAL_HEADERS,
       });
@@ -216,19 +200,14 @@ class TpowersOfficialAdapter implements OfficialSiteAdapter {
   }
 }
 
-class CmoreOfficialAdapter implements OfficialSiteAdapter {
-  readonly key = "cmore";
-
-  private readonly rosterResolver = new CachedAsyncResolver<string, OfficialActressSummary[]>();
-
-  private rosterBucket = "";
-
-  constructor(private readonly deps: OfficialActorSourceDependencies) {
-    deps.networkClient.setDomainLimit?.("cmore.jp", 1, 1);
-  }
-
-  matchesHints(hints: ActorSourceHint[]): boolean {
-    return hints.some((hint) => CMORE_AGENCY_PATTERN.test(hint.agency ?? "") || matchesSourceHost(hint, "cmore.jp"));
+class CmoreOfficialAdapter extends BaseAgencyOfficialAdapter<OfficialActressSummary[]> {
+  constructor(deps: OfficialActorSourceDependencies) {
+    super(deps, {
+      key: "cmore",
+      agencyPattern: CMORE_AGENCY_PATTERN,
+      hintHosts: ["cmore.jp"],
+      rateLimitedHosts: ["cmore.jp"],
+    });
   }
 
   async lookup(query: OfficialLookupRequest): Promise<OfficialLookupResult | null> {
@@ -258,13 +237,7 @@ class CmoreOfficialAdapter implements OfficialSiteAdapter {
   }
 
   private async loadRoster(): Promise<OfficialActressSummary[]> {
-    const bucket = createCacheBucket();
-    if (bucket !== this.rosterBucket) {
-      this.rosterResolver.clear();
-      this.rosterBucket = bucket;
-    }
-
-    return this.rosterResolver.resolve(this.key, async () => {
+    return await this.loadCachedRoster(async () => {
       const html = await this.deps.networkClient.getText(new URL("/official/model.html", CMORE_BASE_URL).toString(), {
         headers: OFFICIAL_HEADERS,
       });

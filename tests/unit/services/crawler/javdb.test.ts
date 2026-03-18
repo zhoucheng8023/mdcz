@@ -108,6 +108,48 @@ describe("JavdbCrawler", () => {
           expect(data.result.data.actors).toEqual(["瀧本雫葉"]);
         },
       },
+      {
+        number: "MIDE-999",
+        searchUrl: "https://javdb.com/search?q=MIDE-999&locale=zh",
+        detailUrl: "https://javdb.com/v/fallback1",
+        searchHtml: `
+          <html><body>
+            <a class="box" href="/v/fallback1">
+              <div class="video-title"><strong>MIDE-999</strong></div>
+              <div class="meta">2024-03-01</div>
+            </a>
+          </body></html>
+        `,
+        detailHtml: `
+          <html><body>
+            <h2 class="title is-4">
+              <strong class="current-title">MIDE-999 Title</strong>
+            </h2>
+            <div class="panel-block">
+              <strong>演員:</strong>
+              <span class="value">
+                <a href="/actors/a">Actor A</a>
+                <a href="/actors/b">Actor B</a>
+              </span>
+            </div>
+            <div class="panel-block">
+              <strong>類別:</strong>
+              <span class="value">
+                <a href="/tags/a">Tag A</a>
+                <a href="/tags/b">Tag B</a>
+              </span>
+            </div>
+          </body></html>
+        `,
+        cookies: undefined,
+        assert: (data: ReturnType<JavdbCrawler["crawl"]> extends Promise<infer T> ? T : never) => {
+          if (!data.result.success) {
+            throw new Error("expected success");
+          }
+          expect(data.result.data.actors).toEqual(["Actor A", "Actor B"]);
+          expect(data.result.data.genres).toEqual(["Tag A", "Tag B"]);
+        },
+      },
     ];
 
     for (const { number, searchUrl, detailUrl, searchHtml, detailHtml, cookies, assert } of cases) {

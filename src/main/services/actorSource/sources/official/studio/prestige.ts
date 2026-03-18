@@ -5,26 +5,18 @@ import {
   parseActorDate,
   parseActorMetricCm,
 } from "@main/utils/actorProfile";
-import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
 import { Website } from "@shared/enums";
 import type { ActorProfile } from "@shared/types";
-import type { ActorSourceHint } from "../../../types";
 import {
   buildFieldDescription,
-  createCacheBucket,
   formatIsoDate,
   hasMatchingName,
-  matchesSourceHost,
   OFFICIAL_HEADERS,
   toNonEmptyString,
   toUniqueNames,
 } from "../shared";
-import type {
-  OfficialActorSourceDependencies,
-  OfficialLookupRequest,
-  OfficialLookupResult,
-  OfficialSiteAdapter,
-} from "../types";
+import type { OfficialActorSourceDependencies, OfficialLookupRequest, OfficialLookupResult } from "../types";
+import { BaseStudioOfficialAdapter } from "./BaseStudioOfficialAdapter";
 
 const PRESTIGE_BASE_URL = "https://www.prestige-av.com";
 const PRESTIGE_STUDIO_PATTERN = /(prestige|プレステージ)/iu;
@@ -86,25 +78,15 @@ const buildPrestigeDescription = (detail: PrestigeActressDetailResponse): string
   );
 };
 
-export class PrestigeOfficialAdapter implements OfficialSiteAdapter {
-  readonly key = "prestige";
-
-  private readonly rosterResolver = new CachedAsyncResolver<string, PrestigeActressSummary[]>();
-
-  private rosterBucket = "";
-
-  constructor(private readonly deps: OfficialActorSourceDependencies) {
-    deps.networkClient.setDomainLimit?.("www.prestige-av.com", 1, 1);
-  }
-
-  matchesHints(hints: ActorSourceHint[]): boolean {
-    return hints.some(
-      (hint) =>
-        hint.website === Website.PRESTIGE ||
-        PRESTIGE_STUDIO_PATTERN.test(hint.studio ?? "") ||
-        PRESTIGE_STUDIO_PATTERN.test(hint.publisher ?? "") ||
-        matchesSourceHost(hint, "prestige-av.com"),
-    );
+export class PrestigeOfficialAdapter extends BaseStudioOfficialAdapter<PrestigeActressSummary[]> {
+  constructor(deps: OfficialActorSourceDependencies) {
+    super(deps, {
+      key: "prestige",
+      website: Website.PRESTIGE,
+      studioPattern: PRESTIGE_STUDIO_PATTERN,
+      hintHosts: ["prestige-av.com"],
+      rateLimitedHosts: ["www.prestige-av.com"],
+    });
   }
 
   async lookup(query: OfficialLookupRequest): Promise<OfficialLookupResult | null> {
@@ -159,13 +141,7 @@ export class PrestigeOfficialAdapter implements OfficialSiteAdapter {
   }
 
   private async loadRoster(): Promise<PrestigeActressSummary[]> {
-    const bucket = createCacheBucket();
-    if (bucket !== this.rosterBucket) {
-      this.rosterResolver.clear();
-      this.rosterBucket = bucket;
-    }
-
-    return this.rosterResolver.resolve(this.key, async () => {
+    return await this.loadCachedRoster(async () => {
       const payload = await this.deps.networkClient.getJson<PrestigeActressListResponse>(
         new URL("/api/actress", PRESTIGE_BASE_URL).toString(),
         {
