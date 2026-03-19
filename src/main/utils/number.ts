@@ -1,13 +1,29 @@
 import { basename, extname } from "node:path";
 
+import {
+  CHINESE_SUBTITLE_FILENAME_TOKEN_HINTS,
+  CHINESE_SUBTITLE_STRONG_HINTS,
+  detectChineseSubtitleTagInFileName,
+} from "@main/utils/subtitles";
 import type { FileInfo } from "@shared/types";
 
-const SUBTITLE_PATTERN = /(?:^|[-_.\s])(UC|C)(?:$|[-_.\s])/iu;
-const UNCENSORED_PATTERN = /(?:^|[-_.\s])U(?:$|[-_.\s])/iu;
+const FILENAME_DELIMITER_SOURCE = String.raw`[-_.\s\[\](){}【】（）]`;
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+const joinRegexAlternation = (values: readonly string[]): string => values.map(escapeRegex).join("|");
+
+const SUBTITLE_TOKEN_SOURCE = joinRegexAlternation([
+  ...CHINESE_SUBTITLE_FILENAME_TOKEN_HINTS,
+  ...CHINESE_SUBTITLE_STRONG_HINTS,
+]);
+const UNCENSORED_PATTERN = new RegExp(
+  `(?:^|${FILENAME_DELIMITER_SOURCE})(?:UC|U)(?:$|${FILENAME_DELIMITER_SOURCE})`,
+  "iu",
+);
 const RESOLUTION_PATTERNS = [/\b8K\b/iu, /\b4K\b/iu, /\b2160P\b/iu, /\b1080P\b/iu, /\b720P\b/iu];
 const PART_PATTERN = /([-_.\s](?:CD|PART|EP)[-_\s]?(\d{1,2}))(?=$|[-_.\s])/giu;
 const FC2_JP_PART_PATTERN = /([-_.\s](前番|前編|後番|後編))(?=$|[-_.\s])/gu;
-const TRAILING_SUBTITLE_PATTERN = /[-_.\s](?:UC|C)$/iu;
+const TRAILING_SUBTITLE_PATTERN = new RegExp(`${FILENAME_DELIMITER_SOURCE}(?:${SUBTITLE_TOKEN_SOURCE})$`, "iu");
 const TRAILING_UNCENSORED_PATTERN = /[-_.\s]U$/iu;
 const TRAILING_PART_PATTERN = /[-_.\s](?:CD|PART|EP)[-_\s]?\d{1,2}$/iu;
 const TRAILING_FC2_JP_PART_PATTERN = /[-_.\s](?:前番|前編|後番|後編)$/u;
@@ -172,7 +188,10 @@ const detectNamedPart = (stem: string, number: string): FileInfo["part"] | undef
   };
 };
 
-const TRAILING_RAW_BARE_PART_PATTERN = /([-_.\s][12])(?:[-_.\s](?:UC|C|U))*$/iu;
+const TRAILING_RAW_BARE_PART_PATTERN = new RegExp(
+  String.raw`([-_.\s][12])(?:${FILENAME_DELIMITER_SOURCE}(?:${joinRegexAlternation(["U", ...CHINESE_SUBTITLE_FILENAME_TOKEN_HINTS, ...CHINESE_SUBTITLE_STRONG_HINTS])}))*$`,
+  "iu",
+);
 
 const detectBareNumericPart = (
   stem: string,
@@ -213,7 +232,7 @@ export const parseFileInfo = (filePath: string, escapeStrings: string[] = []): F
   const normalizedStem = stem.normalize("NFC");
   const normalizedUpper = normalizedStem.toUpperCase();
 
-  const subtitleMatch = normalizedUpper.match(SUBTITLE_PATTERN);
+  const subtitleTag = detectChineseSubtitleTagInFileName(normalizedStem);
   const uncensoredMatch = normalizedUpper.match(UNCENSORED_PATTERN);
   const resolutionMatch = RESOLUTION_PATTERNS.map((pattern) => normalizedUpper.match(pattern)).find(Boolean);
   const number = extractNumber(normalizedStem, escapeStrings);
@@ -224,7 +243,8 @@ export const parseFileInfo = (filePath: string, escapeStrings: string[] = []): F
     fileName: normalizedStem,
     extension,
     number,
-    isSubtitled: Boolean(subtitleMatch),
+    isSubtitled: Boolean(subtitleTag),
+    subtitleTag,
     isUncensored: Boolean(uncensoredMatch),
     resolution: resolutionMatch?.[0],
     part,

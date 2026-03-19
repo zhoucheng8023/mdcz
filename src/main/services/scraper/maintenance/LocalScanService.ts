@@ -4,9 +4,9 @@ import { dirname, extname, join, parse } from "node:path";
 import { loggerService } from "@main/services/LoggerService";
 import { listVideoFiles } from "@main/utils/file";
 import { parseNfo } from "@main/utils/nfo";
-import { parseFileInfo } from "@main/utils/number";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry } from "@shared/types";
-import { isGeneratedSidecarVideo } from "../sidecars";
+import { resolveFileInfoWithSubtitles } from "../fileInfoWithSubtitles";
+import { isGeneratedSidecarVideo } from "../generatedSidecarVideos";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const TRAILER_EXTENSIONS = new Set([".mp4", ".mkv", ".webm"]);
@@ -87,7 +87,7 @@ export class LocalScanService {
 
   /** Scan a single video file and discover its NFO and assets. */
   private async scanSingleVideo(videoPath: string, sceneImagesFolder: string): Promise<LocalScanEntry> {
-    const fileInfo = parseFileInfo(videoPath);
+    const { fileInfo } = await resolveFileInfoWithSubtitles(videoPath);
     const dir = dirname(videoPath);
 
     const assets = await this.discoverAssets(dir, fileInfo, sceneImagesFolder);

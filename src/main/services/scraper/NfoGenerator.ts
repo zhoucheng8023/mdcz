@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { toArray } from "@main/utils/common";
 import { classifyMovie } from "@main/utils/movieClassification";
 import { buildManagedMovieTags } from "@main/utils/movieMetadata";
+import { resolveFileInfoSubtitleTag } from "@main/utils/subtitles";
 import type { ActorProfile, CrawlerData, DownloadedAssets, FileInfo, VideoMeta } from "@shared/types";
 import { XMLBuilder } from "fast-xml-parser";
 import type { SourceMap } from "./aggregation/types";
@@ -88,8 +89,9 @@ const buildMovieTags = (data: CrawlerData, fileInfo: FileInfo | undefined): stri
       classificationTags.push("无码");
     }
 
-    if (classification.subtitled) {
-      classificationTags.push("中文字幕");
+    const subtitleTag = resolveFileInfoSubtitleTag(fileInfo);
+    if (subtitleTag) {
+      classificationTags.push(subtitleTag);
     }
   }
 

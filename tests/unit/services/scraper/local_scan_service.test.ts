@@ -80,4 +80,22 @@ describe("LocalScanService", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.videoPath).toBe(videoPath);
   });
+
+  it("marks videos as subtitled when a matching external subtitle file exists", async () => {
+    const root = await createTempDir();
+    const movieDir = join(root, "ABC-123");
+    const videoPath = join(movieDir, "ABC-123.mp4");
+    const subtitlePath = join(movieDir, "ABC-123.zh.srt");
+
+    await mkdir(movieDir, { recursive: true });
+    await writeFile(videoPath, "video");
+    await writeFile(subtitlePath, "subtitle");
+
+    const entries = await new LocalScanService().scan(root, "extrafanart");
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.videoPath).toBe(videoPath);
+    expect(entries[0]?.fileInfo.isSubtitled).toBe(true);
+    expect(entries[0]?.fileInfo.subtitleTag).toBe("中文字幕");
+  });
 });

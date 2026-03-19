@@ -8,18 +8,21 @@ import {
   hasEnoughDiskSpace,
   listVideoFiles,
   moveFileSafely,
-  resolveAvailablePath,
+  pathExists,
 } from "@main/utils/file";
 import { classifyMovie } from "@main/utils/movieClassification";
 import { parseFileInfo } from "@main/utils/number";
 import { buildSafePath, sanitizePathSegment } from "@main/utils/path";
+import { resolveFileInfoSubtitleTag } from "@main/utils/subtitles";
 import type { CrawlerData, FileInfo } from "@shared/types";
-import { isGeneratedSidecarVideo } from "./sidecars";
+import { isGeneratedSidecarVideo } from "./generatedSidecarVideos";
+import { buildSubtitleSidecarTargetPath, findSubtitleSidecars, type SubtitleSidecarMatch } from "./subtitleSidecars";
 
 export interface OrganizePlan {
   outputDir: string;
   targetVideoPath: string;
   nfoPath: string;
+  subtitleSidecars?: SubtitleSidecarMatch[];
 }
 
 interface ResolveOutputPlanOptions {
@@ -73,7 +76,7 @@ const buildNumberWithNamingMarkers = (fileInfo: FileInfo, data: CrawlerData, con
 
   const classification = classifyMovie(fileInfo, data);
   const markers: string[] = [];
-  if (classification.subtitled) {
+  if (resolveFileInfoSubtitleTag(fileInfo) === "中文字幕") {
     appendMarker(markers, config.naming.cnwordStyle);
   }
 
@@ -223,18 +226,19 @@ export class FileOrganizer {
       }
     }
 
-    const targetVideoPath = await resolveAvailablePath(plan.targetVideoPath, sourceFilePath);
-    const outputDir = dirname(targetVideoPath);
-    const originalVideoBaseName = parse(plan.targetVideoPath).name;
-    const originalNfoBaseName = parse(plan.nfoPath).name;
-    const resolvedVideoBaseName = parse(targetVideoPath).name;
-    const nfoBaseName = originalVideoBaseName === originalNfoBaseName ? resolvedVideoBaseName : originalNfoBaseName;
-    const nfoPath = join(outputDir, `${nfoBaseName}.nfo`);
+    const resolvedPlan = await this.resolveBundledTargetPaths({
+      sourceVideoPath: sourceFilePath,
+      targetVideoPath: plan.targetVideoPath,
+      nfoPath: plan.nfoPath,
+      ignoreExistingNfoAtTarget: sameDirectoryOutput,
+      subtitleSidecars: plan.subtitleSidecars,
+    });
 
     return {
-      outputDir,
-      targetVideoPath,
-      nfoPath,
+      outputDir: dirname(resolvedPlan.targetVideoPath),
+      targetVideoPath: resolvedPlan.targetVideoPath,
+      nfoPath: resolvedPlan.nfoPath ?? plan.nfoPath,
+      subtitleSidecars: resolvedPlan.subtitleSidecars,
     };
   }
 
@@ -245,11 +249,12 @@ export class FileOrganizer {
         return fileInfo.filePath;
       }
 
-      return moveFileSafely(fileInfo.filePath, plan.targetVideoPath);
+      const renamedPath = await this.moveBundledMedia(fileInfo.filePath, plan.targetVideoPath, plan.subtitleSidecars);
+      return renamedPath;
     }
 
     const sourceDir = dirname(fileInfo.filePath);
-    const result = await moveFileSafely(fileInfo.filePath, plan.targetVideoPath);
+    const result = await this.moveBundledMedia(fileInfo.filePath, plan.targetVideoPath, plan.subtitleSidecars);
 
     if (config.behavior.deleteEmptyFolder) {
       const mediaRoot = resolve(config.paths.mediaPath.trim() || dirname(fileInfo.filePath));
@@ -263,11 +268,130 @@ export class FileOrganizer {
     const mediaRoot = config.paths.mediaPath.trim();
     const base = mediaRoot.length > 0 ? mediaRoot : dirname(fileInfo.filePath);
     const failedDir = join(base, config.paths.failedOutputFolder);
-    const targetPath = join(failedDir, fileInfo.fileName + fileInfo.extension);
+    const resolvedPaths = await this.resolveBundledTargetPaths({
+      sourceVideoPath: fileInfo.filePath,
+      targetVideoPath: join(failedDir, fileInfo.fileName + fileInfo.extension),
+    });
 
-    await ensureParentDirectory(targetPath);
-    await moveFileSafely(fileInfo.filePath, targetPath);
+    await ensureParentDirectory(resolvedPaths.targetVideoPath);
+    await this.moveBundledMedia(fileInfo.filePath, resolvedPaths.targetVideoPath, resolvedPaths.subtitleSidecars);
     this.logger.info(`Moved failed file to ${failedDir}: ${fileInfo.fileName}`);
+  }
+
+  private async moveBundledMedia(
+    sourceVideoPath: string,
+    targetVideoPath: string,
+    subtitleSidecars?: SubtitleSidecarMatch[],
+  ): Promise<string> {
+    const resolvedSubtitleSidecars = subtitleSidecars ?? (await findSubtitleSidecars(sourceVideoPath));
+    const movedArtifacts: Array<{ sourcePath: string; targetPath: string }> = [];
+    let movedVideoPath: string | undefined;
+
+    try {
+      movedVideoPath = await moveFileSafely(sourceVideoPath, targetVideoPath);
+
+      for (const subtitleSidecar of resolvedSubtitleSidecars) {
+        const targetSubtitlePath = buildSubtitleSidecarTargetPath(subtitleSidecar, movedVideoPath);
+        const movedSubtitlePath = await moveFileSafely(subtitleSidecar.path, targetSubtitlePath);
+        movedArtifacts.push({
+          sourcePath: subtitleSidecar.path,
+          targetPath: movedSubtitlePath,
+        });
+        this.logger.info(`Moved subtitle sidecar to ${movedSubtitlePath}`);
+      }
+
+      return movedVideoPath;
+    } catch (error) {
+      const rollbackErrors: string[] = [];
+
+      for (const artifact of movedArtifacts.reverse()) {
+        try {
+          await moveFileSafely(artifact.targetPath, artifact.sourcePath);
+        } catch (rollbackError) {
+          const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+          rollbackErrors.push(`subtitle ${artifact.targetPath}: ${rollbackMessage}`);
+        }
+      }
+
+      if (movedVideoPath && (await pathExists(movedVideoPath))) {
+        try {
+          await moveFileSafely(movedVideoPath, sourceVideoPath);
+        } catch (rollbackError) {
+          const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+          rollbackErrors.push(`video ${movedVideoPath}: ${rollbackMessage}`);
+        }
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      if (rollbackErrors.length > 0) {
+        throw new Error(`Failed to move bundled media: ${message}. Rollback failed: ${rollbackErrors.join("; ")}`);
+      }
+
+      throw new Error(`Failed to move bundled media: ${message}`);
+    }
+  }
+
+  private async resolveBundledTargetPaths(options: {
+    sourceVideoPath: string;
+    targetVideoPath: string;
+    nfoPath?: string;
+    ignoreExistingNfoAtTarget?: boolean;
+    subtitleSidecars?: SubtitleSidecarMatch[];
+  }): Promise<{
+    targetVideoPath: string;
+    nfoPath?: string;
+    subtitleSidecars: SubtitleSidecarMatch[];
+  }> {
+    const subtitleSidecars = options.subtitleSidecars ?? (await findSubtitleSidecars(options.sourceVideoPath));
+    const ignoredExistingPaths = new Set<string>([
+      resolve(options.sourceVideoPath),
+      ...subtitleSidecars.map((subtitleSidecar) => resolve(subtitleSidecar.path)),
+    ]);
+    if (options.ignoreExistingNfoAtTarget && options.nfoPath) {
+      ignoredExistingPaths.add(resolve(options.nfoPath));
+    }
+
+    const parsedTargetVideo = parse(options.targetVideoPath);
+    const parsedNfo = options.nfoPath ? parse(options.nfoPath) : undefined;
+    const nfoTracksVideoBase = parsedNfo ? parsedNfo.name === parsedTargetVideo.name : false;
+    let collisionSuffix = 0;
+
+    while (true) {
+      const candidateBaseName =
+        collisionSuffix === 0 ? parsedTargetVideo.name : `${parsedTargetVideo.name} (${collisionSuffix})`;
+      const candidateVideoPath = join(parsedTargetVideo.dir, `${candidateBaseName}${parsedTargetVideo.ext}`);
+      const candidateNfoPath = parsedNfo
+        ? join(parsedNfo.dir, `${nfoTracksVideoBase ? candidateBaseName : parsedNfo.name}${parsedNfo.ext}`)
+        : undefined;
+      const candidatePaths = [
+        candidateVideoPath,
+        ...subtitleSidecars.map((subtitleSidecar) =>
+          buildSubtitleSidecarTargetPath(subtitleSidecar, candidateVideoPath),
+        ),
+        ...(candidateNfoPath ? [candidateNfoPath] : []),
+      ];
+      const hasCollision = (
+        await Promise.all(candidatePaths.map((path) => this.hasTargetCollision(path, ignoredExistingPaths)))
+      ).some(Boolean);
+
+      if (!hasCollision) {
+        return {
+          targetVideoPath: candidateVideoPath,
+          nfoPath: candidateNfoPath,
+          subtitleSidecars,
+        };
+      }
+
+      collisionSuffix += 1;
+    }
+  }
+
+  private async hasTargetCollision(targetPath: string, ignoredExistingPaths: Set<string>): Promise<boolean> {
+    if (!(await pathExists(targetPath))) {
+      return false;
+    }
+
+    return !ignoredExistingPaths.has(resolve(targetPath));
   }
 
   private resolveBaseOutput(fileInfo: FileInfo, config: Configuration): string {

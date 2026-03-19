@@ -60,6 +60,7 @@ export interface FileInfo {
   extension: string;
   number: string;
   isSubtitled: boolean;
+  subtitleTag?: SubtitleTag;
   isUncensored?: boolean;
   resolution?: string;
   part?: {
@@ -69,6 +70,7 @@ export interface FileInfo {
 }
 
 export type ScrapeResultStatus = "pending" | "processing" | "success" | "failed" | "skipped";
+export type SubtitleTag = "字幕" | "中文字幕";
 
 /** Structured record of all files produced by DownloadManager. */
 export interface DownloadedAssets {

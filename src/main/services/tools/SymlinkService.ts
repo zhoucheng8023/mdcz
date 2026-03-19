@@ -3,6 +3,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path
 
 import type { SignalService } from "@main/services/SignalService";
 import { toErrorMessage } from "@main/utils/common";
+import { SUBTITLE_EXTENSIONS } from "@main/utils/subtitles";
 
 const DEFAULT_MEDIA_EXTENSIONS = new Set([
   ".mp4",
@@ -17,25 +18,6 @@ const DEFAULT_MEDIA_EXTENSIONS = new Set([
   ".iso",
   ".mpg",
   ".strm",
-]);
-
-const DEFAULT_SUBTITLE_EXTENSIONS = new Set([
-  ".smi",
-  ".srt",
-  ".idx",
-  ".sub",
-  ".sup",
-  ".psb",
-  ".ssa",
-  ".ass",
-  ".usf",
-  ".xss",
-  ".ssf",
-  ".rt",
-  ".lrc",
-  ".sbv",
-  ".vtt",
-  ".ttml",
 ]);
 
 const normalizeExtension = (value: string): string => {
@@ -169,7 +151,7 @@ export class SymlinkService {
 
     await mkdir(destDir, { recursive: true });
 
-    const copyExtensions = new Set([".nfo", ".jpg", ".png", ...DEFAULT_SUBTITLE_EXTENSIONS]);
+    const copyExtensions = new Set([".nfo", ".jpg", ".png", ...SUBTITLE_EXTENSIONS]);
 
     this.deps.signalService.showLogText("Starting symlink task");
     this.deps.signalService.showLogText(`Symlink source: ${sourceDir}`);

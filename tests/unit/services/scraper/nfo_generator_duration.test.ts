@@ -150,11 +150,28 @@ describe("NfoGenerator", () => {
     const uncensoredXml = new NfoGenerator().buildXml(createCrawlerData(), {
       fileInfo: createFileInfo({
         isSubtitled: true,
+        subtitleTag: "中文字幕",
         isUncensored: true,
       }),
     });
     expect(uncensoredXml).toContain("<tag>无码</tag>");
     expect(uncensoredXml).toContain("<tag>中文字幕</tag>");
+
+    for (const fileInfo of [
+      createFileInfo({
+        isSubtitled: true,
+      }),
+      createFileInfo({
+        isSubtitled: true,
+        subtitleTag: "字幕",
+      }),
+    ]) {
+      const subtitleXml = new NfoGenerator().buildXml(createCrawlerData(), {
+        fileInfo,
+      });
+      expect(subtitleXml).toContain("<tag>字幕</tag>");
+      expect(subtitleXml).not.toContain("<tag>中文字幕</tag>");
+    }
 
     const umrXml = new NfoGenerator().buildXml(
       createCrawlerData({

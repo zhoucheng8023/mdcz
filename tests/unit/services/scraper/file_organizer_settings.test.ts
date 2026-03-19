@@ -99,6 +99,7 @@ describe("FileOrganizer naming settings", () => {
         }),
         fileInfo: createFileInfo({
           isSubtitled: true,
+          subtitleTag: "中文字幕",
         }),
         crawlerData: createCrawlerData({
           number: "FC2-123456",
@@ -106,6 +107,24 @@ describe("FileOrganizer naming settings", () => {
         }),
         assert: (plan: ReturnType<FileOrganizer["plan"]>) => {
           expect(parse(plan.targetVideoPath).name).toBe("FC2-123456-SUB-UMR-LEAK-UNC");
+        },
+      },
+      {
+        config: createConfig({
+          naming: {
+            cnwordStyle: "-SUB",
+            censoredStyle: "-CEN",
+          },
+        }),
+        fileInfo: createFileInfo({
+          isSubtitled: true,
+          subtitleTag: "字幕",
+        }),
+        crawlerData: createCrawlerData({
+          number: "ABC-123",
+        }),
+        assert: (plan: ReturnType<FileOrganizer["plan"]>) => {
+          expect(parse(plan.targetVideoPath).name).toBe("ABC-123-CEN");
         },
       },
       {
@@ -388,6 +407,184 @@ describe("FileOrganizer naming settings", () => {
 
     expect(resultPath).toBe(join(inPlaceRoot, "XYZ-999-CEN.mp4"));
     await expectPathExists(resultPath);
+  });
+
+  it("moves matching subtitle sidecars alongside successful video moves", async () => {
+    const root = await createTempDir();
+    const sourcePath = join(root, "source.mp4");
+    const subtitlePath = join(root, "source.zh.srt");
+
+    await writeFile(sourcePath, "video", "utf8");
+    await writeFile(subtitlePath, "subtitle", "utf8");
+
+    const organizer = new FileOrganizer();
+    const successConfig = createConfig({
+      paths: {
+        mediaPath: root,
+        successOutputFolder: "output",
+      },
+      naming: {
+        folderTemplate: "{number}",
+        fileTemplate: "{number}",
+      },
+      behavior: {
+        successFileMove: true,
+        successFileRename: true,
+      },
+    });
+
+    const fileInfo = createFileInfo({
+      filePath: sourcePath,
+      fileName: "source",
+    });
+    const plan = organizer.plan(
+      fileInfo,
+      createCrawlerData({
+        number: "XYZ-999",
+      }),
+      successConfig,
+    );
+    const preparedPlan = await organizer.ensureOutputReady(plan, sourcePath);
+
+    await organizer.organizeVideo(fileInfo, preparedPlan, successConfig);
+
+    await expectPathExists(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.mp4"));
+    await expectPathExists(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.zh.srt"));
+    await expect(access(subtitlePath)).rejects.toThrow();
+  });
+
+  it("moves matching subtitle sidecars alongside failed video moves", async () => {
+    const organizer = new FileOrganizer();
+    const failedRoot = await createTempDir();
+    const failedVideoPath = join(failedRoot, "FAIL-001.mp4");
+    const failedSubtitlePath = join(failedRoot, "FAIL-001.ass");
+    await writeFile(failedVideoPath, "video", "utf8");
+    await writeFile(failedSubtitlePath, "subtitle", "utf8");
+
+    const failedFileInfo = createFileInfo({
+      filePath: failedVideoPath,
+      fileName: "FAIL-001",
+      number: "FAIL-001",
+      extension: ".mp4",
+    });
+    const failedConfig = createConfig({
+      paths: {
+        mediaPath: failedRoot,
+        failedOutputFolder: "failed",
+      },
+    });
+
+    await organizer.moveToFailedFolder(failedFileInfo, failedConfig);
+
+    await expectPathExists(join(failedRoot, "failed", "FAIL-001.mp4"));
+    await expectPathExists(join(failedRoot, "failed", "FAIL-001.ass"));
+    await expect(access(failedSubtitlePath)).rejects.toThrow();
+  });
+
+  it("rolls back the video move when a subtitle sidecar move fails", async () => {
+    const organizer = new FileOrganizer();
+    const root = await createTempDir();
+    const sourcePath = join(root, "source.mp4");
+    const subtitlePath = join(root, "source.zh.srt");
+
+    await writeFile(sourcePath, "video", "utf8");
+    await writeFile(subtitlePath, "subtitle", "utf8");
+
+    const config = createConfig({
+      paths: {
+        mediaPath: root,
+        successOutputFolder: "output",
+      },
+      naming: {
+        folderTemplate: "{number}",
+        fileTemplate: "{number}",
+      },
+      behavior: {
+        successFileMove: true,
+        successFileRename: true,
+      },
+    });
+    const fileInfo = createFileInfo({
+      filePath: sourcePath,
+      fileName: "source",
+    });
+    const plan = await organizer.ensureOutputReady(
+      organizer.plan(
+        fileInfo,
+        createCrawlerData({
+          number: "XYZ-999",
+        }),
+        config,
+      ),
+      sourcePath,
+    );
+
+    const originalMoveFileSafely = fileUtils.moveFileSafely;
+    vi.spyOn(fileUtils, "moveFileSafely").mockImplementation(async (fromPath, toPath) => {
+      if (fromPath === subtitlePath) {
+        throw new Error("mock subtitle move failure");
+      }
+
+      return originalMoveFileSafely(fromPath, toPath);
+    });
+
+    await expect(organizer.organizeVideo(fileInfo, plan, config)).rejects.toThrow("Failed to move bundled media");
+    await expectPathExists(sourcePath);
+    await expectPathExists(subtitlePath);
+    await expect(access(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.mp4"))).rejects.toThrow();
+    await expect(access(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.zh.srt"))).rejects.toThrow();
+  });
+
+  it("keeps video and subtitle sidecar basenames aligned when resolving collisions", async () => {
+    const organizer = new FileOrganizer();
+    const pairRoot = await createTempDir();
+    const pairVideoPath = join(pairRoot, "pair.mp4");
+    const pairIdxPath = join(pairRoot, "pair.idx");
+    const pairSubPath = join(pairRoot, "pair.sub");
+    const existingIdxPath = join(pairRoot, "output", "PAIR-001-CEN", "PAIR-001-CEN.idx");
+
+    await writeFile(pairVideoPath, "video", "utf8");
+    await writeFile(pairIdxPath, "subtitle", "utf8");
+    await writeFile(pairSubPath, "subtitle", "utf8");
+    await mkdir(join(pairRoot, "output", "PAIR-001-CEN"), { recursive: true });
+    await writeFile(existingIdxPath, "existing", "utf8");
+
+    const pairFileInfo = createFileInfo({
+      filePath: pairVideoPath,
+      fileName: "pair",
+      number: "PAIR-001",
+    });
+    const pairConfig = createConfig({
+      paths: {
+        mediaPath: pairRoot,
+        successOutputFolder: "output",
+      },
+      naming: {
+        folderTemplate: "{number}",
+        fileTemplate: "{number}",
+      },
+      behavior: {
+        successFileMove: true,
+        successFileRename: true,
+      },
+    });
+    const pairPlan = organizer.plan(
+      pairFileInfo,
+      createCrawlerData({
+        number: "PAIR-001",
+      }),
+      pairConfig,
+    );
+    const preparedPairPlan = await organizer.ensureOutputReady(pairPlan, pairVideoPath);
+
+    expect(preparedPairPlan.targetVideoPath).toBe(join(pairRoot, "output", "PAIR-001-CEN", "PAIR-001-CEN (1).mp4"));
+    expect(preparedPairPlan.nfoPath).toBe(join(pairRoot, "output", "PAIR-001-CEN", "PAIR-001-CEN (1).nfo"));
+
+    await organizer.organizeVideo(pairFileInfo, preparedPairPlan, pairConfig);
+
+    await expectPathExists(join(pairRoot, "output", "PAIR-001-CEN", "PAIR-001-CEN (1).mp4"));
+    await expectPathExists(join(pairRoot, "output", "PAIR-001-CEN", "PAIR-001-CEN (1).idx"));
+    await expectPathExists(join(pairRoot, "output", "PAIR-001-CEN", "PAIR-001-CEN (1).sub"));
   });
 
   it("skips disk checks for valid in-place renames and still rejects multiple source videos", async () => {

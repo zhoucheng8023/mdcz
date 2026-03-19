@@ -13,11 +13,12 @@ import type { CrawlerData, FileInfo, ScrapeResult, VideoMeta } from "@shared/typ
 import { isAbortError, throwIfAborted } from "./abort";
 import type { AggregationResult, AggregationService } from "./aggregation";
 import type { DownloadManager } from "./DownloadManager";
-import type { FileOrganizer } from "./FileOrganizer";
+import type { FileOrganizer, OrganizePlan } from "./FileOrganizer";
+import { resolveFileInfoWithSubtitles } from "./fileInfoWithSubtitles";
+import { isGeneratedSidecarVideo } from "./generatedSidecarVideos";
 import type { NfoGenerator } from "./NfoGenerator";
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
-import { isGeneratedSidecarVideo } from "./sidecars";
 import type { TranslateService } from "./TranslateService";
 
 export interface FileScraperDependencies {
@@ -37,11 +38,14 @@ export interface FileScrapeProgress {
   totalFiles: number;
 }
 
+const AGGREGATION_FAILURE_CACHE_WINDOW_MS = 1000;
+
 export class FileScraper {
   private readonly logger = loggerService.getLogger("FileScraper");
 
   private readonly actorImageService: ActorImageService;
   private readonly aggregationPromiseCache = new Map<string, Promise<AggregationResult | null>>();
+  private readonly aggregationFailureEvictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly deps: FileScraperDependencies) {
     this.actorImageService = deps.actorImageService ?? new ActorImageService();
@@ -53,13 +57,25 @@ export class FileScraper {
     signal?: AbortSignal,
   ): Promise<ScrapeResult> {
     const taskId = randomUUID();
-    const fileInfo = parseFileInfo(filePath);
+    const parsedFileInfo = parseFileInfo(filePath);
+    const fileInfoWithSubtitlesPromise = resolveFileInfoWithSubtitles(filePath, {
+      parsedFileInfo,
+    });
 
-    this.deps.signalService.showLogText(`Starting scrape task ${taskId} for ${fileInfo.fileName}`);
     this.setProgress(progress, 0);
+    let fileInfo: FileInfo = parsedFileInfo;
 
     try {
       const configuration = configurationSchema.parse(await this.deps.configManager.get());
+      const aggregationResultPromise = this.aggregateMetadata(parsedFileInfo, configuration, signal);
+      // The request starts before subtitle sidecar discovery completes; attach an early
+      // rejection handler so fast failures stay associated with this task instead of surfacing
+      // as unhandled rejections before we await the promise below.
+      void aggregationResultPromise.catch(() => undefined);
+      const { fileInfo: resolvedFileInfo, subtitleSidecars } = await fileInfoWithSubtitlesPromise;
+      fileInfo = resolvedFileInfo;
+
+      this.deps.signalService.showLogText(`Starting scrape task ${taskId} for ${fileInfo.fileName}`);
       throwIfAborted(signal);
 
       this.deps.signalService.showScrapeInfo({
@@ -68,7 +84,7 @@ export class FileScraper {
         step: "search",
       });
 
-      const aggregationResult = await this.aggregateMetadata(fileInfo, configuration, signal);
+      const aggregationResult = await aggregationResultPromise;
       throwIfAborted(signal);
 
       if (!aggregationResult) {
@@ -97,7 +113,10 @@ export class FileScraper {
       this.setProgress(progress, 30);
       const translated = await this.translateCrawlerDataOrFallback(crawlerData, configuration, signal);
       throwIfAborted(signal);
-      let plan = this.deps.fileOrganizer.plan(fileInfo, translated, configuration);
+      let plan: OrganizePlan = {
+        ...this.deps.fileOrganizer.plan(fileInfo, translated, configuration),
+        subtitleSidecars,
+      };
       plan = await this.deps.fileOrganizer.ensureOutputReady(plan, fileInfo.filePath);
       throwIfAborted(signal);
       const preparedOutputData = await prepareCrawlerDataForMovieOutput(
@@ -261,12 +280,29 @@ export class FileScraper {
       return cached;
     }
 
-    const request = this.deps.aggregationService.aggregate(fileInfo.number, configuration, signal).catch((error) => {
-      this.aggregationPromiseCache.delete(cacheKey);
+    let request: Promise<AggregationResult | null>;
+    request = this.deps.aggregationService.aggregate(fileInfo.number, configuration, signal).catch((error) => {
+      this.scheduleFailedAggregationEviction(cacheKey, request);
       throw error;
     });
     this.aggregationPromiseCache.set(cacheKey, request);
     return request;
+  }
+
+  private scheduleFailedAggregationEviction(cacheKey: string, request: Promise<AggregationResult | null>): void {
+    const existingTimer = this.aggregationFailureEvictionTimers.get(cacheKey);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      if (this.aggregationPromiseCache.get(cacheKey) === request) {
+        this.aggregationPromiseCache.delete(cacheKey);
+      }
+      this.aggregationFailureEvictionTimers.delete(cacheKey);
+    }, AGGREGATION_FAILURE_CACHE_WINDOW_MS);
+    timer.unref?.();
+    this.aggregationFailureEvictionTimers.set(cacheKey, timer);
   }
 
   private setProgress(progress: FileScrapeProgress, stepPercent: number): void {
@@ -281,6 +317,10 @@ export class FileScraper {
 
   private async handleFailedFileMove(fileInfo: FileInfo, config: Configuration): Promise<void> {
     if (!config.behavior.failedFileMove) return;
+    if (!(await pathExists(fileInfo.filePath))) {
+      this.logger.warn(`Skip failed-file move because source no longer exists: ${fileInfo.filePath}`);
+      return;
+    }
     try {
       await this.deps.fileOrganizer.moveToFailedFolder(fileInfo, config);
     } catch (error) {

@@ -5,6 +5,7 @@ describe("extractNumber", () => {
   it("extracts canonical numbers after stripping naming suffixes", () => {
     const cases = [
       { input: "ABC-123-C-CD1", expected: "ABC-123" },
+      { input: "ABC-123-中文字幕", expected: "ABC-123" },
       { input: "FC2-PPV-123456-U", expected: "FC2-123456" },
       { input: "FC2-123456-1", expected: "FC2-123456" },
       { input: "FC2-123456-前番", expected: "FC2-123456" },
@@ -22,6 +23,7 @@ describe("parseFileInfo", () => {
     expect(parseFileInfo("/tmp/ABC-123-C-CD1.mkv")).toMatchObject({
       number: "ABC-123",
       isSubtitled: true,
+      subtitleTag: "中文字幕",
       part: {
         number: 1,
         suffix: "-CD1",
@@ -60,6 +62,16 @@ describe("parseFileInfo", () => {
         suffix: "-PART1",
       },
     });
+
+    expect(parseFileInfo("/tmp/FC2-123456-1-中文字幕.mp4")).toMatchObject({
+      number: "FC2-123456",
+      isSubtitled: true,
+      subtitleTag: "中文字幕",
+      part: {
+        number: 1,
+        suffix: "-1",
+      },
+    });
   });
 
   it("distinguishes uncensored and subtitle suffixes and keeps resolution metadata", () => {
@@ -72,9 +84,42 @@ describe("parseFileInfo", () => {
 
     expect(parseFileInfo("/tmp/ABC-123-UC.mp4")).toMatchObject({
       number: "ABC-123",
-      isUncensored: false,
+      isUncensored: true,
       isSubtitled: true,
+      subtitleTag: "中文字幕",
     });
+  });
+
+  it("recognizes expanded subtitle markers in filenames", () => {
+    for (const input of [
+      "/tmp/ABC-123-中文字幕.mp4",
+      "/tmp/ABC-123_中文字幕.mkv",
+      "/tmp/ABC-123中字.mp4",
+      "/tmp/ABC-123-CHS.mp4",
+    ]) {
+      expect(parseFileInfo(input)).toMatchObject({
+        number: "ABC-123",
+        isSubtitled: true,
+        subtitleTag: "中文字幕",
+      });
+    }
+
+    expect(parseFileInfo("/tmp/ABC-123-中文字幕.mp4")).toMatchObject({
+      isUncensored: false,
+    });
+
+    for (const input of [
+      "/tmp/ABC-123-中英字幕.mp4",
+      "/tmp/ABC-123-繁中.mp4",
+      "/tmp/ABC-123-CHT.mp4",
+      "/tmp/ABC-123-SUB.mp4",
+    ]) {
+      expect(parseFileInfo(input)).toMatchObject({
+        number: "ABC-123",
+        isSubtitled: false,
+        subtitleTag: undefined,
+      });
+    }
   });
 
   it("does not misread numeric identifiers as bare multipart suffixes", () => {
