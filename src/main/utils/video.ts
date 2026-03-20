@@ -69,12 +69,32 @@ const initMediaInfo = () => {
 };
 
 let cachedPromise: ReturnType<typeof initMediaInfo> | undefined;
+let mediaInfoQueue: Promise<void> = Promise.resolve();
 
 export const getMediaInfo = () => {
   if (!cachedPromise) {
     cachedPromise = initMediaInfo();
   }
   return cachedPromise;
+};
+
+export const runWithMediaInfo = async <T>(
+  operation: (mediaInfo: Awaited<ReturnType<typeof getMediaInfo>>) => Promise<T>,
+): Promise<T> => {
+  const previous = mediaInfoQueue;
+  let release: (() => void) | undefined;
+  mediaInfoQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+
+  try {
+    const mediaInfo = await getMediaInfo();
+    return await operation(mediaInfo);
+  } finally {
+    release?.();
+  }
 };
 
 const isStreamFile = (filePath: string): boolean => extname(filePath).toLowerCase() === ".strm";
@@ -84,25 +104,26 @@ export const probeVideoMetadata = async (filePath: string): Promise<VideoMeta | 
     return undefined;
   }
 
-  const mediaInfo = await getMediaInfo();
   const handle = await open(filePath, "r");
 
   try {
     const { size } = await handle.stat();
-    const metadata = await mediaInfo.analyzeData(
-      () => size,
-      async (chunkSize, offset) => {
-        const remaining = Math.max(0, size - offset);
-        if (remaining === 0) {
-          return new Uint8Array(0);
-        }
+    const metadata = await runWithMediaInfo((mediaInfo) =>
+      mediaInfo.analyzeData(
+        () => size,
+        async (chunkSize, offset) => {
+          const remaining = Math.max(0, size - offset);
+          if (remaining === 0) {
+            return new Uint8Array(0);
+          }
 
-        const requestedSize = chunkSize > 0 ? chunkSize : CHUNK_SIZE;
-        const length = Math.min(requestedSize, remaining);
-        const buffer = Buffer.alloc(length);
-        const { bytesRead } = await handle.read(buffer, 0, length, offset);
-        return buffer.subarray(0, bytesRead);
-      },
+          const requestedSize = chunkSize > 0 ? chunkSize : CHUNK_SIZE;
+          const length = Math.min(requestedSize, remaining);
+          const buffer = Buffer.alloc(length);
+          const { bytesRead } = await handle.read(buffer, 0, length, offset);
+          return buffer.subarray(0, bytesRead);
+        },
+      ),
     );
 
     return toVideoMetadata(metadata);

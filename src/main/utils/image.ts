@@ -1,6 +1,6 @@
 import { open, stat } from "node:fs/promises";
 import { isTrackType } from "mediainfo.js";
-import { CHUNK_SIZE, getMediaInfo, toNumber } from "./video";
+import { CHUNK_SIZE, runWithMediaInfo, toNumber } from "./video";
 
 export interface ImageDimensions {
   width: number;
@@ -140,24 +140,39 @@ export async function validateImage(filePath: string, minBytes = 8192): Promise<
     };
   }
 
-  const mediaInfo = await getMediaInfo();
   const handle = await open(filePath, "r");
 
   try {
-    const metadata = await mediaInfo.analyzeData(
-      () => fileStat.size,
-      async (chunkSize, offset) => {
-        const remaining = Math.max(0, fileStat.size - offset);
-        if (remaining === 0) {
-          return new Uint8Array(0);
-        }
+    const headerLength = Math.min(CHUNK_SIZE, fileStat.size);
+    if (headerLength > 0) {
+      const header = Buffer.alloc(headerLength);
+      const { bytesRead } = await handle.read(header, 0, headerLength, 0);
+      const dimensions = parseImageDimensions(header.subarray(0, bytesRead));
+      if (dimensions) {
+        return {
+          valid: true,
+          width: dimensions.width,
+          height: dimensions.height,
+        };
+      }
+    }
 
-        const requestedSize = chunkSize > 0 ? chunkSize : CHUNK_SIZE;
-        const length = Math.min(requestedSize, remaining);
-        const buffer = Buffer.alloc(length);
-        const { bytesRead } = await handle.read(buffer, 0, length, offset);
-        return buffer.subarray(0, bytesRead);
-      },
+    const metadata = await runWithMediaInfo((mediaInfo) =>
+      mediaInfo.analyzeData(
+        () => fileStat.size,
+        async (chunkSize, offset) => {
+          const remaining = Math.max(0, fileStat.size - offset);
+          if (remaining === 0) {
+            return new Uint8Array(0);
+          }
+
+          const requestedSize = chunkSize > 0 ? chunkSize : CHUNK_SIZE;
+          const length = Math.min(requestedSize, remaining);
+          const buffer = Buffer.alloc(length);
+          const { bytesRead } = await handle.read(buffer, 0, length, offset);
+          return buffer.subarray(0, bytesRead);
+        },
+      ),
     );
 
     const tracks = metadata.media?.track ?? [];
