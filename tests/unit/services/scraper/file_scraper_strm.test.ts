@@ -224,4 +224,48 @@ describe("FileScraper .strm support", () => {
     expect(writeNfo).not.toHaveBeenCalled();
     expect(result.uncensoredAmbiguous).toBe(false);
   });
+
+  it("passes preserved local state when regenerating an NFO", async () => {
+    const root = await createTempDir();
+    const outputDir = join(root, "output");
+    const config = createConfig({
+      generateNfo: true,
+      keepNfo: true,
+    });
+    const crawlerData = createCrawlerData();
+    const plan: OrganizePlan = {
+      outputDir,
+      targetVideoPath: join(outputDir, "ABC-123.strm"),
+      nfoPath: join(outputDir, "ABC-123.nfo"),
+    };
+    const writeNfo = vi.fn().mockResolvedValue(plan.nfoPath);
+    const localScanService: Pick<LocalScanService, "scanVideo"> = {
+      scanVideo: vi.fn().mockResolvedValue({
+        nfoLocalState: {
+          uncensoredChoice: "leak",
+          tags: ["保留标签"],
+        },
+      } as Awaited<ReturnType<LocalScanService["scanVideo"]>>),
+    };
+    const scraper = createScraper({
+      config,
+      crawlerData,
+      plan,
+      writeNfo,
+      localScanService,
+    });
+
+    await scraper.scrapeFile(join(root, "ABC-123.strm"), { fileIndex: 1, totalFiles: 1 });
+
+    expect(writeNfo).toHaveBeenCalledWith(
+      plan.nfoPath,
+      crawlerData,
+      expect.objectContaining({
+        localState: {
+          uncensoredChoice: "leak",
+          tags: ["保留标签"],
+        },
+      }),
+    );
+  });
 });

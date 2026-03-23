@@ -35,6 +35,9 @@ const normalizeSearchResultHref = (href: string): string => {
   return normalizeCode(hrefWithoutQuery);
 };
 
+const stripNumericPadding = (value: string): string =>
+  value.replace(/\d+/gu, (digits) => digits.replace(/^0+(?=\d)/u, ""));
+
 type CheerioInput = Parameters<CheerioAPI>[0];
 
 const findLabeledParent = (
@@ -53,8 +56,9 @@ const findLabeledParent = (
 };
 
 /**
- * Search result URLs often encode the same number with separator variants such as `_` or `-`.
- * Prefer the first href whose normalized form contains the expected number, then fall back to the first candidate.
+ * Search result URLs often encode the same number with separator or zero-padding variants.
+ * Prefer the first href whose normalized form matches the expected number.
+ * If nothing matches, return null instead of guessing from an unrelated candidate.
  */
 export const pickSearchResultDetailUrl = (
   baseUrl: string,
@@ -64,15 +68,22 @@ export const pickSearchResultDetailUrl = (
   const candidates = candidateHrefs.filter((href): href is string => typeof href === "string" && href.length > 0);
   const normalizedExpected = normalizeCode(expectedNumber);
 
-  if (normalizedExpected) {
-    for (const href of candidates) {
-      if (normalizeSearchResultHref(href).includes(normalizedExpected)) {
-        return toAbsoluteUrl(baseUrl, href) ?? null;
-      }
+  if (!normalizedExpected) {
+    return candidates[0] ? (toAbsoluteUrl(baseUrl, candidates[0]) ?? null) : null;
+  }
+
+  const normalizedExpectedWithoutPadding = stripNumericPadding(normalizedExpected);
+  for (const href of candidates) {
+    const normalizedHref = normalizeSearchResultHref(href);
+    if (
+      normalizedHref.includes(normalizedExpected) ||
+      stripNumericPadding(normalizedHref).includes(normalizedExpectedWithoutPadding)
+    ) {
+      return toAbsoluteUrl(baseUrl, href) ?? null;
     }
   }
 
-  return candidates[0] ? (toAbsoluteUrl(baseUrl, candidates[0]) ?? null) : null;
+  return null;
 };
 
 export const extractParentTextByLabelSelector = (

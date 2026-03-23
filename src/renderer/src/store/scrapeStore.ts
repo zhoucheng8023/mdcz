@@ -110,8 +110,6 @@ const pickLongerArray = <T>(incoming: T[] | undefined, existing: T[] | undefined
 
 const mergeGroupedMultipartResult = (existing: ScrapeResult, incoming: ScrapeResult): ScrapeResult => {
   return {
-    ...existing,
-    ...incoming,
     id: existing.id,
     status: existing.status,
     number: existing.number,

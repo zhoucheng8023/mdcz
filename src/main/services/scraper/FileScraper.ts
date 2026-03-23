@@ -183,6 +183,7 @@ export class FileScraper {
               sources: aggregationResult.sources,
               videoMeta,
               fileInfo,
+              localState: existingNfoLocalState,
             });
           }
         }

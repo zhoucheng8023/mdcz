@@ -38,7 +38,12 @@ export class ActorPhotoMaterializer {
       try {
         await symlink(sourcePath, targetPath, "file");
       } catch {
-        await copyFile(sourcePath, targetPath);
+        try {
+          await copyFile(sourcePath, targetPath);
+        } catch {
+          await rm(targetPath, { force: true }).catch(() => undefined);
+          return undefined;
+        }
       }
     }
 

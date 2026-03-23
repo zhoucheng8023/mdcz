@@ -198,6 +198,7 @@ export class SymlinkService {
 
       if (copyExtensions.has(extension)) {
         if (!copyFiles) {
+          result.skipped += 1;
           continue;
         }
 
