@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { FileOrganizer } from "@main/services/scraper/FileOrganizer";
+import {
+  buildGeneratedVideoSidecarTargetPath,
+  isGeneratedSidecarVideo,
+} from "@main/services/scraper/generatedSidecarVideos";
 import * as fileUtils from "@main/utils/file";
 import { Website } from "@shared/enums";
 import type { CrawlerData, FileInfo } from "@shared/types";
@@ -470,6 +474,20 @@ describe("FileOrganizer naming settings", () => {
     await expectPathExists(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.mp4"));
     await expectPathExists(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.zh.srt"));
     await expect(access(subtitlePath)).rejects.toThrow();
+  });
+
+  it("identifies generated FC2 sidecars and builds paths from the shared movie base name", () => {
+    expect(isGeneratedSidecarVideo("FC2-123456_gift.mp4")).toBe(true);
+    expect(
+      buildGeneratedVideoSidecarTargetPath(
+        {
+          path: "FC2-123456-花絮.mp4",
+          suffix: "-花絮",
+        },
+        "/library/FC2-123456",
+        "FC2-123456",
+      ),
+    ).toBe(join("/library/FC2-123456", "FC2-123456-花絮.mp4"));
   });
 
   it("moves generated FC2 feature videos alongside successful movie moves", async () => {

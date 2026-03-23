@@ -1,4 +1,5 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -6,31 +7,41 @@ import {
   findSubtitleSidecars,
   getPreferredSubtitleTagFromSidecars,
 } from "@main/services/scraper/subtitleSidecars";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  return {
+    ...actual,
+    readdir: vi.fn(actual.readdir),
+    stat: vi.fn(actual.stat),
+  };
+});
 
 const tempDirs: string[] = [];
 
 const createTempDir = async (): Promise<string> => {
-  const dirPath = await mkdtemp(join(tmpdir(), "mdcz-subtitle-sidecars-"));
+  const dirPath = await fsPromises.mkdtemp(join(tmpdir(), "mdcz-subtitle-sidecars-"));
   tempDirs.push(dirPath);
   return dirPath;
 };
 
 describe("subtitleSidecars", () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(
-      tempDirs.splice(0, tempDirs.length).map((dirPath) => rm(dirPath, { recursive: true, force: true })),
+      tempDirs.splice(0, tempDirs.length).map((dirPath) => fsPromises.rm(dirPath, { recursive: true, force: true })),
     );
   });
 
   it("distinguishes unlabeled and Chinese subtitle sidecars", async () => {
     const root = await createTempDir();
     const videoPath = join(root, "ABC-123.mp4");
-    await writeFile(videoPath, "video");
-    await writeFile(join(root, "ABC-123.srt"), "subtitle");
-    await writeFile(join(root, "ABC-123-C.srt"), "subtitle");
-    await writeFile(join(root, "ABC-123.zh.ass"), "subtitle");
-    await writeFile(join(root, "ABC-123.sc.vtt"), "subtitle");
+    await fsPromises.writeFile(videoPath, "video");
+    await fsPromises.writeFile(join(root, "ABC-123.srt"), "subtitle");
+    await fsPromises.writeFile(join(root, "ABC-123-C.srt"), "subtitle");
+    await fsPromises.writeFile(join(root, "ABC-123.zh.ass"), "subtitle");
+    await fsPromises.writeFile(join(root, "ABC-123.sc.vtt"), "subtitle");
 
     const sidecars = await findSubtitleSidecars(videoPath);
 
@@ -42,9 +53,9 @@ describe("subtitleSidecars", () => {
   it("does not bind shared partless subtitles to multipart video files", async () => {
     const root = await createTempDir();
     const partVideoPath = join(root, "ABC-123-cd1.mp4");
-    await writeFile(partVideoPath, "video");
-    await writeFile(join(root, "ABC-123.srt"), "subtitle");
-    await writeFile(join(root, "ABC-123-cd1.zh.srt"), "subtitle");
+    await fsPromises.writeFile(partVideoPath, "video");
+    await fsPromises.writeFile(join(root, "ABC-123.srt"), "subtitle");
+    await fsPromises.writeFile(join(root, "ABC-123-cd1.zh.srt"), "subtitle");
 
     const sidecars = await findSubtitleSidecars(partVideoPath);
 
@@ -65,9 +76,16 @@ describe("subtitleSidecars", () => {
     const subtitleTargetPath = join(root, "linked-subtitle.srt");
     const subtitleLinkPath = join(root, "ABC-123.zh.srt");
 
-    await writeFile(videoPath, "video");
-    await writeFile(subtitleTargetPath, "subtitle");
-    await symlink(subtitleTargetPath, subtitleLinkPath);
+    const fakeDirent = {
+      name: "ABC-123.zh.srt",
+      isFile: () => false,
+      isDirectory: () => false,
+      isSymbolicLink: () => true,
+    } as Dirent;
+    vi.mocked(fsPromises.readdir).mockResolvedValue([fakeDirent] as any);
+    vi.mocked(fsPromises.stat).mockResolvedValue({
+      isFile: () => true,
+    } as any);
 
     const sidecars = await findSubtitleSidecars(videoPath);
 
