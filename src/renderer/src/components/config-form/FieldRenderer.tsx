@@ -277,6 +277,7 @@ export function CookieFieldWrapper({
           <FormControl>
             <Textarea
               {...field}
+              autoSize={false}
               value={field.value ?? ""}
               className="min-h-[80px] font-mono text-xs bg-background/50 focus:bg-background transition-all resize-none border-input/50"
             />

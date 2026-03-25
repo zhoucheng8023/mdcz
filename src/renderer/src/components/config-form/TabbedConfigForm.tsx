@@ -454,7 +454,7 @@ function NamingPreview() {
         {previews.map((p) => (
           <div key={p.label} className="text-xs">
             <span className="mr-2 inline-block min-w-[4em] text-muted-foreground">{p.label}</span>
-            <span className="font-mono text-[11px]">
+            <span className="font-mono">
               {p.folder}/{p.file}
             </span>
           </div>
