@@ -1,3 +1,4 @@
+import { isJapanese } from "@main/utils/language";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
@@ -6,6 +7,8 @@ import { parseDate } from "../base/parser";
 import type { Context, SearchPageResolution } from "../base/types";
 import { BaseFc2Crawler } from "./BaseFc2Crawler";
 import { toAbsoluteUrl } from "./helpers";
+
+const CJK_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/u;
 
 const BASE_URL = "https://adult.contents.fc2.com";
 
@@ -32,7 +35,7 @@ export class Fc2Crawler extends BaseFc2Crawler {
 
   protected async parseDetailPage(context: Context, $: CheerioAPI): Promise<CrawlerData | null> {
     const title = $("div[data-section='userInfo'] h3").first().text().trim();
-    if (!title) {
+    if (!title || (!isJapanese(title) && !CJK_PATTERN.test(title))) {
       return null;
     }
 

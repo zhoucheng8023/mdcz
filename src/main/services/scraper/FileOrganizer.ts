@@ -1,5 +1,5 @@
 import { readdir, rm, stat } from "node:fs/promises";
-import { dirname, join, normalize, parse, resolve } from "node:path";
+import { dirname, join, normalize, parse, resolve, sep } from "node:path";
 
 import type { Configuration } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
@@ -246,9 +246,17 @@ export class FileOrganizer {
   plan(fileInfo: FileInfo, data: CrawlerData, config: Configuration, localState?: NfoLocalState): OrganizePlan {
     const sourceVideo = parse(fileInfo.filePath);
     const layout = buildNamingLayout(fileInfo, data, config, localState);
-    const outputDir = config.behavior.successFileMove
-      ? join(this.resolveBaseOutput(fileInfo, config), layout.folderRelativePath)
-      : sourceVideo.dir;
+
+    let outputDir: string;
+    if (config.behavior.successFileMove) {
+      const baseOutput = this.resolveBaseOutput(fileInfo, config);
+      const sourceDir = resolve(sourceVideo.dir);
+      const isAlreadyInOutput = sourceDir.startsWith(resolve(baseOutput) + sep);
+      outputDir = isAlreadyInOutput ? sourceDir : join(baseOutput, layout.folderRelativePath);
+    } else {
+      outputDir = sourceVideo.dir;
+    }
+
     const targetVideoPath = join(outputDir, layout.targetVideoFileName);
     const nfoPath = join(outputDir, layout.nfoFileName);
 

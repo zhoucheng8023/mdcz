@@ -94,8 +94,10 @@ export class TranslateService {
     const titleTarget = toTarget(config.translate.titleLanguage);
     const plotTarget = toTarget(config.translate.plotLanguage);
 
-    const title_zh = await this.translateText(data.title, titleTarget, config, signal);
-    const plot_zh = data.plot ? await this.translateText(data.plot, plotTarget, config, signal) : undefined;
+    const titleTranslated = await this.translateText(data.title, titleTarget, config, signal);
+    const title_zh = detectLanguage(titleTranslated) !== "other" ? titleTranslated : undefined;
+    const plotTranslated = data.plot ? await this.translateText(data.plot, plotTarget, config, signal) : undefined;
+    const plot_zh = plotTranslated && detectLanguage(plotTranslated) !== "other" ? plotTranslated : undefined;
 
     throwIfAborted(signal);
 
@@ -324,7 +326,8 @@ export class TranslateService {
       }
     }
 
-    return ensureTargetChinese(text, target);
+    this.logger.warn(`All translation engines failed, returning original text`);
+    return text;
   }
 
   private async translateWithOpenAi(
