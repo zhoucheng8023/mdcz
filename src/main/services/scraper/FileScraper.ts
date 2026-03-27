@@ -18,7 +18,7 @@ import type { FileOrganizer, OrganizePlan } from "./FileOrganizer";
 import { resolveFileInfoWithSubtitles } from "./fileInfoWithSubtitles";
 import { isGeneratedSidecarVideo } from "./generatedSidecarVideos";
 import { LocalScanService } from "./maintenance/LocalScanService";
-import type { NfoGenerator } from "./NfoGenerator";
+import { type NfoGenerator, reconcileExistingNfoFiles } from "./NfoGenerator";
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
 import type { TranslateService } from "./TranslateService";
@@ -175,15 +175,18 @@ export class FileScraper {
         const preparedData = this.applyDownloadedSceneImageMetadata(preparedOutputData.data, resolvedSceneImageUrls);
         let savedNfoPath: string | undefined;
         if (configuration.download.generateNfo) {
-          if (configuration.download.keepNfo && (await pathExists(plan.nfoPath))) {
-            savedNfoPath = plan.nfoPath;
-          } else {
+          if (configuration.download.keepNfo) {
+            savedNfoPath = await reconcileExistingNfoFiles(plan.nfoPath, configuration.download.nfoNaming);
+          }
+          if (!savedNfoPath) {
             savedNfoPath = await this.deps.nfoGenerator.writeNfo(plan.nfoPath, preparedData, {
               assets,
               sources: aggregationResult.sources,
               videoMeta,
               fileInfo,
               localState: existingNfoLocalState,
+              nfoNaming: configuration.download.nfoNaming,
+              nfoTitleTemplate: configuration.naming.nfoTitleTemplate,
             });
           }
         }

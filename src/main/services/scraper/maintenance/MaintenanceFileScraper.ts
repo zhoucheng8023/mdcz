@@ -129,6 +129,7 @@ export class MaintenanceFileScraper {
         preparedCrawlerData,
         assets,
         aggregationSources,
+        config,
       );
 
       throwIfAborted(signal);
@@ -145,6 +146,7 @@ export class MaintenanceFileScraper {
         savedNfoPath,
         preparedActorPhotoPaths,
         assetDecisions: committed?.assetDecisions,
+        nfoNaming: config.download.nfoNaming,
       });
       const resolvedAssets = this.artifactResolver.toDownloadedAssets(assets, resolvedArtifacts.assets);
       const updatedEntry = this.buildUpdatedEntry(entry, preparedCrawlerData, {
@@ -333,6 +335,7 @@ export class MaintenanceFileScraper {
     preparedCrawlerData: CrawlerData | undefined,
     assets: DownloadedAssets,
     aggregationSources: PreparedMaintenanceFile["aggregationSources"],
+    config?: Configuration,
   ): Promise<string | undefined> {
     if (!(this.preset.steps.generateNfo && plan && preparedCrawlerData)) {
       return undefined;
@@ -352,6 +355,8 @@ export class MaintenanceFileScraper {
       videoMeta,
       fileInfo,
       localState: entry.nfoLocalState,
+      nfoNaming: config?.download.nfoNaming,
+      nfoTitleTemplate: config?.naming.nfoTitleTemplate,
     });
   }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
@@ -134,28 +134,46 @@ describe("FileScraper .strm support", () => {
     expect(writeNfo).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps an existing NFO when keepNfo is enabled", async () => {
-    const root = await createTempDir();
-    const nfoPath = join(root, "ABC-123.nfo");
-    await writeFile(nfoPath, "<movie />", "utf8");
+  it("reuses kept NFO files according to the configured naming mode", async () => {
+    for (const scenario of [
+      {
+        nfoNaming: "filename" as const,
+        shouldSyncMovieAlias: false,
+      },
+      {
+        nfoNaming: "both" as const,
+        shouldSyncMovieAlias: true,
+      },
+    ]) {
+      const root = await createTempDir();
+      const nfoPath = join(root, "ABC-123.nfo");
+      const movieNfoPath = join(root, "movie.nfo");
+      await writeFile(nfoPath, "<movie><title>Kept Title</title></movie>", "utf8");
 
-    const config = createConfig({
-      generateNfo: true,
-      keepNfo: true,
-    });
-    const crawlerData = createCrawlerData();
-    const plan: OrganizePlan = {
-      outputDir: root,
-      targetVideoPath: join(root, "ABC-123.strm"),
-      nfoPath,
-    };
-    const writeNfo = vi.fn().mockResolvedValue(nfoPath);
-    const scraper = createScraper({ config, crawlerData, plan, writeNfo });
+      const config = createConfig({
+        generateNfo: true,
+        keepNfo: true,
+        nfoNaming: scenario.nfoNaming,
+      });
+      const crawlerData = createCrawlerData();
+      const plan: OrganizePlan = {
+        outputDir: root,
+        targetVideoPath: join(root, "ABC-123.strm"),
+        nfoPath,
+      };
+      const writeNfo = vi.fn().mockResolvedValue(nfoPath);
+      const scraper = createScraper({ config, crawlerData, plan, writeNfo });
 
-    const result = await scraper.scrapeFile("/tmp/ABC-123.strm", { fileIndex: 1, totalFiles: 1 });
+      const result = await scraper.scrapeFile("/tmp/ABC-123.strm", { fileIndex: 1, totalFiles: 1 });
 
-    expect(writeNfo).not.toHaveBeenCalled();
-    expect(result.nfoPath).toBe(nfoPath);
+      expect(writeNfo).not.toHaveBeenCalled();
+      expect(result.nfoPath).toBe(nfoPath);
+      if (scenario.shouldSyncMovieAlias) {
+        await expect(readFile(movieNfoPath, "utf8")).resolves.toBe(await readFile(nfoPath, "utf8"));
+        continue;
+      }
+      await expect(readFile(movieNfoPath, "utf8")).rejects.toThrow();
+    }
   });
 
   it("reuses kept NFO local state for planning and uncensored confirmation state", async () => {

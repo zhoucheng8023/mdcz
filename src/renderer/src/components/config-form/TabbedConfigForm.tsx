@@ -89,6 +89,12 @@ const PART_STYLE_OPTIONS: EnumOption[] = [
   { value: "DISC", label: "统一为 DISC1 / DISC2" },
 ];
 
+const NFO_NAMING_OPTIONS: EnumOption[] = [
+  { value: "both", label: "同时生成两种" },
+  { value: "movie", label: "仅 movie.nfo" },
+  { value: "filename", label: "仅 文件名.nfo" },
+];
+
 export const NAMING_TEMPLATE_DESCRIPTION = "可用占位符：{actor} {number} {date} {title} {studio}";
 
 // ── Field registry for search/filter ──
@@ -130,6 +136,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "download.downloadSceneImages", label: "下载剧照", section: "download" },
   { key: "download.downloadTrailer", label: "下载预告片", section: "download" },
   { key: "download.generateNfo", label: "生成 NFO", section: "download" },
+  { key: "download.nfoNaming", label: "NFO 文件命名", section: "download" },
   { key: "download.keepThumb", label: "保留已有横版缩略图", section: "download" },
   { key: "download.keepPoster", label: "保留已有海报", section: "download" },
   { key: "download.keepFanart", label: "保留已有背景图", section: "download" },
@@ -139,6 +146,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   // naming
   { key: "naming.folderTemplate", label: "文件夹模板", section: "naming" },
   { key: "naming.fileTemplate", label: "文件名模板", section: "naming" },
+  { key: "naming.nfoTitleTemplate", label: "NFO 标题模板", section: "naming" },
   { key: "naming.actorNameMax", label: "演员名最大数量", section: "naming" },
   { key: "naming.actorNameMore", label: "演员名超出后缀", section: "naming" },
   { key: "naming.releaseRule", label: "发行日期格式", section: "naming" },
@@ -379,6 +387,14 @@ function DownloadSection(_props: SectionRenderProps) {
       <BoolField name="download.downloadSceneImages" label="下载剧照" />
       <BoolField name="download.downloadTrailer" label="下载预告片" />
       <BoolField name="download.generateNfo" label="生成 NFO" />
+      {generateNfo && (
+        <EnumField
+          name="download.nfoNaming"
+          label="NFO 文件命名"
+          description="movie.nfo 兼容性最好，文件名.nfo 适合同目录多视频场景"
+          options={NFO_NAMING_OPTIONS}
+        />
+      )}
       {downloadThumb && <BoolField name="download.keepThumb" label="保留已有横版缩略图" />}
       {downloadPoster && <BoolField name="download.keepPoster" label="保留已有海报" />}
       {downloadFanart && <BoolField name="download.keepFanart" label="保留已有背景图" />}
@@ -468,6 +484,11 @@ export function NamingSection(_props: SectionRenderProps) {
     <>
       <TextField name="naming.folderTemplate" label="文件夹模板" description={NAMING_TEMPLATE_DESCRIPTION} />
       <TextField name="naming.fileTemplate" label="文件名模板" description={NAMING_TEMPLATE_DESCRIPTION} />
+      <TextField
+        name="naming.nfoTitleTemplate"
+        label="NFO 标题模板"
+        description="NFO 中 title 字段的格式。可用占位符：{number} {title}"
+      />
       <NamingPreview />
       <NumberField name="naming.actorNameMax" label="演员名最大数量" min={1} max={20} />
       <TextField name="naming.actorNameMore" label="演员名超出后缀" />

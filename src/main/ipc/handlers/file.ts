@@ -1,10 +1,11 @@
 import { lstat, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ServiceContainer } from "@main/container";
+import { configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config/ConfigManager";
 import { loggerService } from "@main/services/LoggerService";
-import { nfoGenerator } from "@main/services/scraper/NfoGenerator";
+import { findExistingNfoPath, nfoGenerator } from "@main/services/scraper/NfoGenerator";
 import { toErrorMessage } from "@main/utils/common";
-import { pathExists } from "@main/utils/file";
 import { parseNfo, parseNfoSnapshot } from "@main/utils/nfo";
 import { IpcChannel } from "@shared/IpcChannel";
 import type { IpcRouterContract } from "@shared/ipcContract";
@@ -171,10 +172,16 @@ export const createFileHandlers = (
           if (!nfoPath || !data) {
             throw createIpcError(IpcErrorCode.FILE_WRITE_ERROR, "NFO path and data are required");
           }
-          const existingSnapshot = (await pathExists(nfoPath))
-            ? parseNfoSnapshot(await readFile(nfoPath, "utf8")).localState
+          const config = configurationSchema.parse(await configManager.get());
+          const existingNfoPath = await findExistingNfoPath(nfoPath, config.download.nfoNaming);
+          const existingSnapshot = existingNfoPath
+            ? parseNfoSnapshot(await readFile(existingNfoPath, "utf8")).localState
             : undefined;
-          await nfoGenerator.writeNfo(nfoPath, data, { localState: existingSnapshot });
+          await nfoGenerator.writeNfo(nfoPath, data, {
+            localState: existingSnapshot,
+            nfoNaming: config.download.nfoNaming,
+            nfoTitleTemplate: config.naming.nfoTitleTemplate,
+          });
           return { success: true as const };
         } catch (error) {
           throw asSerializableIpcError(error);

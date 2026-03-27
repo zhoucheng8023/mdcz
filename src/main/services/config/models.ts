@@ -21,6 +21,7 @@ const DEFAULT_ENABLED_SITES: Website[] = [
 
 const DEFAULT_SITE_ORDER: Website[] = [...DEFAULT_ENABLED_SITES];
 const PART_STYLE_OPTIONS = ["RAW", "CD", "PART", "DISC"] as const;
+const NFO_NAMING_OPTIONS = ["both", "movie", "filename"] as const;
 
 const networkSchema = z.object({
   proxyType: z.enum(ProxyType).default(ProxyType.NONE),
@@ -49,6 +50,7 @@ const scrapeSchema = z.object({
 const namingSchema = z.object({
   folderTemplate: z.string().default("{actor}/{number}"),
   fileTemplate: z.string().default("{number}"),
+  nfoTitleTemplate: z.string().default("{title}"),
   actorNameMax: z.number().int().min(1).max(20).default(3),
   actorNameMore: z.string().default("等演员"),
   releaseRule: z.string().default("YYYY-MM-DD"),
@@ -91,6 +93,7 @@ const downloadSchema = z.object({
   downloadSceneImages: z.boolean().default(true),
   downloadTrailer: z.boolean().default(true),
   generateNfo: z.boolean().default(true),
+  nfoNaming: z.enum(NFO_NAMING_OPTIONS).default("both"),
   sceneImageConcurrency: z.number().int().min(1).max(20).default(5),
   keepThumb: z.boolean().default(true),
   keepPoster: z.boolean().default(true),

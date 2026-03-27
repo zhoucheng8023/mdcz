@@ -1,3 +1,5 @@
+import { realpath } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
 import { type Configuration, configManager, configurationSchema } from "@main/services/config";
@@ -122,6 +124,27 @@ const uniquePaths = (paths: string[]): string[] => {
     outputs.push(trimmed);
   }
   return outputs;
+};
+
+const toComparablePath = (filePath: string): string =>
+  process.platform === "win32" ? filePath.toLowerCase() : filePath;
+
+const isPathWithinDirectory = (filePath: string, directoryPath: string): boolean =>
+  filePath === directoryPath || filePath.startsWith(`${directoryPath}${sep}`);
+
+const collectComparablePaths = async (filePath: string, includeRealPath: boolean): Promise<string[]> => {
+  const comparablePaths = new Set<string>([toComparablePath(resolve(filePath))]);
+  if (!includeRealPath) {
+    return [...comparablePaths];
+  }
+
+  try {
+    comparablePaths.add(toComparablePath(await realpath(filePath)));
+  } catch {
+    // Ignore missing/broken realpath targets and fall back to the resolved path.
+  }
+
+  return [...comparablePaths];
 };
 
 export class ScraperService {
@@ -289,6 +312,29 @@ export class ScraperService {
       return filePath ? [filePath] : [];
     }
 
+    const includeRealPathComparisons = configuration.behavior.scrapeSoftlinkPath;
+    // Build the set of resolved output directory paths to exclude.
+    // Only exclude output dirs that are direct children of each scan root
+    // (or of mediaPath if set), not arbitrary nested dirs with the same name.
+    const excludePaths = new Set<string>();
+    const successFolder = configuration.paths.successOutputFolder.trim();
+    const failedFolder = configuration.paths.failedOutputFolder.trim();
+    const mediaRoot = configuration.paths.mediaPath.trim();
+
+    for (const dirPath of paths) {
+      const base = mediaRoot.length > 0 ? mediaRoot : dirPath;
+      if (successFolder) {
+        for (const excludePath of await collectComparablePaths(join(base, successFolder), includeRealPathComparisons)) {
+          excludePaths.add(excludePath);
+        }
+      }
+      if (failedFolder) {
+        for (const excludePath of await collectComparablePaths(join(base, failedFolder), includeRealPathComparisons)) {
+          excludePaths.add(excludePath);
+        }
+      }
+    }
+
     const outputs: string[] = [];
     for (const dirPath of paths) {
       try {
@@ -315,10 +361,30 @@ export class ScraperService {
     }
 
     const uniqueOutputPaths = uniquePaths(outputs);
-    const filteredOutputPaths = uniqueOutputPaths.filter((filePath) => !isGeneratedSidecarVideo(filePath));
-    const skippedGeneratedCount = uniqueOutputPaths.length - filteredOutputPaths.length;
-    if (skippedGeneratedCount > 0) {
-      this.logger.info(`Skipped ${skippedGeneratedCount} generated sidecar video(s) from batch scrape queue`);
+    const filteredOutputPaths: string[] = [];
+    for (const filePath of uniqueOutputPaths) {
+      if (isGeneratedSidecarVideo(filePath)) {
+        continue;
+      }
+
+      const comparablePaths = await collectComparablePaths(filePath, includeRealPathComparisons);
+      const isExcluded = comparablePaths.some((candidatePath) => {
+        for (const excludePath of excludePaths) {
+          if (isPathWithinDirectory(candidatePath, excludePath)) {
+            return true;
+          }
+        }
+        return false;
+      });
+      if (!isExcluded) {
+        filteredOutputPaths.push(filePath);
+      }
+    }
+    const skippedCount = uniqueOutputPaths.length - filteredOutputPaths.length;
+    if (skippedCount > 0) {
+      this.logger.info(
+        `Skipped ${skippedCount} file(s) in output directories or generated sidecars from batch scrape queue`,
+      );
     }
 
     return filteredOutputPaths;

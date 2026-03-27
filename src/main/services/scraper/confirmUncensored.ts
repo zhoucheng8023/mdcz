@@ -177,6 +177,8 @@ export const confirmUncensoredItems = async (
         {
           fileInfo: sharedFileInfo,
           localState: sharedSeed.nextLocalState,
+          nfoNaming: config.download.nfoNaming,
+          nfoTitleTemplate: config.naming.nfoTitleTemplate,
         },
       );
     } catch (error) {

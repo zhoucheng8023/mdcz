@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NfoGenerator } from "@main/services/scraper/NfoGenerator";
+import { findExistingNfoPath, NfoGenerator } from "@main/services/scraper/NfoGenerator";
 import { parseNfo } from "@main/utils/nfo";
 import { Website } from "@shared/enums";
 import type { CrawlerData, DownloadedAssets, FileInfo } from "@shared/types";
@@ -324,5 +324,15 @@ describe("NfoGenerator", () => {
 
     await expect(readFile(nfoPath, "utf8")).resolves.toContain("<title>Sample Title</title>");
     await expect(readFile(movieNfoPath, "utf8")).resolves.toBe(await readFile(nfoPath, "utf8"));
+  });
+
+  it("finds an existing movie.nfo when movie naming mode is enabled", async () => {
+    const root = await createTempDir();
+    const nfoPath = join(root, "ABC-123.nfo");
+    const movieNfoPath = join(root, "movie.nfo");
+
+    await writeFile(movieNfoPath, "<movie />", "utf8");
+
+    await expect(findExistingNfoPath(nfoPath, "movie")).resolves.toBe(movieNfoPath);
   });
 });

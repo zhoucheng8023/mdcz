@@ -9,6 +9,7 @@ const createConfig = (): Configuration =>
     download: {
       generateNfo: true,
     },
+    naming: {},
     paths: {
       sceneImagesFolder: "extrafanart",
     },

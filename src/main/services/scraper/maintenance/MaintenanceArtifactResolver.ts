@@ -1,9 +1,10 @@
-import { copyFile, unlink } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { loggerService } from "@main/services/LoggerService";
 import { moveFileSafely, pathExists } from "@main/utils/file";
 import type { DiscoveredAssets, DownloadedAssets, LocalScanEntry, MaintenanceAssetDecisions } from "@shared/types";
 import type { OrganizePlan } from "../FileOrganizer";
+import { reconcileExistingNfoFiles, resolveCanonicalNfoPath } from "../NfoGenerator";
 
 interface ResolvedMaintenanceArtifacts {
   nfoPath?: string;
@@ -21,6 +22,7 @@ export class MaintenanceArtifactResolver {
     savedNfoPath?: string;
     preparedActorPhotoPaths?: string[];
     assetDecisions?: MaintenanceAssetDecisions;
+    nfoNaming?: "both" | "movie" | "filename";
   }): Promise<ResolvedMaintenanceArtifacts> {
     if (!input.plan) {
       const nfoPath = input.savedNfoPath ?? input.entry.nfoPath;
@@ -42,7 +44,7 @@ export class MaintenanceArtifactResolver {
     }
 
     const outputDir = dirname(input.outputVideoPath);
-    const nfoPath = await this.resolveNfoPath(input.entry, input.plan, input.savedNfoPath);
+    const nfoPath = await this.resolveNfoPath(input.entry, input.plan, input.savedNfoPath, input.nfoNaming);
 
     return {
       nfoPath,
@@ -82,17 +84,20 @@ export class MaintenanceArtifactResolver {
     entry: LocalScanEntry,
     plan: OrganizePlan,
     savedNfoPath?: string,
+    nfoNaming: "both" | "movie" | "filename" = "both",
   ): Promise<string | undefined> {
     if (savedNfoPath) {
       await this.removeStaleOriginalNfo(entry.nfoPath, savedNfoPath);
       return savedNfoPath;
     }
 
-    const movedNfoPath = await this.moveKnownAsset(entry.nfoPath, plan.nfoPath);
-    if (movedNfoPath) {
-      await this.ensureMovieNfoAlias(movedNfoPath);
+    const targetNfoPath = resolveCanonicalNfoPath(plan.nfoPath, nfoNaming);
+    const movedNfoPath = await this.moveKnownAsset(entry.nfoPath, targetNfoPath);
+    if (!movedNfoPath) {
+      return undefined;
     }
-    return movedNfoPath;
+    await this.removeStaleOriginalNfo(entry.nfoPath, movedNfoPath);
+    return await reconcileExistingNfoFiles(plan.nfoPath, nfoNaming);
   }
 
   private async resolvePrimaryAsset(
@@ -194,20 +199,6 @@ export class MaintenanceArtifactResolver {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(`Failed to remove stale NFO ${stalePath}: ${message}`);
       }
-    }
-  }
-
-  private async ensureMovieNfoAlias(nfoPath: string): Promise<void> {
-    const movieNfoPath = join(dirname(nfoPath), "movie.nfo");
-    if (movieNfoPath === nfoPath || !(await pathExists(nfoPath))) {
-      return;
-    }
-
-    try {
-      await copyFile(nfoPath, movieNfoPath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`Failed to sync movie.nfo alias for ${nfoPath}: ${message}`);
     }
   }
 }

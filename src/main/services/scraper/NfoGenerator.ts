@@ -1,9 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { toArray } from "@main/utils/common";
+import { pathExists } from "@main/utils/file";
 import { classifyMovie } from "@main/utils/movieClassification";
 import { buildManagedMovieTags } from "@main/utils/movieMetadata";
 import { normalizeNfoLocalState, uncensoredChoiceToTag } from "@main/utils/nfoLocalState";
+import { renderPathTemplate } from "@main/utils/path";
 import { resolveFileInfoSubtitleTag } from "@main/utils/subtitles";
 import type { ActorProfile, CrawlerData, DownloadedAssets, FileInfo, NfoLocalState, VideoMeta } from "@shared/types";
 import { XMLBuilder } from "fast-xml-parser";
@@ -19,6 +21,7 @@ const builder = new XMLBuilder({
 
 const OUTLINE_MAX_CHARS = 200;
 const JELLYFIN_MOVIE_NFO_NAME = "movie.nfo";
+type NfoNamingMode = "both" | "movie" | "filename";
 
 const normalizeActorKey = (value: string): string =>
   value
@@ -160,7 +163,7 @@ const buildFanartNode = (
   return { thumb: { "#text": primaryFanartUrl } };
 };
 
-const buildMdczNode = (data: CrawlerData): Record<string, unknown> | undefined => {
+const buildMdczNode = (data: CrawlerData, rawTitle?: string): Record<string, unknown> | undefined => {
   const thumbSourceUrl = data.thumb_source_url ?? toRemoteImageSourceUrl(data.thumb_url);
   const posterSourceUrl = data.poster_source_url ?? toRemoteImageSourceUrl(data.poster_url);
   const fanartSourceUrl =
@@ -173,11 +176,19 @@ const buildMdczNode = (data: CrawlerData): Record<string, unknown> | undefined =
     .map((value) => toRemoteImageSourceUrl(value))
     .filter((value): value is string => Boolean(value));
 
-  if (!thumbSourceUrl && !posterSourceUrl && !fanartSourceUrl && !trailerSourceUrl && sceneImageUrls.length === 0) {
+  if (
+    !rawTitle &&
+    !thumbSourceUrl &&
+    !posterSourceUrl &&
+    !fanartSourceUrl &&
+    !trailerSourceUrl &&
+    sceneImageUrls.length === 0
+  ) {
     return undefined;
   }
 
   return {
+    raw_title: rawTitle,
     thumb_source_url: thumbSourceUrl,
     poster_source_url: posterSourceUrl,
     fanart_source_url: fanartSourceUrl,
@@ -192,11 +203,15 @@ export interface NfoOptions {
   videoMeta?: VideoMeta;
   fileInfo?: FileInfo;
   localState?: NfoLocalState;
+  nfoNaming?: NfoNamingMode;
+  nfoTitleTemplate?: string;
 }
 
 export class NfoGenerator {
   buildXml(data: CrawlerData, options?: NfoOptions): string {
-    const title = data.title_zh?.trim() || data.title;
+    const rawTitle = data.title_zh?.trim() || data.title;
+    const titleTemplate = options?.nfoTitleTemplate?.trim() || "{title}";
+    const title = renderPathTemplate(titleTemplate, { title: rawTitle, number: data.number });
     const plot = data.plot_zh?.trim() || data.plot?.trim();
     const outline = plot ? truncateText(plot, OUTLINE_MAX_CHARS) : undefined;
     const assets = options?.assets;
@@ -269,7 +284,10 @@ export class NfoGenerator {
       movie.fanart = fanartNode;
     }
 
-    const mdczNode = buildMdczNode(data);
+    // Store raw title in mdcz node when a non-default template is used,
+    // so that round-tripping through NFO doesn't bake the template into the title.
+    const hasCustomTitleTemplate = titleTemplate !== "{title}";
+    const mdczNode = buildMdczNode(data, hasCustomTitleTemplate ? rawTitle : undefined);
     if (mdczNode) {
       movie.mdcz = mdczNode;
     }
@@ -288,14 +306,144 @@ export class NfoGenerator {
 
   async writeNfo(nfoPath: string, data: CrawlerData, options?: NfoOptions): Promise<string> {
     const xml = this.buildXml(data, options);
-    await mkdir(dirname(nfoPath), { recursive: true });
-    await writeFile(nfoPath, xml, "utf8");
-    await writeFile(join(dirname(nfoPath), JELLYFIN_MOVIE_NFO_NAME), xml, "utf8");
-    return nfoPath;
+    const nfoNaming = options?.nfoNaming ?? "both";
+    const { primaryPath, moviePath, canonicalPath, stalePaths } = getNfoNamingPaths(nfoPath, nfoNaming);
+    await mkdir(dirname(primaryPath), { recursive: true });
+
+    if (nfoNaming === "both") {
+      await writeFile(primaryPath, xml, "utf8");
+      await writeFile(moviePath, xml, "utf8");
+      return canonicalPath;
+    }
+
+    if (nfoNaming === "movie") {
+      await writeFile(moviePath, xml, "utf8");
+      for (const stalePath of stalePaths) {
+        await tryRemoveStaleNfo(stalePath);
+      }
+      return canonicalPath;
+    }
+
+    // nfoNaming === "filename"
+    await writeFile(primaryPath, xml, "utf8");
+    // Remove stale movie.nfo left by a previous "both" or "movie" run
+    for (const stalePath of stalePaths) {
+      await tryRemoveStaleNfo(stalePath);
+    }
+    return canonicalPath;
   }
 }
 
+/**
+ * Resolve the canonical NFO path that should be checked for keepNfo logic.
+ * Returns the path that would actually be written to based on the naming mode.
+ */
+export const resolveCanonicalNfoPath = (nfoPath: string, nfoNaming: NfoNamingMode = "both"): string =>
+  getNfoNamingPaths(nfoPath, nfoNaming).canonicalPath;
+
+/**
+ * Find the best existing NFO path for the requested naming mode.
+ * Prefers the canonical path for the mode, then falls back to the alternate alias.
+ */
+export const findExistingNfoPath = async (
+  nfoPath: string,
+  nfoNaming: NfoNamingMode = "both",
+): Promise<string | undefined> => {
+  const { primaryPath, moviePath, canonicalPath } = getNfoNamingPaths(nfoPath, nfoNaming);
+  const candidates = Array.from(new Set([canonicalPath, primaryPath, moviePath]));
+
+  for (const candidatePath of candidates) {
+    if (await pathExists(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Reconcile an existing NFO set to match the requested naming mode without rewriting XML.
+ * Returns the canonical path when at least one source NFO exists, or undefined otherwise.
+ */
+export const reconcileExistingNfoFiles = async (
+  nfoPath: string,
+  nfoNaming: NfoNamingMode = "both",
+): Promise<string | undefined> => {
+  const { primaryPath, moviePath, canonicalPath, requiredPaths, stalePaths } = getNfoNamingPaths(nfoPath, nfoNaming);
+  const sourcePath = await findExistingNfoPath(nfoPath, nfoNaming);
+  if (!sourcePath) {
+    return undefined;
+  }
+
+  await mkdir(dirname(primaryPath), { recursive: true });
+
+  for (const requiredPath of requiredPaths) {
+    if (requiredPath === sourcePath || (await pathExists(requiredPath))) {
+      continue;
+    }
+    await copyFile(sourcePath, requiredPath);
+  }
+
+  for (const stalePath of stalePaths) {
+    await tryRemoveStaleNfo(stalePath);
+  }
+
+  return canonicalPath;
+};
+
 export const nfoGenerator = new NfoGenerator();
+
+interface NfoNamingPaths {
+  primaryPath: string;
+  moviePath: string;
+  canonicalPath: string;
+  requiredPaths: string[];
+  stalePaths: string[];
+}
+
+const getNfoNamingPaths = (nfoPath: string, nfoNaming: NfoNamingMode): NfoNamingPaths => {
+  const primaryPath = nfoPath;
+  const moviePath = join(dirname(nfoPath), JELLYFIN_MOVIE_NFO_NAME);
+
+  if (nfoNaming === "movie") {
+    return {
+      primaryPath,
+      moviePath,
+      canonicalPath: moviePath,
+      requiredPaths: [moviePath],
+      stalePaths: primaryPath === moviePath ? [] : [primaryPath],
+    };
+  }
+
+  if (nfoNaming === "filename") {
+    return {
+      primaryPath,
+      moviePath,
+      canonicalPath: primaryPath,
+      requiredPaths: [primaryPath],
+      stalePaths: primaryPath === moviePath ? [] : [moviePath],
+    };
+  }
+
+  return {
+    primaryPath,
+    moviePath,
+    canonicalPath: primaryPath,
+    requiredPaths: primaryPath === moviePath ? [primaryPath] : [primaryPath, moviePath],
+    stalePaths: [],
+  };
+};
+
+/** Remove a stale NFO file if it exists. */
+async function tryRemoveStaleNfo(stalePath: string): Promise<void> {
+  try {
+    if (await pathExists(stalePath)) {
+      await rm(stalePath);
+    }
+  } catch {
+    // Best-effort cleanup; not critical if it fails.
+  }
+}
 
 function buildSourceComment(data: CrawlerData, sources: SourceMap): string {
   const lines: string[] = ["\n  Aggregation Sources:"];

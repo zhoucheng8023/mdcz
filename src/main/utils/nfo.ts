@@ -216,6 +216,7 @@ export const parseNfoSnapshot = (xml: string): ParsedNfoSnapshot => {
   const fanartUrl = fanartThumbs[0];
   const mdczNode = toRecord(movieNode.mdcz);
   const mdczSceneImagesNode = toRecord(mdczNode?.scene_images);
+  const mdczRawTitle = toStringValue(mdczNode?.raw_title);
 
   const rating = ratingText ? Number.parseFloat(ratingText) : undefined;
   const durationSeconds = parseDurationSeconds(movieNode);
@@ -224,7 +225,7 @@ export const parseNfoSnapshot = (xml: string): ParsedNfoSnapshot => {
   return {
     crawlerData: {
       title: originaltitle ?? title,
-      title_zh: title,
+      title_zh: mdczRawTitle ?? title,
       number,
       actors,
       actor_profiles: actorProfiles.length > 0 ? actorProfiles : undefined,
