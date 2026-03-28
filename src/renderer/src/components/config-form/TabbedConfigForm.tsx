@@ -387,14 +387,7 @@ function DownloadSection(_props: SectionRenderProps) {
       <BoolField name="download.downloadSceneImages" label="下载剧照" />
       <BoolField name="download.downloadTrailer" label="下载预告片" />
       <BoolField name="download.generateNfo" label="生成 NFO" />
-      {generateNfo && (
-        <EnumField
-          name="download.nfoNaming"
-          label="NFO 文件命名"
-          description="movie.nfo 兼容性最好，文件名.nfo 适合同目录多视频场景"
-          options={NFO_NAMING_OPTIONS}
-        />
-      )}
+      {generateNfo && <EnumField name="download.nfoNaming" label="NFO 文件命名" options={NFO_NAMING_OPTIONS} />}
       {downloadThumb && <BoolField name="download.keepThumb" label="保留已有横版缩略图" />}
       {downloadPoster && <BoolField name="download.keepPoster" label="保留已有海报" />}
       {downloadFanart && <BoolField name="download.keepFanart" label="保留已有背景图" />}

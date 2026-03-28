@@ -13,10 +13,11 @@ import {
   type EmbyBatchResult,
   type EmbyMode,
   EmbyServiceError,
-  fetchPersons,
+  fetchActorPersons,
   getHttpStatus,
   hasPrimaryImage,
   refreshPerson,
+  resolveEmbyUserId,
   toEmbyServiceError,
 } from "./common";
 
@@ -93,18 +94,23 @@ export class EmbyActorPhotoService {
   async run(configuration: Configuration, mode: EmbyMode): Promise<EmbyBatchResult> {
     assertLocalActorImageSourceReady(configuration);
 
-    const persons = await fetchPersons(this.networkClient, configuration);
+    const resolvedUserId = await resolveEmbyUserId(this.networkClient, configuration);
+    const persons = await fetchActorPersons(this.networkClient, configuration, {
+      userId: resolvedUserId,
+    });
     const total = persons.length;
 
     if (total === 0) {
       return {
         processedCount: 0,
         failedCount: 0,
+        skippedCount: 0,
       };
     }
 
     let processedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
     let completed = 0;
 
     this.deps.signalService.resetProgress();
@@ -114,11 +120,12 @@ export class EmbyActorPhotoService {
 
       try {
         if (mode === "missing" && hasPrimaryImage(person)) {
+          skippedCount += 1;
           continue;
         }
 
         if (!actorName) {
-          failedCount += 1;
+          skippedCount += 1;
           continue;
         }
 
@@ -145,7 +152,7 @@ export class EmbyActorPhotoService {
         }
 
         if (!content || !contentType) {
-          failedCount += 1;
+          skippedCount += 1;
           this.deps.signalService.showLogText(`No Emby actor photo source found for ${actorName}`, "warn");
           continue;
         }
@@ -183,12 +190,13 @@ export class EmbyActorPhotoService {
     }
 
     this.deps.signalService.showLogText(
-      `Emby actor photo sync completed. Success: ${processedCount}, Failed: ${failedCount}`,
+      `Emby actor photo sync completed. Total: ${total}, Success: ${processedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}`,
     );
 
     return {
       processedCount,
       failedCount,
+      skippedCount,
     };
   }
 }

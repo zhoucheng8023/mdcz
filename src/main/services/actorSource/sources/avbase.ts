@@ -2,7 +2,7 @@ import type { Configuration } from "@main/services/config";
 import type { NetworkClient } from "@main/services/network";
 import { normalizeActorName, toUniqueActorNames } from "@main/utils/actor";
 import { parseActorBloodType, parseActorCupSize, parseActorDate, parseActorMetricCm } from "@main/utils/actorProfile";
-import { buildUrl, getProperty } from "@main/utils/common";
+import { buildUrl, getProperty, toErrorMessage } from "@main/utils/common";
 import { normalizeText } from "@main/utils/normalization";
 import { mergeActorSourceHints } from "../sourceHints";
 import type { ActorLookupQuery, ActorSourceResult, BaseActorSource } from "../types";
@@ -260,7 +260,7 @@ export class AvbaseActorSource implements BaseActorSource {
         warnings: [],
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       return {
         source: this.name,
         success: false,

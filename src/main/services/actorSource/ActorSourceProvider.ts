@@ -3,6 +3,7 @@ import { loggerService } from "@main/services/LoggerService";
 import { normalizeActorName, toUniqueActorNames } from "@main/utils/actor";
 import { hasActorProfileFieldValue } from "@main/utils/actorProfile";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
+import { toErrorMessage } from "@main/utils/common";
 import { ActorProfileAggregator } from "./ActorProfileAggregator";
 import type { ActorSourceRegistry } from "./registry";
 import { mergeActorSourceHints } from "./sourceHints";
@@ -14,10 +15,6 @@ export interface ActorSourceProviderDependencies {
   registry: ActorSourceRegistry;
   aggregator?: ActorProfileAggregator;
 }
-
-const toErrorMessage = (error: unknown): string => {
-  return error instanceof Error ? error.message : String(error);
-};
 
 const uniqueSourceNames = (configuration: Configuration): ActorSourceName[] => {
   const selected = new Set<ActorSourceName>();

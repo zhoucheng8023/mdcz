@@ -1,6 +1,6 @@
 import { AvjohoActorSource } from "@main/services/actorSource";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import type { NetworkClient } from "@main/services/network";
+import type { NetworkClient, NetworkCookieJar, ResolvedCookie } from "@main/services/network";
 import { describe, expect, it, vi } from "vitest";
 
 const createConfig = (overrides: Record<string, unknown> = {}) =>
@@ -10,7 +10,18 @@ const createConfig = (overrides: Record<string, unknown> = {}) =>
   });
 
 class FakeNetworkClient {
-  readonly getText = vi.fn(async (_url: string) => "");
+  readonly getText = vi.fn(async (url: string) => this.handler(url, this.cookieJar));
+  readonly createSession = vi.fn((options: { cookieJar?: NetworkCookieJar } = {}) => {
+    this.cookieJar = options.cookieJar;
+    return {
+      getText: this.getText,
+    };
+  });
+  readonly setDomainLimit = vi.fn();
+
+  private cookieJar?: NetworkCookieJar;
+
+  constructor(private readonly handler: (url: string, cookieJar?: NetworkCookieJar) => Promise<string> | string) {}
 }
 
 const SEARCH_HTML = `
@@ -51,6 +62,11 @@ const DETAIL_HTML = `
   </html>
 `;
 
+const CHALLENGE_HTML =
+  "<html><body><p>少々お待ちください</p><script>wsidchk</script><p>リクエストが確認されるまでお待ちください</p></body></html>";
+
+const DETAIL_URL = "https://db.avjoho.com/%E5%8C%97%E5%B7%9D%E7%BE%8E%E7%8E%96/";
+
 describe("AvjohoActorSource", () => {
   it("matches canonical names and kana aliases from AVJOHO search results", async () => {
     const cases = [
@@ -67,12 +83,11 @@ describe("AvjohoActorSource", () => {
     ];
 
     for (const { query, searchUrl, assertDetailedProfile } of cases) {
-      const networkClient = new FakeNetworkClient();
-      networkClient.getText.mockImplementation(async (url: string) => {
+      const networkClient = new FakeNetworkClient(async (url: string) => {
         if (url === searchUrl) {
           return SEARCH_HTML;
         }
-        if (url === "https://db.avjoho.com/%E5%8C%97%E5%B7%9D%E7%BE%8E%E7%8E%96/") {
+        if (url === DETAIL_URL) {
           return DETAIL_HTML;
         }
         throw new Error(`Unexpected URL ${url}`);
@@ -115,5 +130,78 @@ describe("AvjohoActorSource", () => {
         expect(result.profile?.description).not.toContain("身長");
       }
     }
+  });
+
+  it("resolves the browser challenge once, retries immediately, and reuses cookies on later lookups", async () => {
+    const cookieResolver = vi.fn(
+      async (): Promise<ResolvedCookie[]> => [
+        {
+          name: "wsidchk",
+          value: "resolved",
+          domain: "db.avjoho.com",
+          path: "/",
+        },
+      ],
+    );
+    const networkClient = new FakeNetworkClient(async (url: string, cookieJar?: NetworkCookieJar) => {
+      const cookies = (await cookieJar?.getCookieString(url)) ?? "";
+      const hasChallengeCookie = cookies.includes("wsidchk=resolved");
+
+      if (url.startsWith("https://db.avjoho.com/?s=")) {
+        return hasChallengeCookie ? SEARCH_HTML : CHALLENGE_HTML;
+      }
+      if (url === DETAIL_URL) {
+        return DETAIL_HTML;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    const source = new AvjohoActorSource({
+      networkClient: networkClient as unknown as NetworkClient,
+      cookieResolver,
+    });
+
+    const first = await source.lookup(createConfig(), { name: "北川美玖" });
+    const second = await source.lookup(createConfig(), { name: "きたがわみく" });
+
+    expect(first.success).toBe(true);
+    expect(first.profile?.name).toBe("北川美玖");
+    expect(first.warnings).toContain(
+      "AVJOHO browser challenge detected for https://db.avjoho.com/?s=%E5%8C%97%E5%B7%9D%E7%BE%8E%E7%8E%96",
+    );
+    expect(first.warnings).toContain(
+      "AVJOHO resolved browser challenge and retried successfully for https://db.avjoho.com/?s=%E5%8C%97%E5%B7%9D%E7%BE%8E%E7%8E%96",
+    );
+
+    expect(second.success).toBe(true);
+    expect(second.profile?.name).toBe("北川美玖");
+    expect(second.warnings).toEqual([]);
+
+    expect(cookieResolver).toHaveBeenCalledTimes(1);
+    expect(networkClient.getText).toHaveBeenCalledTimes(5);
+  });
+
+  it("returns warnings without cooldown when no cookie resolver is available", async () => {
+    const networkClient = new FakeNetworkClient(async () => CHALLENGE_HTML);
+    const source = new AvjohoActorSource({
+      networkClient: networkClient as unknown as NetworkClient,
+    });
+
+    const first = await source.lookup(createConfig(), { name: "北川美玖" });
+    const second = await source.lookup(createConfig(), { name: "七瀬アリス" });
+
+    expect(first.success).toBe(true);
+    expect(first.warnings).toContain(
+      "AVJOHO browser challenge detected for https://db.avjoho.com/?s=%E5%8C%97%E5%B7%9D%E7%BE%8E%E7%8E%96",
+    );
+    expect(first.warnings).toContain(
+      "AVJOHO cookie resolver is unavailable for https://db.avjoho.com/?s=%E5%8C%97%E5%B7%9D%E7%BE%8E%E7%8E%96",
+    );
+
+    expect(second.success).toBe(true);
+    expect(second.warnings).toContain(
+      "AVJOHO browser challenge detected for https://db.avjoho.com/?s=%E4%B8%83%E7%80%AC%E3%82%A2%E3%83%AA%E3%82%B9",
+    );
+    expect(networkClient.getText).toHaveBeenCalledTimes(2);
   });
 });

@@ -369,7 +369,7 @@ export const reconcileExistingNfoFiles = async (
   nfoPath: string,
   nfoNaming: NfoNamingMode = "both",
 ): Promise<string | undefined> => {
-  const { primaryPath, moviePath, canonicalPath, requiredPaths, stalePaths } = getNfoNamingPaths(nfoPath, nfoNaming);
+  const { primaryPath, canonicalPath, requiredPaths, stalePaths } = getNfoNamingPaths(nfoPath, nfoNaming);
   const sourcePath = await findExistingNfoPath(nfoPath, nfoNaming);
   if (!sourcePath) {
     return undefined;

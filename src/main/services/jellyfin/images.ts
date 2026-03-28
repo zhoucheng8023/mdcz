@@ -95,11 +95,13 @@ export class JellyfinActorPhotoService {
       return {
         processedCount: 0,
         failedCount: 0,
+        skippedCount: 0,
       };
     }
 
     let processedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
     let completed = 0;
 
     this.deps.signalService.resetProgress();
@@ -109,11 +111,12 @@ export class JellyfinActorPhotoService {
 
       try {
         if (!actorName) {
-          failedCount += 1;
+          skippedCount += 1;
           continue;
         }
 
         if (mode === "missing" && hasPrimaryImage(person)) {
+          skippedCount += 1;
           continue;
         }
 
@@ -141,7 +144,7 @@ export class JellyfinActorPhotoService {
         }
 
         if (!content || !contentType) {
-          failedCount += 1;
+          skippedCount += 1;
           this.deps.signalService.showLogText(`No Jellyfin actor photo source found for ${actorName}`, "warn");
           continue;
         }
@@ -178,12 +181,13 @@ export class JellyfinActorPhotoService {
     }
 
     this.deps.signalService.showLogText(
-      `Jellyfin actor photo sync completed. Success: ${processedCount}, Failed: ${failedCount}`,
+      `Jellyfin actor photo sync completed. Success: ${processedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}`,
     );
 
     return {
       processedCount,
       failedCount,
+      skippedCount,
     };
   }
 }

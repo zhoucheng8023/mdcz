@@ -16,10 +16,11 @@ import {
   type EmbyMode,
   type EmbyPerson,
   EmbyServiceError,
+  fetchActorPersons,
   fetchPersonDetail,
-  fetchPersons,
   type ItemDetail,
   refreshPerson,
+  resolveEmbyUserId,
   toEmbyServiceError,
   toStringArray,
   toStringRecord,
@@ -42,8 +43,10 @@ export class EmbyActorInfoService {
   }
 
   async run(configuration: Configuration, mode: EmbyMode): Promise<EmbyBatchResult> {
-    const persons = await fetchPersons(this.networkClient, configuration, {
+    const resolvedUserId = await resolveEmbyUserId(this.networkClient, configuration);
+    const persons = await fetchActorPersons(this.networkClient, configuration, {
       fields: ["Overview"],
+      userId: resolvedUserId,
     });
     const total = persons.length;
 
@@ -51,18 +54,20 @@ export class EmbyActorInfoService {
       return {
         processedCount: 0,
         failedCount: 0,
+        skippedCount: 0,
       };
     }
 
     let processedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
     let completed = 0;
 
     this.deps.signalService.resetProgress();
 
     for (const person of persons) {
       try {
-        const detail = await fetchPersonDetail(this.networkClient, configuration, person);
+        const detail = await fetchPersonDetail(this.networkClient, configuration, person, resolvedUserId);
         const existing = normalizeExistingPersonSyncState({
           overview: toStringValue(detail.Overview) ?? person.Overview,
           tags: toStringArray(detail.Tags),
@@ -76,6 +81,7 @@ export class EmbyActorInfoService {
         logActorSourceWarnings(this.logger, person.Name, actorSource.warnings);
         const synced = planPersonSync(actorSource.profile, existing, mode);
         if (!synced.shouldUpdate) {
+          skippedCount += 1;
           continue;
         }
 
@@ -112,12 +118,13 @@ export class EmbyActorInfoService {
     }
 
     this.deps.signalService.showLogText(
-      `Emby actor info sync completed. Success: ${processedCount}, Failed: ${failedCount}`,
+      `Emby actor info sync completed. Total: ${total}, Success: ${processedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}`,
     );
 
     return {
       processedCount,
       failedCount,
+      skippedCount,
     };
   }
 
@@ -126,11 +133,24 @@ export class EmbyActorInfoService {
     detail: ItemDetail,
     synced: PlannedPersonSyncState,
   ): Record<string, unknown> {
+    const hasOwn = (key: string): boolean => Object.hasOwn(detail, key);
     const payload: Record<string, unknown> = {
       Id: person.Id,
       Name: toStringValue(detail.Name) ?? person.Name,
       Overview: synced.overview ?? toStringValue(detail.Overview) ?? "",
+      Tags: synced.tags,
+      Taglines: synced.taglines,
     };
+
+    if (hasOwn("ProviderIds")) {
+      payload.ProviderIds = toStringRecord(detail.ProviderIds);
+    }
+    if (hasOwn("LockedFields")) {
+      payload.LockedFields = toStringArray(detail.LockedFields);
+    }
+    if (typeof detail.LockData === "boolean") {
+      payload.LockData = detail.LockData;
+    }
 
     const serverId = toStringValue(detail.ServerId) ?? person.ServerId;
     if (serverId) {
@@ -142,14 +162,10 @@ export class EmbyActorInfoService {
       payload.Genres = genres;
     }
 
-    payload.Tags = synced.tags;
-
-    const providerIds = toStringRecord(detail.ProviderIds);
-    if (Object.keys(providerIds).length > 0) {
-      payload.ProviderIds = providerIds;
+    const type = toStringValue(detail.Type);
+    if (type) {
+      payload.Type = type;
     }
-
-    payload.Taglines = synced.taglines;
 
     if (synced.productionLocations && synced.productionLocations.length > 0) {
       payload.ProductionLocations = synced.productionLocations;

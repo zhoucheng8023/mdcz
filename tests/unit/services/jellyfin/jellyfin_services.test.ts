@@ -272,7 +272,7 @@ describe("Jellyfin services", () => {
       "all",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(networkClient.postText).toHaveBeenCalledTimes(2);
     expect(networkClient.postText.mock.calls[0]?.[0]).toContain("/Items/person-1?");
     expectManagedActorPayload(
@@ -326,7 +326,7 @@ describe("Jellyfin services", () => {
       "all",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(networkClient.getJson).toHaveBeenCalledWith(
       expect.stringContaining("/Users?api_key=token"),
       expect.anything(),
@@ -388,7 +388,7 @@ describe("Jellyfin services", () => {
       "all",
     );
 
-    expect(result).toEqual({ processedCount: 2, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 2, failedCount: 0, skippedCount: 0 });
     expect(
       networkClient.getJson.mock.calls.filter(([url]) => String(url).includes("/Users?api_key=token")),
     ).toHaveLength(1);
@@ -441,7 +441,7 @@ describe("Jellyfin services", () => {
       "all",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(readPostedPayload(networkClient)).toMatchObject({
       Overview: "别名：Alias A",
       Genres: [],
@@ -500,7 +500,7 @@ describe("Jellyfin services", () => {
       "missing",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(networkClient.postText).toHaveBeenCalledTimes(1);
     expectManagedActorPayload(
       readPostedPayload(networkClient),
@@ -568,7 +568,7 @@ describe("Jellyfin services", () => {
       "missing",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(networkClient.postText).toHaveBeenCalledTimes(1);
     expectManagedActorPayload(
       readPostedPayload(networkClient),
@@ -631,7 +631,7 @@ describe("Jellyfin services", () => {
       "all",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(readPostedPayload(networkClient)).toMatchObject({
       Overview: "已有简介\n\n别名：Alias A / Alias B",
     });
@@ -686,7 +686,7 @@ describe("Jellyfin services", () => {
       "all",
     );
 
-    expect(result).toEqual({ processedCount: 1, failedCount: 0 });
+    expect(result).toEqual({ processedCount: 1, failedCount: 0, skippedCount: 0 });
     expect(networkClient.postContent).not.toHaveBeenCalled();
     expect(networkClient.postText).toHaveBeenCalledTimes(3);
 

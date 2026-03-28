@@ -17,7 +17,7 @@ import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
 import { EmbyActorInfoService, EmbyActorPhotoService } from "@main/services/emby";
 import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@main/services/jellyfin";
 import { loggerService } from "@main/services/LoggerService";
-import { NetworkClient } from "@main/services/network";
+import { createElectronCookieResolver, NetworkClient } from "@main/services/network";
 import { ShortcutService } from "@main/services/ShortcutService";
 import { SignalService } from "@main/services/SignalService";
 import { ScraperService } from "@main/services/scraper";
@@ -60,12 +60,15 @@ const ensureMainWindow = async (): Promise<void> => {
     });
     const amazonJpImageService = new AmazonJpImageService(networkClient);
     const actorImageService = new ActorImageService({ networkClient });
+    const avjohoCookieResolver = createElectronCookieResolver({
+      expectedCookieNames: ["wsidchk"],
+    });
     const actorSourceProvider = new ActorSourceProvider({
       registry: new ActorSourceRegistry([
         new LocalActorSource(actorImageService),
         new OfficialActorSource({ networkClient }),
         new GfriendsActorSource({ networkClient }),
-        new AvjohoActorSource({ networkClient }),
+        new AvjohoActorSource({ networkClient, cookieResolver: avjohoCookieResolver }),
         new AvbaseActorSource({ networkClient }),
       ]),
     });

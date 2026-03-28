@@ -1,13 +1,11 @@
 import type { Configuration } from "@main/services/config";
 import type { NetworkClient } from "@main/services/network";
 import { isRecord, isString, toErrorMessage } from "@main/utils/common";
+import type { PersonSyncResult } from "@shared/ipcTypes";
 
 export type EmbyMode = "all" | "missing";
 
-export interface EmbyBatchResult {
-  processedCount: number;
-  failedCount: number;
-}
+export type EmbyBatchResult = PersonSyncResult;
 
 export interface EmbyPerson {
   Id: string;
@@ -17,8 +15,13 @@ export interface EmbyPerson {
   ImageTags?: Record<string, string>;
 }
 
-interface EmbyPersonsResponse {
+interface EmbyListResponse {
   Items?: unknown;
+}
+
+interface EmbyUserResponse {
+  Id?: unknown;
+  Policy?: unknown;
 }
 
 export type ItemDetail = Record<string, unknown>;
@@ -108,7 +111,119 @@ export const toStringRecord = (value: unknown): Record<string, string> => {
   return output;
 };
 
+const ACTOR_PERSON_TYPES = ["Actor", "GuestStar"] as const;
+
+const normalizePersons = (persons: EmbyPerson[]): EmbyPerson[] => {
+  const uniquePersons = new Map<string, EmbyPerson>();
+
+  for (const person of persons) {
+    const normalizedName = person.Name.trim();
+    if (!normalizedName) {
+      continue;
+    }
+
+    uniquePersons.set(person.Id, {
+      ...person,
+      Name: normalizedName,
+    });
+  }
+
+  return Array.from(uniquePersons.values());
+};
+
+const toBooleanValue = (value: unknown): boolean | undefined => {
+  return typeof value === "boolean" ? value : undefined;
+};
+
+const pickEmbyUserId = (users: EmbyUserResponse[]): string | undefined => {
+  let bestId: string | undefined;
+  let bestScore = -1;
+
+  for (const user of users) {
+    const id = toStringValue(user.Id);
+    if (!id) {
+      continue;
+    }
+
+    const policy = isRecord(user.Policy) ? user.Policy : undefined;
+    const isAdministrator = toBooleanValue(policy?.IsAdministrator) ?? false;
+    const enableAllFolders = toBooleanValue(policy?.EnableAllFolders) ?? false;
+    const score = isAdministrator && enableAllFolders ? 3 : isAdministrator ? 2 : enableAllFolders ? 1 : 0;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = id;
+      if (score === 3) {
+        break;
+      }
+    }
+  }
+
+  return bestId;
+};
+
+const fetchAutoResolvedEmbyUserId = async (
+  networkClient: NetworkClient,
+  configuration: Configuration,
+): Promise<string> => {
+  const url = buildEmbyUrl(configuration, "/Users/Query");
+
+  try {
+    const response = await networkClient.getJson<EmbyListResponse>(url, {
+      headers: buildEmbyHeaders(configuration, {
+        accept: "application/json",
+      }),
+    });
+
+    const users = Array.isArray(response.Items) ? (response.Items as EmbyUserResponse[]) : [];
+    const userId = pickEmbyUserId(users);
+    if (!userId) {
+      throw new EmbyServiceError(
+        "EMBY_USER_CONTEXT_REQUIRED",
+        "当前 Emby 服务器要求用户上下文，请在设置中填写 Emby 用户 ID 后重试",
+      );
+    }
+
+    return userId;
+  } catch (error) {
+    if (error instanceof EmbyServiceError) {
+      throw error;
+    }
+
+    throw toEmbyServiceError(
+      error,
+      {
+        401: { code: "EMBY_AUTH_FAILED", message: "Emby API Key 无效，无法读取用户列表" },
+        403: { code: "EMBY_PERMISSION_DENIED", message: "当前 Emby 凭据没有读取用户列表的权限" },
+      },
+      {
+        code: "EMBY_USER_CONTEXT_REQUIRED",
+        message: "当前 Emby 服务器要求用户上下文，请在设置中填写 Emby 用户 ID 后重试",
+      },
+    );
+  }
+};
+
+export const resolveEmbyUserId = async (
+  networkClient: NetworkClient,
+  configuration: Configuration,
+  overrideUserId?: string,
+): Promise<string> => {
+  // This fallback is intentional: newer Emby person APIs can require a user context, so when the
+  // setting is blank we pick a best-effort admin/all-folders user. Deployments that need a
+  // specific library view should set `emby.userId` explicitly instead of relying on auto-resolution.
+  const resolvedUserId = overrideUserId?.trim() || configuration.emby.userId.trim();
+  return resolvedUserId || (await fetchAutoResolvedEmbyUserId(networkClient, configuration));
+};
+
 type EmbyHeadersInit = Headers | Record<string, string> | Array<[string, string]>;
+
+type FetchPersonsOptions = {
+  limit?: number;
+  fields?: string[];
+  userId?: string;
+  personTypes?: string[];
+};
 
 export const buildEmbyUrl = (
   configuration: Configuration,
@@ -152,19 +267,18 @@ export const buildEmbyHeaders = (configuration: Configuration, headers: EmbyHead
 export const fetchPersons = async (
   networkClient: NetworkClient,
   configuration: Configuration,
-  options: {
-    limit?: number;
-    fields?: string[];
-  } = {},
+  options: FetchPersonsOptions = {},
 ): Promise<EmbyPerson[]> => {
+  const userId = options.userId?.trim() || configuration.emby.userId.trim() || undefined;
   const url = buildEmbyUrl(configuration, "/Persons", {
-    userid: configuration.emby.userId.trim() || undefined,
+    userid: userId,
     Limit: options.limit !== undefined ? String(options.limit) : undefined,
     Fields: options.fields?.join(","),
+    PersonTypes: options.personTypes?.join(","),
   });
 
   try {
-    const response = await networkClient.getJson<EmbyPersonsResponse>(url, {
+    const response = await networkClient.getJson<EmbyListResponse>(url, {
       headers: buildEmbyHeaders(configuration, {
         accept: "application/json",
       }),
@@ -174,29 +288,31 @@ export const fetchPersons = async (
       return [];
     }
 
-    return response.Items.flatMap((item): EmbyPerson[] => {
-      if (!isRecord(item)) {
-        return [];
-      }
+    return normalizePersons(
+      response.Items.flatMap((item): EmbyPerson[] => {
+        if (!isRecord(item)) {
+          return [];
+        }
 
-      const id = item.Id;
-      const name = item.Name;
-      if (!isString(id) || !isString(name)) {
-        return [];
-      }
+        const id = item.Id;
+        const name = item.Name;
+        if (!isString(id) || !isString(name)) {
+          return [];
+        }
 
-      const imageTags = isRecord(item.ImageTags) ? toStringRecord(item.ImageTags) : undefined;
+        const imageTags = isRecord(item.ImageTags) ? toStringRecord(item.ImageTags) : undefined;
 
-      return [
-        {
-          Id: id,
-          Name: name,
-          ServerId: isString(item.ServerId) ? item.ServerId : undefined,
-          Overview: toStringValue(item.Overview),
-          ImageTags: imageTags,
-        },
-      ];
-    });
+        return [
+          {
+            Id: id,
+            Name: name,
+            ServerId: isString(item.ServerId) ? item.ServerId : undefined,
+            Overview: toStringValue(item.Overview),
+            ImageTags: imageTags,
+          },
+        ];
+      }),
+    );
   } catch (error) {
     throw toEmbyServiceError(
       error,
@@ -213,12 +329,37 @@ export const fetchPersons = async (
   }
 };
 
+export const fetchActorPersons = async (
+  networkClient: NetworkClient,
+  configuration: Configuration,
+  options: Omit<FetchPersonsOptions, "personTypes"> = {},
+): Promise<EmbyPerson[]> => {
+  const userId = await resolveEmbyUserId(networkClient, configuration, options.userId);
+  return await fetchPersons(networkClient, configuration, {
+    ...options,
+    userId,
+    personTypes: [...ACTOR_PERSON_TYPES],
+  });
+};
+
 export const fetchPersonDetail = async (
   networkClient: NetworkClient,
   configuration: Configuration,
   person: EmbyPerson,
+  userId: string,
 ): Promise<ItemDetail> => {
-  const url = buildEmbyUrl(configuration, `/Items/${encodeURIComponent(person.Id)}`);
+  const resolvedUserId = userId.trim();
+  if (!resolvedUserId) {
+    throw new EmbyServiceError(
+      "EMBY_USER_CONTEXT_REQUIRED",
+      "当前 Emby 服务器要求用户上下文，请先解析并传入 Emby 用户 ID 后重试",
+    );
+  }
+
+  const url = buildEmbyUrl(
+    configuration,
+    `/Users/${encodeURIComponent(resolvedUserId)}/Items/${encodeURIComponent(person.Id)}`,
+  );
 
   try {
     return await networkClient.getJson<ItemDetail>(url, {

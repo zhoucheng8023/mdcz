@@ -2,6 +2,7 @@ import type { Configuration } from "@main/services/config";
 import type { NetworkClient } from "@main/services/network";
 import { normalizeActorName } from "@main/utils/actor";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
+import { toErrorMessage } from "@main/utils/common";
 import type { ActorLookupQuery, ActorSourceResult, BaseActorSource } from "../types";
 
 interface GfriendsResponse {
@@ -100,7 +101,7 @@ export class GfriendsActorSource implements BaseActorSource {
         warnings: [],
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       return {
         source: this.name,
         success: false,

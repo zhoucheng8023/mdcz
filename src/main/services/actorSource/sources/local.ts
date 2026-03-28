@@ -5,6 +5,7 @@ import type { Configuration } from "@main/services/config";
 import { resolveActorPhotoFolderPath } from "@main/services/config/actorPhotoPath";
 import { normalizeActorName } from "@main/utils/actor";
 import { CachedAsyncResolver } from "@main/utils/CachedAsyncResolver";
+import { toErrorMessage } from "@main/utils/common";
 import { listFiles, pathExists } from "@main/utils/file";
 import { parseNfo } from "@main/utils/nfo";
 import type { ActorProfile } from "@shared/types";
@@ -211,7 +212,7 @@ export class LocalActorSource implements BaseActorSource {
         sourceHints: indexed?.sourceHints ?? [],
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       return {
         source: this.name,
         success: false,

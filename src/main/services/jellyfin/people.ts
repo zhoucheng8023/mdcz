@@ -9,6 +9,7 @@ import {
   planPersonSync,
 } from "@main/services/personSync/planner";
 import type { SignalService } from "@main/services/SignalService";
+import type { PersonSyncResult } from "@shared/ipcTypes";
 import { buildJellyfinHeaders, buildJellyfinUrl, isUuid, type JellyfinMode } from "./auth";
 import { JellyfinServiceError, toJellyfinServiceError } from "./errors";
 
@@ -23,10 +24,7 @@ interface JellyfinUserResponse {
 
 type ItemDetail = Record<string, unknown>;
 
-export interface JellyfinBatchResult {
-  processedCount: number;
-  failedCount: number;
-}
+export type JellyfinBatchResult = PersonSyncResult;
 
 export interface JellyfinPerson {
   Id: string;
@@ -442,11 +440,13 @@ export class JellyfinActorInfoService {
       return {
         processedCount: 0,
         failedCount: 0,
+        skippedCount: 0,
       };
     }
 
     let processedCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
     let completed = 0;
 
     this.deps.signalService.resetProgress();
@@ -469,6 +469,7 @@ export class JellyfinActorInfoService {
         logActorSourceWarnings(this.logger, person.Name, source.warnings);
         const synced = planPersonSync(source.profile, existing, mode);
         if (!synced.shouldUpdate) {
+          skippedCount += 1;
           continue;
         }
 
@@ -506,12 +507,13 @@ export class JellyfinActorInfoService {
     }
 
     this.deps.signalService.showLogText(
-      `Jellyfin actor info sync completed. Success: ${processedCount}, Failed: ${failedCount}`,
+      `Jellyfin actor info sync completed. Success: ${processedCount}, Failed: ${failedCount}, Skipped: ${skippedCount}`,
     );
 
     return {
       processedCount,
       failedCount,
+      skippedCount,
     };
   }
 }

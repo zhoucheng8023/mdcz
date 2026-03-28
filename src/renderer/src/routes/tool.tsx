@@ -1,5 +1,10 @@
 import type { Website } from "@shared/enums";
-import type { AmazonPosterScanItem, EmbyConnectionCheckResult, JellyfinConnectionCheckResult } from "@shared/ipcTypes";
+import type {
+  AmazonPosterScanItem,
+  EmbyConnectionCheckResult,
+  JellyfinConnectionCheckResult,
+  PersonSyncResult,
+} from "@shared/ipcTypes";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -161,6 +166,10 @@ function formatBytes(bytes: number) {
     index += 1;
   }
   return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+}
+
+function formatSyncResult(label: string, result: PersonSyncResult) {
+  return `${label}: 成功 ${result.processedCount}，失败 ${result.failedCount}，跳过 ${result.skippedCount}`;
 }
 
 interface PersonToolCardProps {
@@ -630,7 +639,7 @@ function ToolComponent() {
     try {
       const result = await ipc.tool.syncJellyfinActorInfo(jellyfinActorInfoMode);
       setJellyfinSyncProgress(100);
-      showSuccess(`Jellyfin 演员信息同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+      showSuccess(formatSyncResult("Jellyfin 演员信息同步完成", result));
     } catch (error) {
       showError(`Jellyfin 演员信息同步失败: ${formatError(error)}`);
     } finally {
@@ -665,7 +674,7 @@ function ToolComponent() {
     try {
       const result = await ipc.tool.syncJellyfinActorPhoto(jellyfinActorPhotoMode);
       setJellyfinSyncProgress(100);
-      showSuccess(`Jellyfin 头像同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+      showSuccess(formatSyncResult("Jellyfin 头像同步完成", result));
     } catch (error) {
       showError(`Jellyfin 头像同步失败: ${formatError(error)}`);
     } finally {
@@ -700,7 +709,7 @@ function ToolComponent() {
     try {
       const result = await ipc.tool.syncEmbyActorInfo(embyActorInfoMode);
       setEmbySyncProgress(100);
-      showSuccess(`Emby 演员信息同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+      showSuccess(formatSyncResult("Emby 演员信息同步完成", result));
     } catch (error) {
       showError(`Emby 演员信息同步失败: ${formatError(error)}`);
     } finally {
@@ -740,7 +749,7 @@ function ToolComponent() {
     try {
       const result = await ipc.tool.syncEmbyActorPhoto(embyActorPhotoMode);
       setEmbySyncProgress(100);
-      showSuccess(`Emby 头像同步完成: 成功 ${result.processedCount}，失败 ${result.failedCount}`);
+      showSuccess(formatSyncResult("Emby 头像同步完成", result));
     } catch (error) {
       showError(`Emby 头像同步失败: ${formatError(error)}`);
     } finally {

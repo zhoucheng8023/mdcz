@@ -9,6 +9,7 @@ import type {
   EmbyConnectionCheckResult,
   IpcProcedure,
   JellyfinConnectionCheckResult,
+  PersonSyncResult,
   TranslateTestLlmInput,
 } from "./ipcTypes";
 import type {
@@ -104,23 +105,11 @@ export type IpcRouterContract = {
     { message: string }
   >;
   [IpcChannel.Tool_JellyfinServerCheckConnection]: IpcProcedure<void, JellyfinConnectionCheckResult>;
-  [IpcChannel.Tool_JellyfinActorPhotoSync]: IpcProcedure<
-    { mode?: "all" | "missing" },
-    { processedCount: number; failedCount: number }
-  >;
-  [IpcChannel.Tool_JellyfinActorInfoSync]: IpcProcedure<
-    { mode?: "all" | "missing" },
-    { processedCount: number; failedCount: number }
-  >;
+  [IpcChannel.Tool_JellyfinActorPhotoSync]: IpcProcedure<{ mode?: "all" | "missing" }, PersonSyncResult>;
+  [IpcChannel.Tool_JellyfinActorInfoSync]: IpcProcedure<{ mode?: "all" | "missing" }, PersonSyncResult>;
   [IpcChannel.Tool_EmbyServerCheckConnection]: IpcProcedure<void, EmbyConnectionCheckResult>;
-  [IpcChannel.Tool_EmbyActorPhotoSync]: IpcProcedure<
-    { mode?: "all" | "missing" },
-    { processedCount: number; failedCount: number }
-  >;
-  [IpcChannel.Tool_EmbyActorInfoSync]: IpcProcedure<
-    { mode?: "all" | "missing" },
-    { processedCount: number; failedCount: number }
-  >;
+  [IpcChannel.Tool_EmbyActorPhotoSync]: IpcProcedure<{ mode?: "all" | "missing" }, PersonSyncResult>;
+  [IpcChannel.Tool_EmbyActorInfoSync]: IpcProcedure<{ mode?: "all" | "missing" }, PersonSyncResult>;
   [IpcChannel.Tool_ToggleDevTools]: IpcProcedure<void, { success: true }>;
 
   [IpcChannel.Maintenance_Scan]: IpcProcedure<{ dirPath?: string }, { entries: LocalScanEntry[] }>;

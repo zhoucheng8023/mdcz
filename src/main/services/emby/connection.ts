@@ -1,7 +1,14 @@
 import type { Configuration } from "@main/services/config";
 import type { NetworkClient } from "@main/services/network";
 import type { EmbyCheckKey, EmbyCheckStep, EmbyConnectionCheckResult } from "@shared/ipcTypes";
-import { buildEmbyHeaders, buildEmbyUrl, fetchMetadataEditorInfo, fetchPersons, getHttpStatus } from "./common";
+import {
+  buildEmbyHeaders,
+  buildEmbyUrl,
+  fetchMetadataEditorInfo,
+  fetchPersons,
+  getHttpStatus,
+  resolveEmbyUserId,
+} from "./common";
 
 interface PublicSystemInfo {
   ServerName?: string;
@@ -67,7 +74,7 @@ export const checkConnection = async (
   }
 
   try {
-    await networkClient.getJson<Record<string, unknown>>(buildEmbyUrl(configuration, "/Users/Me"), {
+    await networkClient.getJson<Record<string, unknown>>(buildEmbyUrl(configuration, "/System/Endpoint"), {
       headers: buildEmbyHeaders(configuration, {
         accept: "application/json",
       }),
@@ -88,9 +95,11 @@ export const checkConnection = async (
   }
 
   try {
+    const resolvedUserId = await resolveEmbyUserId(networkClient, configuration);
     const persons = await fetchPersons(networkClient, configuration, {
       limit: 1,
       fields: ["Overview"],
+      userId: resolvedUserId,
     });
     personCount = persons.length;
     steps.push(

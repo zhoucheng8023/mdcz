@@ -57,6 +57,12 @@ export type EmbyConnectionCheckResult = {
   personCount?: number;
 };
 
+export type PersonSyncResult = {
+  processedCount: number;
+  failedCount: number;
+  skippedCount: number;
+};
+
 export type AmazonPosterScanItem = {
   nfoPath: string;
   directory: string;

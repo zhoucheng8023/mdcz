@@ -76,7 +76,7 @@ describe("MaintenanceArtifactResolver", () => {
       const moviePath = join(plan.outputDir, "movie.nfo");
       const sourceMoviePath = join(root, "movie.nfo");
 
-      await writeFile(entry.nfoPath!, `<movie><title>${scenario.title}</title></movie>`, "utf8");
+      await writeFile(entry.nfoPath, `<movie><title>${scenario.title}</title></movie>`, "utf8");
       await writeFile(sourceMoviePath, "<movie><title>Stale Alias</title></movie>", "utf8");
 
       const result = await resolver.resolve({

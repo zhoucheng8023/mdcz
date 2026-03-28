@@ -1,5 +1,6 @@
 import type { Configuration } from "@main/services/config";
 import { mergeActorProfiles } from "@main/utils/actorProfile";
+import { toErrorMessage } from "@main/utils/common";
 import { mergeActorSourceHints } from "../../sourceHints";
 import type { ActorLookupQuery, ActorSourceResult, BaseActorSource } from "../../types";
 import { createOfficialAgencyAdapters } from "./agency";
@@ -45,7 +46,7 @@ export class OfficialActorSource implements BaseActorSource {
         }
       } catch (error) {
         hadError = true;
-        const message = error instanceof Error ? error.message : String(error);
+        const message = toErrorMessage(error);
         warnings.push(`Failed to load official actor data from ${adapter.key}: ${message}`);
       }
     }
