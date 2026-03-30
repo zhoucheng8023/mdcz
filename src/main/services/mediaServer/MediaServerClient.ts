@@ -1,6 +1,6 @@
 import type { Configuration } from "@main/services/config";
 import type { NetworkClient } from "@main/services/network";
-import type { MediaServerErrorMapping, MediaServerServiceError } from "./MediaServerError";
+import { getHttpStatus, type MediaServerErrorMapping, type MediaServerServiceError } from "./MediaServerError";
 
 export type MediaServerKey = "jellyfin" | "emby";
 export type MediaServerMode = "all" | "missing";
@@ -104,6 +104,11 @@ interface MediaServerRequestOptions<TError extends MediaServerServiceError> {
   ) => TError;
 }
 
+interface MediaServerRequestErrorMappings {
+  statusMappings: Partial<Record<number, MediaServerErrorMapping>>;
+  fallback: MediaServerErrorMapping;
+}
+
 interface FetchMediaServerPersonsOptions<TPerson, TError extends MediaServerServiceError>
   extends Omit<MediaServerRequestOptions<TError>, "personId"> {
   path?: string;
@@ -115,10 +120,7 @@ interface FetchMediaServerPersonsOptions<TPerson, TError extends MediaServerServ
 
 export const fetchMediaServerPersons = async <TPerson, TError extends MediaServerServiceError>(
   options: FetchMediaServerPersonsOptions<TPerson, TError>,
-  errorMappings: {
-    statusMappings: Partial<Record<number, MediaServerErrorMapping>>;
-    fallback: MediaServerErrorMapping;
-  },
+  errorMappings: MediaServerRequestErrorMappings,
 ): Promise<TPerson[]> => {
   const url = buildMediaServerUrl(options.configuration, options.serverKey, options.path ?? "/Persons", options.query);
 
@@ -147,10 +149,7 @@ export const fetchMediaServerItemDetail = async <
   options: Omit<MediaServerRequestOptions<TError>, "personId"> & {
     path: string;
   },
-  errorMappings: {
-    statusMappings: Partial<Record<number, MediaServerErrorMapping>>;
-    fallback: MediaServerErrorMapping;
-  },
+  errorMappings: MediaServerRequestErrorMappings,
 ): Promise<TDetail> => {
   const url = buildMediaServerUrl(options.configuration, options.serverKey, options.path);
 
@@ -165,12 +164,70 @@ export const fetchMediaServerItemDetail = async <
   }
 };
 
+interface FetchMediaServerResolvedUserIdOptions<TError extends MediaServerServiceError>
+  extends Omit<MediaServerRequestOptions<TError>, "personId"> {
+  path: string;
+  extractUsers: (response: unknown) => Array<{ Id?: unknown; Policy?: unknown }>;
+  pickUserId: (users: ReadonlyArray<{ Id?: unknown; Policy?: unknown }>) => string | undefined;
+  createMissingUserContextError: () => TError;
+}
+
+export const fetchMediaServerResolvedUserId = async <TError extends MediaServerServiceError>(
+  options: FetchMediaServerResolvedUserIdOptions<TError>,
+  errorMappings: MediaServerRequestErrorMappings,
+): Promise<string> => {
+  const url = buildMediaServerUrl(options.configuration, options.serverKey, options.path);
+
+  let response: unknown;
+  try {
+    response = await options.networkClient.getJson<unknown>(url, {
+      headers: buildMediaServerHeaders(options.configuration, options.serverKey, {
+        accept: "application/json",
+      }),
+    });
+  } catch (error) {
+    throw options.toServiceError(error, errorMappings.statusMappings, errorMappings.fallback);
+  }
+
+  const userId = options.pickUserId(options.extractUsers(response));
+  if (!userId) {
+    throw options.createMissingUserContextError();
+  }
+
+  return userId;
+};
+
+export const fetchMediaServerUserScopedItemDetail = async <
+  TDetail extends MediaServerItemDetail,
+  TError extends MediaServerServiceError,
+>(
+  options: Omit<MediaServerRequestOptions<TError>, "personId"> & {
+    personId: string;
+    userId: string;
+    createMissingUserContextError: () => TError;
+  },
+  errorMappings: MediaServerRequestErrorMappings,
+): Promise<TDetail> => {
+  const resolvedUserId = options.userId.trim();
+  if (!resolvedUserId) {
+    throw options.createMissingUserContextError();
+  }
+
+  return await fetchMediaServerItemDetail<TDetail, TError>(
+    {
+      networkClient: options.networkClient,
+      configuration: options.configuration,
+      serverKey: options.serverKey,
+      path: `/Users/${encodeURIComponent(resolvedUserId)}/Items/${encodeURIComponent(options.personId)}`,
+      toServiceError: options.toServiceError,
+    },
+    errorMappings,
+  );
+};
+
 export const fetchMediaServerMetadataEditorInfo = async <TError extends MediaServerServiceError>(
   options: MediaServerRequestOptions<TError>,
-  errorMappings: {
-    statusMappings: Partial<Record<number, MediaServerErrorMapping>>;
-    fallback: MediaServerErrorMapping;
-  },
+  errorMappings: MediaServerRequestErrorMappings,
 ): Promise<Record<string, unknown>> => {
   const url = buildMediaServerUrl(
     options.configuration,
@@ -191,10 +248,7 @@ export const fetchMediaServerMetadataEditorInfo = async <TError extends MediaSer
 
 export const refreshMediaServerPerson = async <TError extends MediaServerServiceError>(
   options: MediaServerRequestOptions<TError>,
-  errorMappings: {
-    statusMappings: Partial<Record<number, MediaServerErrorMapping>>;
-    fallback: MediaServerErrorMapping;
-  },
+  errorMappings: MediaServerRequestErrorMappings,
 ): Promise<void> => {
   const url = buildMediaServerUrl(
     options.configuration,
@@ -222,10 +276,7 @@ export const updateMediaServerItem = async <TError extends MediaServerServiceErr
   options: MediaServerRequestOptions<TError> & {
     payload: Record<string, unknown>;
   },
-  errorMappings: {
-    statusMappings: Partial<Record<number, MediaServerErrorMapping>>;
-    fallback: MediaServerErrorMapping;
-  },
+  errorMappings: MediaServerRequestErrorMappings,
 ): Promise<void> => {
   const url = buildMediaServerUrl(
     options.configuration,
@@ -241,5 +292,59 @@ export const updateMediaServerItem = async <TError extends MediaServerServiceErr
     });
   } catch (error) {
     throw options.toServiceError(error, errorMappings.statusMappings, errorMappings.fallback);
+  }
+};
+
+export const uploadMediaServerPrimaryImage = async <TError extends MediaServerServiceError>(
+  options: Omit<MediaServerRequestOptions<TError>, "personId"> & {
+    personId: string;
+    bytes: Uint8Array;
+    contentType: string;
+    retryableStatuses?: number[];
+    fallbackPath?: string;
+    fallbackQuery?: Record<string, string | undefined>;
+  },
+  errorMappings: MediaServerRequestErrorMappings & {
+    fallbackStatusMappings?: Partial<Record<number, MediaServerErrorMapping>>;
+    fallbackFallback?: MediaServerErrorMapping;
+  },
+): Promise<void> => {
+  const primaryPath = `/Items/${encodeURIComponent(options.personId)}/Images/Primary`;
+  const body = Buffer.from(options.bytes).toString("base64");
+  const headers = buildMediaServerHeaders(options.configuration, options.serverKey, {
+    "content-type": options.contentType,
+  });
+
+  try {
+    await options.networkClient.postText(
+      buildMediaServerUrl(options.configuration, options.serverKey, primaryPath),
+      body,
+      {
+        headers,
+      },
+    );
+    return;
+  } catch (error) {
+    const retryableStatuses = new Set(options.retryableStatuses ?? []);
+    const status = getHttpStatus(error);
+    if (!options.fallbackPath || status === undefined || !retryableStatuses.has(status)) {
+      throw options.toServiceError(error, errorMappings.statusMappings, errorMappings.fallback);
+    }
+  }
+
+  try {
+    await options.networkClient.postText(
+      buildMediaServerUrl(options.configuration, options.serverKey, options.fallbackPath, options.fallbackQuery),
+      body,
+      {
+        headers,
+      },
+    );
+  } catch (error) {
+    throw options.toServiceError(
+      error,
+      errorMappings.fallbackStatusMappings ?? errorMappings.statusMappings,
+      errorMappings.fallbackFallback ?? errorMappings.fallback,
+    );
   }
 };

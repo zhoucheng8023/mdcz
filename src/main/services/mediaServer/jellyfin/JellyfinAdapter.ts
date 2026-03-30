@@ -7,18 +7,18 @@ import {
 } from "@main/services/common/mediaServer";
 import type { Configuration } from "@main/services/config";
 import {
-  buildMediaServerHeaders,
-  buildMediaServerUrl,
-  fetchMediaServerItemDetail,
   fetchMediaServerPersons,
+  fetchMediaServerResolvedUserId,
+  fetchMediaServerUserScopedItemDetail,
   type MediaServerItemDetail,
+  uploadMediaServerPrimaryImage,
 } from "@main/services/mediaServer/MediaServerClient";
 import type { NetworkClient } from "@main/services/network";
 import type { PlannedPersonSyncState } from "@main/services/personSync/planner";
 import { isRecord } from "@main/utils/common";
 import type { PersonSyncResult } from "@shared/ipcTypes";
 import { isUuid, type JellyfinMode } from "./auth";
-import { getHttpStatus, JellyfinServiceError, toJellyfinServiceError } from "./errors";
+import { JellyfinServiceError, toJellyfinServiceError } from "./errors";
 
 export type JellyfinBatchResult = PersonSyncResult;
 export type JellyfinItemDetail = MediaServerItemDetail;
@@ -42,41 +42,32 @@ const fetchAutoResolvedJellyfinUserId = async (
   networkClient: NetworkClient,
   configuration: Configuration,
 ): Promise<string> => {
-  const url = buildMediaServerUrl(configuration, "jellyfin", "/Users");
-
-  try {
-    const response = await networkClient.getJson<unknown>(url, {
-      headers: buildMediaServerHeaders(configuration, "jellyfin", {
-        accept: "application/json",
-      }),
-    });
-    const users = Array.isArray(response) ? response : [];
-    const userId = pickAutoResolvedUserId(users);
-    if (!userId) {
-      throw new JellyfinServiceError(
-        "JELLYFIN_USER_CONTEXT_REQUIRED",
-        "当前 Jellyfin 服务器要求用户上下文，请在设置中填写 Jellyfin 用户 ID 后重试",
-      );
-    }
-
-    return userId;
-  } catch (error) {
-    if (error instanceof JellyfinServiceError) {
-      throw error;
-    }
-
-    throw toJellyfinServiceError(
-      error,
-      {
+  return await fetchMediaServerResolvedUserId(
+    {
+      networkClient,
+      configuration,
+      serverKey: "jellyfin",
+      path: "/Users",
+      extractUsers: (response) => (Array.isArray(response) ? response : []),
+      pickUserId: (users) => pickAutoResolvedUserId(users),
+      createMissingUserContextError: () =>
+        new JellyfinServiceError(
+          "JELLYFIN_USER_CONTEXT_REQUIRED",
+          "当前 Jellyfin 服务器要求用户上下文，请在设置中填写 Jellyfin 用户 ID 后重试",
+        ),
+      toServiceError: toJellyfinServiceError,
+    },
+    {
+      statusMappings: {
         401: { code: "JELLYFIN_AUTH_FAILED", message: "Jellyfin API Key 无效，无法读取用户列表" },
         403: { code: "JELLYFIN_PERMISSION_DENIED", message: "当前 Jellyfin 凭据没有读取用户列表的权限" },
       },
-      {
+      fallback: {
         code: "JELLYFIN_USER_CONTEXT_REQUIRED",
         message: "当前 Jellyfin 服务器要求用户上下文，请在设置中填写 Jellyfin 用户 ID 后重试",
       },
-    );
-  }
+    },
+  );
 };
 
 export const resolveJellyfinUserId = async (
@@ -219,12 +210,18 @@ export const fetchJellyfinPersonDetail = async (
 ): Promise<JellyfinItemDetail> => {
   const userId = options.userId ?? (await resolveJellyfinUserId(networkClient, configuration));
 
-  return await fetchMediaServerItemDetail(
+  return await fetchMediaServerUserScopedItemDetail(
     {
       networkClient,
       configuration,
       serverKey: "jellyfin",
-      path: `/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(person.Id)}`,
+      personId: person.Id,
+      userId,
+      createMissingUserContextError: () =>
+        new JellyfinServiceError(
+          "JELLYFIN_USER_CONTEXT_REQUIRED",
+          "当前 Jellyfin 服务器要求用户上下文，请在设置中填写 Jellyfin 用户 ID 后重试",
+        ),
       toServiceError: toJellyfinServiceError,
     },
     {
@@ -260,36 +257,31 @@ export const uploadJellyfinPrimaryImage = async (
   contentType: string,
 ): Promise<void> => {
   const primaryPath = `/Items/${encodeURIComponent(personId)}/Images/Primary`;
-  const body = Buffer.from(bytes).toString("base64");
-  const headers = buildMediaServerHeaders(configuration, "jellyfin", {
-    "content-type": contentType,
-  });
-  const uploadError = {
-    code: "JELLYFIN_WRITE_FAILED",
-    message: "上传 Jellyfin 人物头像失败",
-  };
-  const uploadStatusMappings = {
-    400: { code: "JELLYFIN_BAD_REQUEST", message: "Jellyfin 拒绝了人物头像上传请求" },
-    401: { code: "JELLYFIN_AUTH_FAILED", message: "Jellyfin 凭据无效，无法上传人物头像" },
-    403: { code: "JELLYFIN_PERMISSION_DENIED", message: "当前 Jellyfin 凭据没有人物头像写入权限" },
-    415: { code: "JELLYFIN_UNSUPPORTED_MEDIA", message: "Jellyfin 不接受当前头像文件类型" },
-  };
-
-  try {
-    await networkClient.postText(buildMediaServerUrl(configuration, "jellyfin", primaryPath), body, { headers });
-    return;
-  } catch (error) {
-    const status = getHttpStatus(error);
-    if (status !== 404 && status !== 405) {
-      throw toJellyfinServiceError(error, uploadStatusMappings, uploadError);
-    }
-  }
-
-  try {
-    await networkClient.postText(buildMediaServerUrl(configuration, "jellyfin", `${primaryPath}/0`), body, { headers });
-  } catch (error) {
-    throw toJellyfinServiceError(error, uploadStatusMappings, uploadError);
-  }
+  await uploadMediaServerPrimaryImage(
+    {
+      networkClient,
+      configuration,
+      serverKey: "jellyfin",
+      personId,
+      bytes,
+      contentType,
+      retryableStatuses: [404, 405],
+      fallbackPath: `${primaryPath}/0`,
+      toServiceError: toJellyfinServiceError,
+    },
+    {
+      statusMappings: {
+        400: { code: "JELLYFIN_BAD_REQUEST", message: "Jellyfin 拒绝了人物头像上传请求" },
+        401: { code: "JELLYFIN_AUTH_FAILED", message: "Jellyfin 凭据无效，无法上传人物头像" },
+        403: { code: "JELLYFIN_PERMISSION_DENIED", message: "当前 Jellyfin 凭据没有人物头像写入权限" },
+        415: { code: "JELLYFIN_UNSUPPORTED_MEDIA", message: "Jellyfin 不接受当前头像文件类型" },
+      },
+      fallback: {
+        code: "JELLYFIN_WRITE_FAILED",
+        message: "上传 Jellyfin 人物头像失败",
+      },
+    },
+  );
 };
 
 export type { JellyfinMode };

@@ -8,14 +8,16 @@ import type { Configuration } from "@main/services/config";
 import {
   buildMediaServerHeaders,
   buildMediaServerUrl,
-  fetchMediaServerItemDetail,
   fetchMediaServerPersons,
+  fetchMediaServerResolvedUserId,
+  fetchMediaServerUserScopedItemDetail,
   type MediaServerHeadersInit,
   type MediaServerItemDetail,
   type MediaServerMode,
   normalizeMediaServerBaseUrl,
   normalizeMediaServerPersons,
   parseMediaServerMode,
+  uploadMediaServerPrimaryImage,
 } from "@main/services/mediaServer/MediaServerClient";
 import {
   getHttpStatus,
@@ -85,41 +87,32 @@ const fetchAutoResolvedEmbyUserId = async (
   networkClient: NetworkClient,
   configuration: Configuration,
 ): Promise<string> => {
-  const url = buildEmbyUrl(configuration, "/Users/Query");
-
-  try {
-    const response = await networkClient.getJson<unknown>(url, {
-      headers: buildEmbyHeaders(configuration, {
-        accept: "application/json",
-      }),
-    });
-    const items = isRecord(response) && Array.isArray(response.Items) ? response.Items : [];
-    const userId = pickAutoResolvedUserId(items);
-    if (!userId) {
-      throw new EmbyServiceError(
-        "EMBY_USER_CONTEXT_REQUIRED",
-        "当前 Emby 服务器要求用户上下文，请在设置中填写 Emby 用户 ID 后重试",
-      );
-    }
-
-    return userId;
-  } catch (error) {
-    if (error instanceof EmbyServiceError) {
-      throw error;
-    }
-
-    throw toEmbyServiceError(
-      error,
-      {
+  return await fetchMediaServerResolvedUserId(
+    {
+      networkClient,
+      configuration,
+      serverKey: "emby",
+      path: "/Users/Query",
+      extractUsers: (response) => (isRecord(response) && Array.isArray(response.Items) ? response.Items : []),
+      pickUserId: (users) => pickAutoResolvedUserId(users),
+      createMissingUserContextError: () =>
+        new EmbyServiceError(
+          "EMBY_USER_CONTEXT_REQUIRED",
+          "当前 Emby 服务器要求用户上下文，请在设置中填写 Emby 用户 ID 后重试",
+        ),
+      toServiceError: toEmbyServiceError,
+    },
+    {
+      statusMappings: {
         401: { code: "EMBY_AUTH_FAILED", message: "Emby API Key 无效，无法读取用户列表" },
         403: { code: "EMBY_PERMISSION_DENIED", message: "当前 Emby 凭据没有读取用户列表的权限" },
       },
-      {
+      fallback: {
         code: "EMBY_USER_CONTEXT_REQUIRED",
         message: "当前 Emby 服务器要求用户上下文，请在设置中填写 Emby 用户 ID 后重试",
       },
-    );
-  }
+    },
+  );
 };
 
 export const resolveEmbyUserId = async (
@@ -210,20 +203,18 @@ export const fetchEmbyPersonDetail = async (
   person: EmbyPerson,
   userId: string,
 ): Promise<EmbyItemDetail> => {
-  const resolvedUserId = userId.trim();
-  if (!resolvedUserId) {
-    throw new EmbyServiceError(
-      "EMBY_USER_CONTEXT_REQUIRED",
-      "当前 Emby 服务器要求用户上下文，请先解析并传入 Emby 用户 ID 后重试",
-    );
-  }
-
-  return await fetchMediaServerItemDetail(
+  return await fetchMediaServerUserScopedItemDetail(
     {
       networkClient,
       configuration,
       serverKey: "emby",
-      path: `/Users/${encodeURIComponent(resolvedUserId)}/Items/${encodeURIComponent(person.Id)}`,
+      personId: person.Id,
+      userId,
+      createMissingUserContextError: () =>
+        new EmbyServiceError(
+          "EMBY_USER_CONTEXT_REQUIRED",
+          "当前 Emby 服务器要求用户上下文，请先解析并传入 Emby 用户 ID 后重试",
+        ),
       toServiceError: toEmbyServiceError,
     },
     {
@@ -302,43 +293,39 @@ export const uploadEmbyPrimaryImage = async (
   contentType: string,
 ): Promise<void> => {
   const primaryPath = `/Items/${encodeURIComponent(personId)}/Images/Primary`;
-  const body = Buffer.from(bytes).toString("base64");
-  const headers = buildEmbyHeaders(configuration, {
-    "content-type": contentType,
-  });
-  const uploadError = {
-    code: "EMBY_WRITE_FAILED",
-    message: "上传 Emby 人物头像失败",
-  };
-  const uploadStatusMappings = {
-    400: { code: "EMBY_BAD_REQUEST", message: "Emby 拒绝了人物头像上传请求" },
-    401: { code: "EMBY_AUTH_FAILED", message: "Emby API Key 无效，无法上传人物头像" },
-    403: { code: "EMBY_ADMIN_KEY_REQUIRED", message: "Emby 人物头像上传需要管理员 API Key" },
-    415: { code: "EMBY_UNSUPPORTED_MEDIA", message: "Emby 不接受当前头像文件类型" },
-  };
-
-  try {
-    await networkClient.postText(buildEmbyUrl(configuration, primaryPath), body, { headers });
-    return;
-  } catch (error) {
-    const status = getHttpStatus(error);
-    if (status !== 400 && status !== 404 && status !== 405) {
-      throw toEmbyServiceError(error, uploadStatusMappings, uploadError);
-    }
-  }
-
-  try {
-    await networkClient.postText(buildEmbyUrl(configuration, primaryPath, { Index: "0" }), body, { headers });
-  } catch (error) {
-    throw toEmbyServiceError(
-      error,
-      {
-        ...uploadStatusMappings,
-        404: { code: "EMBY_NOT_FOUND", message: "Emby 无法找到需要写入头像的人物" },
+  await uploadMediaServerPrimaryImage(
+    {
+      networkClient,
+      configuration,
+      serverKey: "emby",
+      personId,
+      bytes,
+      contentType,
+      retryableStatuses: [400, 404, 405],
+      fallbackPath: primaryPath,
+      fallbackQuery: { Index: "0" },
+      toServiceError: toEmbyServiceError,
+    },
+    {
+      statusMappings: {
+        400: { code: "EMBY_BAD_REQUEST", message: "Emby 拒绝了人物头像上传请求" },
+        401: { code: "EMBY_AUTH_FAILED", message: "Emby API Key 无效，无法上传人物头像" },
+        403: { code: "EMBY_ADMIN_KEY_REQUIRED", message: "Emby 人物头像上传需要管理员 API Key" },
+        415: { code: "EMBY_UNSUPPORTED_MEDIA", message: "Emby 不接受当前头像文件类型" },
       },
-      uploadError,
-    );
-  }
+      fallback: {
+        code: "EMBY_WRITE_FAILED",
+        message: "上传 Emby 人物头像失败",
+      },
+      fallbackStatusMappings: {
+        400: { code: "EMBY_BAD_REQUEST", message: "Emby 拒绝了人物头像上传请求" },
+        401: { code: "EMBY_AUTH_FAILED", message: "Emby API Key 无效，无法上传人物头像" },
+        403: { code: "EMBY_ADMIN_KEY_REQUIRED", message: "Emby 人物头像上传需要管理员 API Key" },
+        404: { code: "EMBY_NOT_FOUND", message: "Emby 无法找到需要写入头像的人物" },
+        415: { code: "EMBY_UNSUPPORTED_MEDIA", message: "Emby 不接受当前头像文件类型" },
+      },
+    },
+  );
 };
 
 export const createEmbyConnectionExtraSteps = <TStep>(
