@@ -19,7 +19,7 @@ import {
   prepareOutputCrawlerData,
   updateScrapeProgress,
   writePreparedNfo,
-} from "../outputPipeline";
+} from "../output";
 import { MaintenanceArtifactResolver } from "./MaintenanceArtifactResolver";
 import {
   type CommittedMaintenanceFile,

@@ -4,7 +4,7 @@ import type { ActorSourceProvider } from "@main/services/actorSource";
 import { mergeActorSourceHints } from "@main/services/actorSource/sourceHints";
 import type { Configuration } from "@main/services/config";
 import type { ActorProfile, CrawlerData } from "@shared/types";
-import { throwIfAborted } from "./abort";
+import { throwIfAborted } from "../abort";
 
 const isRemoteActorPhoto = (value: string): boolean => /^https?:\/\//iu.test(value);
 const toRemoteImageSourceUrl = (value: string | undefined): string | undefined => {

@@ -12,8 +12,8 @@ import type { ScraperStatus } from "@shared/types";
 import { AggregationService } from "./aggregation";
 import { DownloadManager } from "./DownloadManager";
 import { fileOrganizer } from "./FileOrganizer";
-import { FileScraper } from "./FileScraper";
-import { isGeneratedSidecarVideo } from "./generatedSidecarVideos";
+import { createFileScraper } from "./FileScraper";
+import { isGeneratedSidecarVideo } from "./media";
 import { NfoGenerator } from "./NfoGenerator";
 import { ScrapeSession } from "./ScrapeSession";
 import { TranslateService } from "./TranslateService";
@@ -242,7 +242,7 @@ export class ScraperService {
     // Supports both single-item and batch manual retry from frontend.
     const pending = uniquePaths(filePaths);
     const totalFiles = Math.max(1, this.session.getStatus().totalFiles);
-    const fileScraper = new FileScraper(this.createFileScraperDependencies());
+    const fileScraper = createFileScraper(this.createFileScraperDependencies());
     const failedFiles = new Set(this.session.getFailedFiles());
 
     let requeuedCount = 0;
@@ -433,7 +433,7 @@ export class ScraperService {
     this.signalService.setButtonStatus(false, true);
     this.signalService.resetProgress();
 
-    const fileScraper = new FileScraper(this.createFileScraperDependencies());
+    const fileScraper = createFileScraper(this.createFileScraperDependencies());
 
     for (const [index, filePath] of filePaths.entries()) {
       const fileIndex = index + 1;

@@ -5,13 +5,17 @@ import type { SignalService } from "@main/services/SignalService";
 import { probeVideoMetadata } from "@main/utils/video";
 import type { CrawlerData, DownloadedAssets, FileInfo, NfoLocalState, VideoMeta } from "@shared/types";
 import type { Logger } from "winston";
-import type { ImageAlternatives, SourceMap } from "./aggregation";
-import type { DownloadCallbacks, DownloadManager } from "./DownloadManager";
-import type { FileOrganizer, OrganizePlan } from "./FileOrganizer";
-import type { NfoGenerator } from "./NfoGenerator";
-import { reconcileExistingNfoFiles } from "./NfoGenerator";
+import type { ImageAlternatives, SourceMap } from "../aggregation";
+import type { DownloadCallbacks, DownloadManager } from "../DownloadManager";
+import type { FileOrganizer, OrganizePlan } from "../FileOrganizer";
+import type { NfoGenerator } from "../NfoGenerator";
+import { reconcileExistingNfoFiles } from "../NfoGenerator";
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
+
+export { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
+export { prepareCrawlerDataForNfo } from "./prepareCrawlerDataForNfo";
+export { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
 
 export interface ScrapeProgressState {
   fileIndex: number;

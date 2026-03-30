@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { FileOrganizer } from "@main/services/scraper/FileOrganizer";
-import {
-  buildGeneratedVideoSidecarTargetPath,
-  isGeneratedSidecarVideo,
-} from "@main/services/scraper/generatedSidecarVideos";
+import { buildGeneratedVideoSidecarTargetPath, isGeneratedSidecarVideo } from "@main/services/scraper/media";
 import * as fileUtils from "@main/utils/file";
 import { Website } from "@shared/enums";
 import type { CrawlerData, FileInfo } from "@shared/types";

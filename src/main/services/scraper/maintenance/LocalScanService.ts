@@ -5,8 +5,7 @@ import { listVideoFiles } from "@main/utils/file";
 import { parseNfoSnapshot } from "@main/utils/nfo";
 import { buildFileId } from "@shared/mediaIdentity";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry } from "@shared/types";
-import { resolveFileInfoWithSubtitles } from "../fileInfoWithSubtitles";
-import { isGeneratedSidecarVideo } from "../generatedSidecarVideos";
+import { isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "../media";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const TRAILER_EXTENSIONS = new Set([".mp4", ".mkv", ".webm"]);

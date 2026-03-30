@@ -18,10 +18,12 @@ import { Website } from "@shared/enums";
 import type { CrawlerData, FileInfo, NamingPreviewItem, NfoLocalState } from "@shared/types";
 import {
   buildGeneratedVideoSidecarTargetPath,
+  buildSubtitleSidecarTargetPath,
   findGeneratedVideoSidecars,
+  findSubtitleSidecars,
   isGeneratedSidecarVideo,
-} from "./generatedSidecarVideos";
-import { buildSubtitleSidecarTargetPath, findSubtitleSidecars, type SubtitleSidecarMatch } from "./subtitleSidecars";
+  type SubtitleSidecarMatch,
+} from "./media";
 
 export interface OrganizePlan {
   outputDir: string;

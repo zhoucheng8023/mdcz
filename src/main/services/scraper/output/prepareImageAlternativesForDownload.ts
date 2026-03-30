@@ -1,6 +1,6 @@
 import { buildDmmAwsImageCandidates, isDmmImageUrl } from "@main/utils/dmmImage";
 import type { CrawlerData } from "@shared/types";
-import type { ImageAlternatives, SourceMap } from "./aggregation";
+import type { ImageAlternatives, SourceMap } from "../aggregation";
 
 const normalizeUrl = (input?: string): string | null => {
   if (!input) {

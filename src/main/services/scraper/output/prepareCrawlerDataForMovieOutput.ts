@@ -3,7 +3,7 @@ import type { ActorSourceProvider } from "@main/services/actorSource";
 import type { Configuration } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import type { CrawlerData } from "@shared/types";
-import { isAbortError, throwIfAborted } from "./abort";
+import { isAbortError, throwIfAborted } from "../abort";
 import { prepareCrawlerDataForNfo } from "./prepareCrawlerDataForNfo";
 
 const logger = loggerService.getLogger("PrepareCrawlerDataForMovieOutput");
