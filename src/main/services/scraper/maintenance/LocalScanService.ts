@@ -91,7 +91,7 @@ export class LocalScanService {
     const dir = dirname(videoPath);
 
     const [assets, nfoPath] = await Promise.all([
-      this.discoverAssets(dir, fileInfo, sceneImagesFolder),
+      this.discoverAssets(dir, sceneImagesFolder),
       this.findNfo(dir, fileInfo),
     ]);
     let crawlerData: CrawlerData | undefined;
@@ -125,11 +125,7 @@ export class LocalScanService {
   }
 
   /** Discover assets (NFO, images, trailer, actor photos) in a video directory. */
-  private async discoverAssets(
-    dir: string,
-    fileInfo: LocalScanEntry["fileInfo"],
-    sceneImagesFolder: string,
-  ): Promise<DiscoveredAssets> {
+  private async discoverAssets(dir: string, sceneImagesFolder: string): Promise<DiscoveredAssets> {
     const [thumb, poster, fanart, trailer, sceneImages, actorPhotos] = await Promise.all([
       findAssetByName(dir, "thumb", IMAGE_EXTENSIONS),
       findAssetByName(dir, "poster", IMAGE_EXTENSIONS),

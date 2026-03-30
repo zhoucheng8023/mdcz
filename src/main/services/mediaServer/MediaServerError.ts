@@ -2,7 +2,7 @@ import { toErrorMessage } from "@main/utils/common";
 
 const HTTP_STATUS_PATTERN = /HTTP\s+(\d{3})\b/u;
 
-export class JellyfinServiceError extends Error {
+export class MediaServerServiceError extends Error {
   constructor(
     readonly code: string,
     message: string,
@@ -11,6 +11,17 @@ export class JellyfinServiceError extends Error {
     super(message);
   }
 }
+
+export interface MediaServerErrorMapping {
+  code: string;
+  message: string;
+}
+
+type MediaServerErrorClass<TError extends MediaServerServiceError> = new (
+  code: string,
+  message: string,
+  status?: number,
+) => TError;
 
 export const getHttpStatus = (error: unknown): number | undefined => {
   if (!(error instanceof Error)) {
@@ -26,20 +37,21 @@ export const getHttpStatus = (error: unknown): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-export const toJellyfinServiceError = (
+export const toMediaServerServiceError = <TError extends MediaServerServiceError>(
   error: unknown,
-  statusMappings: Partial<Record<number, { code: string; message: string }>>,
-  fallback: { code: string; message: string },
-): JellyfinServiceError => {
-  if (error instanceof JellyfinServiceError) {
+  ErrorClass: MediaServerErrorClass<TError>,
+  statusMappings: Partial<Record<number, MediaServerErrorMapping>>,
+  fallback: MediaServerErrorMapping,
+): TError => {
+  if (error instanceof ErrorClass) {
     return error;
   }
 
   const status = getHttpStatus(error);
   const mapped = status !== undefined ? statusMappings[status] : undefined;
   if (mapped) {
-    return new JellyfinServiceError(mapped.code, mapped.message, status);
+    return new ErrorClass(mapped.code, mapped.message, status);
   }
 
-  return new JellyfinServiceError(fallback.code, `${fallback.message}: ${toErrorMessage(error)}`, status);
+  return new ErrorClass(fallback.code, `${fallback.message}: ${toErrorMessage(error)}`, status);
 };

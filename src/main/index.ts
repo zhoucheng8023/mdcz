@@ -14,9 +14,9 @@ import {
 } from "@main/services/actorSource";
 import { type Configuration, configManager } from "@main/services/config";
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
-import { EmbyActorInfoService, EmbyActorPhotoService } from "@main/services/emby";
-import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@main/services/jellyfin";
 import { loggerService } from "@main/services/LoggerService";
+import { EmbyActorInfoService, EmbyActorPhotoService } from "@main/services/mediaServer/emby";
+import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@main/services/mediaServer/jellyfin";
 import { createElectronCookieResolver, NetworkClient } from "@main/services/network";
 import { ShortcutService } from "@main/services/ShortcutService";
 import { SignalService } from "@main/services/SignalService";

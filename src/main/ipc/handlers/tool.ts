@@ -1,17 +1,17 @@
 import type { ServiceContainer } from "@main/container";
 import { configManager, configurationSchema } from "@main/services/config";
 import { ActorPhotoFolderConfigurationError } from "@main/services/config/actorPhotoPath";
+import { loggerService } from "@main/services/LoggerService";
 import {
   checkConnection as checkEmbyConnection,
   EmbyServiceError,
   parseMode as parseEmbyMode,
-} from "@main/services/emby";
+} from "@main/services/mediaServer/emby";
 import {
   checkConnection as checkJellyfinConnection,
   JellyfinServiceError,
   parseMode as parseJellyfinMode,
-} from "@main/services/jellyfin";
-import { loggerService } from "@main/services/LoggerService";
+} from "@main/services/mediaServer/jellyfin";
 import { SymlinkServiceError } from "@main/services/tools";
 import { toErrorMessage } from "@main/utils/common";
 import { IpcChannel } from "@shared/IpcChannel";
