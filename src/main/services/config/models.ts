@@ -1,6 +1,7 @@
 import { ACTOR_IMAGE_SOURCE_OPTIONS, ACTOR_OVERVIEW_SOURCE_OPTIONS } from "@main/services/actorSource/types";
 import { CURRENT_CONFIG_VERSION } from "@main/services/config/migrator";
 import { ProxyType, ThemeMode, TRANSLATION_TARGET_OPTIONS, TranslateEngine, UiLanguage, Website } from "@shared/enums";
+import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
 import { z } from "zod";
 
 const DEFAULT_ENABLED_SITES: Website[] = [
@@ -74,7 +75,7 @@ const translateSchema = z.object({
   engine: z.enum(TranslateEngine).default(TranslateEngine.OPENAI),
   llmModelName: z.string().default("gpt-5.2"),
   llmApiKey: z.string().default(""),
-  llmBaseUrl: z.url().or(z.literal("")).default(""),
+  llmBaseUrl: z.url().or(z.literal("")).default(DEFAULT_LLM_BASE_URL),
   llmPrompt: z
     .string()
     .default(

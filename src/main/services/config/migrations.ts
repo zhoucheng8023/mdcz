@@ -8,6 +8,8 @@
  * users have upgraded past the corresponding configVersion.
  */
 
+import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
+
 export interface Migration {
   fromVersion: number;
   toVersion: number;
@@ -353,6 +355,19 @@ function migrateV050ToV052(raw: Record<string, unknown>): void {
   normalizeFieldPriorityDefaults(raw, V2_FIELD_PRIORITY_DEFAULTS, V3_FIELD_PRIORITY_DEFAULTS);
 }
 
+// ── v0.5.2 → v0.6.0 ─────────────────────────────────────────────────────────
+
+function migrateV052ToV060(raw: Record<string, unknown>): void {
+  const translate = raw.translate;
+  if (!isRecord(translate)) {
+    return;
+  }
+
+  if (typeof translate.llmBaseUrl !== "string" || translate.llmBaseUrl.trim() === "") {
+    translate.llmBaseUrl = DEFAULT_LLM_BASE_URL;
+  }
+}
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 export const migrations: Migration[] = [
@@ -373,5 +388,11 @@ export const migrations: Migration[] = [
     toVersion: 3,
     description: "v0.5.0 → v0.5.2",
     migrate: migrateV050ToV052,
+  },
+  {
+    fromVersion: 3,
+    toVersion: 4,
+    description: "v0.5.2 → v0.6.0",
+    migrate: migrateV052ToV060,
   },
 ];

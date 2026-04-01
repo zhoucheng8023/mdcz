@@ -1,5 +1,6 @@
 import type { Configuration } from "@shared/config";
 import { TRANSLATION_TARGET_OPTIONS } from "@shared/enums";
+import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
 import type { NamingPreviewItem } from "@shared/types";
 import { useQuery } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
@@ -162,8 +163,8 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "translate.enableTranslation", label: "启用内容翻译", section: "translate" },
   { key: "translate.engine", label: "翻译引擎", section: "translate" },
   { key: "translate.llmModelName", label: "LLM 模型名称", section: "translate" },
-  { key: "translate.llmApiKey", label: "LLM 密钥", section: "translate" },
-  { key: "translate.llmBaseUrl", label: "LLM 接口地址", section: "translate" },
+  { key: "translate.llmApiKey", label: "LLM 密钥（可选）", section: "translate" },
+  { key: "translate.llmBaseUrl", label: "LLM API 地址", section: "translate" },
   { key: "translate.llmPrompt", label: "LLM 翻译提示词", section: "translate" },
   { key: "translate.llmTemperature", label: "LLM 温度", section: "translate" },
   { key: "translate.llmMaxRetries", label: "LLM 最大重试次数", section: "translate" },
@@ -565,11 +566,15 @@ function TranslateSection(_props: SectionRenderProps) {
       {isLLM && (
         <>
           <TextField name="translate.llmModelName" label="LLM 模型名称" />
-          <SecretField name="translate.llmApiKey" label="LLM 密钥" />
+          <SecretField
+            name="translate.llmApiKey"
+            label="LLM 密钥（可选）"
+            description="默认 OpenAI 地址通常必须填写；本地或兼容服务是否需要密钥取决于服务端配置"
+          />
           <UrlField
             name="translate.llmBaseUrl"
-            label="LLM 接口地址"
-            description="一般需要增加 /v1 后缀，如果添加后接口报错请尝试去除 /v1 再试"
+            label="LLM API 地址"
+            description={`默认值：${DEFAULT_LLM_BASE_URL}。本地常见示例：Ollama 用 http://127.0.0.1:11434/v1，LM Studio 用 http://127.0.0.1:1234/v1`}
           />
           <PromptFieldWrapper name="translate.llmPrompt" label="LLM 翻译提示词" />
           <NumberField name="translate.llmTemperature" label="LLM 温度" min={0} max={2} step={0.1} />

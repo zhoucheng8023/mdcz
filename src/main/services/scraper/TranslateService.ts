@@ -3,10 +3,10 @@ import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import { detectLanguage } from "@main/utils/language";
 import type { CrawlerData } from "@shared/types";
-import OpenAI from "openai";
 import { throwIfAborted } from "./abort";
 import { ActorNameNormalizer } from "./translate/ActorNameNormalizer";
 import { GoogleTranslator } from "./translate/engines/GoogleTranslator";
+import { LlmApiClient } from "./translate/engines/LlmApiClient";
 import { OpenAiTranslator } from "./translate/engines/OpenAiTranslator";
 import { GenreTranslator } from "./translate/GenreTranslator";
 import { ensureTargetChinese, normalizeNewlines, toTranslatedFieldValue } from "./translate/shared";
@@ -25,13 +25,9 @@ export class TranslateService {
 
   constructor(
     private readonly networkClient: NetworkClient,
-    private readonly openAiFactory: (config: Configuration) => OpenAI = (config) =>
-      new OpenAI({
-        apiKey: config.translate.llmApiKey,
-        baseURL: config.translate.llmBaseUrl || undefined,
-      }),
+    llmApiClient: LlmApiClient = new LlmApiClient(networkClient),
   ) {
-    this.openAiTranslator = new OpenAiTranslator(this.logger, this.openAiFactory);
+    this.openAiTranslator = new OpenAiTranslator(this.logger, llmApiClient);
     this.googleTranslator = new GoogleTranslator(this.networkClient, this.logger);
     this.genreTranslator = new GenreTranslator(this.logger, this.openAiTranslator);
   }

@@ -2,11 +2,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Configuration } from "@main/services/config";
 import { toErrorMessage } from "@main/utils/common";
 import { parseRetryAfterMs, readRetryAfterHeader } from "@main/utils/http";
-import type OpenAI from "openai";
 import PQueue from "p-queue";
 import { isAbortError, throwIfAborted } from "../../abort";
 import { getTargetLanguageLabel } from "../shared";
 import type { LanguageTarget } from "../types";
+import { isMissingRequiredLlmApiKey, type LlmApiClient } from "./LlmApiClient";
 
 interface TranslationLogger {
   warn(message: string): void;
@@ -21,7 +21,7 @@ export class OpenAiTranslator {
 
   constructor(
     private readonly logger: TranslationLogger,
-    private readonly openAiFactory: (config: Configuration) => OpenAI,
+    private readonly llmApiClient: LlmApiClient,
   ) {}
 
   async translateText(
@@ -30,7 +30,10 @@ export class OpenAiTranslator {
     config: Configuration,
     signal?: AbortSignal,
   ): Promise<string | null> {
-    if (!config.translate.llmApiKey.trim()) {
+    if (
+      !config.translate.llmModelName.trim() ||
+      isMissingRequiredLlmApiKey(config.translate.llmBaseUrl, config.translate.llmApiKey)
+    ) {
       return null;
     }
 
@@ -40,28 +43,14 @@ export class OpenAiTranslator {
       .replaceAll("{lang}", getTargetLanguageLabel(target))
       .replaceAll("{content}", text);
 
-    const response = await this.requestChatCompletion(
-      config,
-      {
-        model: config.translate.llmModelName,
-        temperature: config.translate.llmTemperature,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      },
-      signal,
-    ).catch((error) => {
+    const content = await this.requestText(config, prompt, config.translate.llmTemperature, signal).catch((error) => {
       if (isAbortError(error)) {
         throw error;
       }
-      this.logger.warn(`OpenAI translation failed: ${toErrorMessage(error)}`);
+      this.logger.warn(`LLM translation failed: ${toErrorMessage(error)}`);
       return null;
     });
 
-    const content = response?.choices[0]?.message?.content;
     if (typeof content === "string" && content.trim().length > 0) {
       return content.trim();
     }
@@ -70,34 +59,23 @@ export class OpenAiTranslator {
   }
 
   async translateSingleLine(prompt: string, config: Configuration, signal?: AbortSignal): Promise<string | null> {
-    if (!config.translate.llmApiKey.trim()) {
+    if (
+      !config.translate.llmModelName.trim() ||
+      isMissingRequiredLlmApiKey(config.translate.llmBaseUrl, config.translate.llmApiKey)
+    ) {
       return null;
     }
 
     throwIfAborted(signal);
 
-    const response = await this.requestChatCompletion(
-      config,
-      {
-        model: config.translate.llmModelName,
-        temperature: 0,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      },
-      signal,
-    ).catch((error) => {
+    const content = await this.requestText(config, prompt, 0, signal).catch((error) => {
       if (isAbortError(error)) {
         throw error;
       }
-      this.logger.warn(`OpenAI term translation failed: ${toErrorMessage(error)}`);
+      this.logger.warn(`LLM term translation failed: ${toErrorMessage(error)}`);
       return null;
     });
 
-    const content = response?.choices[0]?.message?.content;
     if (typeof content !== "string" || content.trim().length === 0) {
       return null;
     }
@@ -110,13 +88,22 @@ export class OpenAiTranslator {
     return firstLine ? firstLine.trim().replace(QUOTE_PATTERN, "") : null;
   }
 
-  private requestChatCompletion(
-    config: Configuration,
-    payload: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
-    signal?: AbortSignal,
-  ) {
-    const client = this.openAiFactory(config);
-    return this.executeRequestWithRetry(config, () => client.chat.completions.create(payload, { signal }), signal);
+  private requestText(config: Configuration, prompt: string, temperature: number, signal?: AbortSignal) {
+    return this.executeRequestWithRetry(
+      config,
+      () =>
+        this.llmApiClient.generateText(
+          {
+            model: config.translate.llmModelName,
+            apiKey: config.translate.llmApiKey,
+            baseUrl: config.translate.llmBaseUrl,
+            temperature,
+            prompt,
+          },
+          signal,
+        ),
+      signal,
+    );
   }
 
   private getRequestsPerSecond(config: Configuration): number {
@@ -176,7 +163,7 @@ export class OpenAiTranslator {
         }
 
         attempt += 1;
-        this.logger.warn(`OpenAI returned 429, retrying (${attempt}/${maxRetryCount}) after ${retryAfterMs}ms`);
+        this.logger.warn(`LLM API returned 429, retrying (${attempt}/${maxRetryCount}) after ${retryAfterMs}ms`);
         await sleep(retryAfterMs, undefined, signal ? { signal } : undefined);
       }
     }
