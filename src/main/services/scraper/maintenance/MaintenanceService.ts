@@ -6,6 +6,7 @@ import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
+import { mergeDeep } from "@main/utils/common";
 import type {
   LocalScanEntry,
   MaintenanceCommitItem,
@@ -23,32 +24,6 @@ import { TranslateService } from "../TranslateService";
 import { LocalScanService } from "./LocalScanService";
 import { MaintenanceFileScraper } from "./MaintenanceFileScraper";
 import { getPreset, supportsMaintenanceExecution } from "./presets";
-
-function mergeDeep<T extends Record<string, unknown>>(base: T, overrides: DeepPartial<T>): T {
-  const result = { ...base } as Record<string, unknown>;
-  for (const key of Object.keys(overrides)) {
-    const overrideValue = (overrides as Record<string, unknown>)[key];
-    const baseValue = result[key];
-
-    if (
-      overrideValue !== null &&
-      overrideValue !== undefined &&
-      typeof overrideValue === "object" &&
-      !Array.isArray(overrideValue) &&
-      typeof baseValue === "object" &&
-      baseValue !== null &&
-      !Array.isArray(baseValue)
-    ) {
-      result[key] = mergeDeep(
-        baseValue as Record<string, unknown>,
-        overrideValue as DeepPartial<Record<string, unknown>>,
-      );
-    } else if (overrideValue !== undefined) {
-      result[key] = overrideValue;
-    }
-  }
-  return result as T;
-}
 
 const createIdleMaintenanceStatus = (): MaintenanceStatus => ({
   state: "idle",

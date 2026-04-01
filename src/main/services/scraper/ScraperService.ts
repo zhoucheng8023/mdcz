@@ -316,35 +316,55 @@ export class ScraperService {
     }
 
     const includeRealPathComparisons = configuration.behavior.scrapeSoftlinkPath;
-    // Build the set of resolved output directory paths to exclude.
-    // Only exclude output dirs that are direct children of each scan root
-    // (or of mediaPath if set), not arbitrary nested dirs with the same name.
+    const excludePaths = await this.buildExcludedOutputPaths(paths, configuration, includeRealPathComparisons);
+    const candidatePaths = await this.collectBatchCandidateFiles(paths, configuration);
+    const filteredOutputPaths = await this.filterExcludedBatchFiles(
+      candidatePaths,
+      excludePaths,
+      includeRealPathComparisons,
+    );
+    const skippedCount = candidatePaths.length - filteredOutputPaths.length;
+    if (skippedCount > 0) {
+      this.logger.info(
+        `Skipped ${skippedCount} file(s) in output directories or generated sidecars from batch scrape queue`,
+      );
+    }
+
+    return filteredOutputPaths;
+  }
+
+  private async buildExcludedOutputPaths(
+    scanRoots: string[],
+    configuration: Configuration,
+    includeRealPathComparisons: boolean,
+  ): Promise<Set<string>> {
     const excludePaths = new Set<string>();
     const successFolder = configuration.paths.successOutputFolder.trim();
     const failedFolder = configuration.paths.failedOutputFolder.trim();
     const mediaRoot = configuration.paths.mediaPath.trim();
 
-    for (const dirPath of paths) {
+    for (const dirPath of scanRoots) {
       const base = mediaRoot.length > 0 ? mediaRoot : dirPath;
-      if (successFolder) {
-        for (const excludePath of await collectComparablePaths(
-          resolve(base, successFolder),
-          includeRealPathComparisons,
-        )) {
-          excludePaths.add(excludePath);
+      for (const outputFolder of [successFolder, failedFolder]) {
+        if (!outputFolder) {
+          continue;
         }
-      }
-      if (failedFolder) {
-        for (const excludePath of await collectComparablePaths(
-          resolve(base, failedFolder),
+
+        for (const comparablePath of await collectComparablePaths(
+          resolve(base, outputFolder),
           includeRealPathComparisons,
         )) {
-          excludePaths.add(excludePath);
+          excludePaths.add(comparablePath);
         }
       }
     }
 
+    return excludePaths;
+  }
+
+  private async collectBatchCandidateFiles(paths: string[], configuration: Configuration): Promise<string[]> {
     const outputs: string[] = [];
+
     for (const dirPath of paths) {
       try {
         outputs.push(...(await listVideoFiles(dirPath, true)));
@@ -354,24 +374,18 @@ export class ScraperService {
       }
     }
 
-    // Also scan softlink directory if enabled
-    if (configuration.behavior.scrapeSoftlinkPath) {
-      const softlinkDir = configuration.paths.softlinkPath.trim();
-      if (softlinkDir) {
-        try {
-          const softlinkFiles = await listVideoFiles(softlinkDir, true);
-          outputs.push(...softlinkFiles);
-          this.logger.info(`Scanned softlink path "${softlinkDir}": found ${softlinkFiles.length} files`);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.logger.warn(`Failed to scan softlink path "${softlinkDir}": ${message}`);
-        }
-      }
-    }
+    outputs.push(...(await this.collectSoftlinkFiles(configuration)));
+    return uniquePaths(outputs);
+  }
 
-    const uniqueOutputPaths = uniquePaths(outputs);
-    const filteredOutputPaths: string[] = [];
-    for (const filePath of uniqueOutputPaths) {
+  private async filterExcludedBatchFiles(
+    filePaths: string[],
+    excludePaths: Set<string>,
+    includeRealPathComparisons: boolean,
+  ): Promise<string[]> {
+    const filteredPaths: string[] = [];
+
+    for (const filePath of filePaths) {
       if (isGeneratedSidecarVideo(filePath)) {
         continue;
       }
@@ -383,20 +397,36 @@ export class ScraperService {
             return true;
           }
         }
+
         return false;
       });
       if (!isExcluded) {
-        filteredOutputPaths.push(filePath);
+        filteredPaths.push(filePath);
       }
     }
-    const skippedCount = uniqueOutputPaths.length - filteredOutputPaths.length;
-    if (skippedCount > 0) {
-      this.logger.info(
-        `Skipped ${skippedCount} file(s) in output directories or generated sidecars from batch scrape queue`,
-      );
+
+    return filteredPaths;
+  }
+
+  private async collectSoftlinkFiles(configuration: Configuration): Promise<string[]> {
+    if (!configuration.behavior.scrapeSoftlinkPath) {
+      return [];
     }
 
-    return filteredOutputPaths;
+    const softlinkDir = configuration.paths.softlinkPath.trim();
+    if (!softlinkDir) {
+      return [];
+    }
+
+    try {
+      const softlinkFiles = await listVideoFiles(softlinkDir, true);
+      this.logger.info(`Scanned softlink path "${softlinkDir}": found ${softlinkFiles.length} files`);
+      return softlinkFiles;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to scan softlink path "${softlinkDir}": ${message}`);
+      return [];
+    }
   }
 
   private createFileScraperDependencies() {
