@@ -15,7 +15,7 @@ import { fileOrganizer } from "./FileOrganizer";
 import { createFileScraper } from "./FileScraper";
 import { isGeneratedSidecarVideo } from "./media";
 import { NfoGenerator } from "./NfoGenerator";
-import { ScrapeSession } from "./ScrapeSession";
+import { ScrapeSession } from "./session/ScrapeSession";
 import { TranslateService } from "./TranslateService";
 
 export type ScraperMode = "single" | "batch";
@@ -253,20 +253,23 @@ export class ScraperService {
         continue;
       }
 
-      requeuedCount += 1;
       const fileIndex = cursor;
-      cursor = Math.min(cursor + 1, totalFiles);
 
-      this.session.addTask({
-        sourcePath: filePath,
-        fileIndex,
-        totalFiles,
-        isRetry: true,
-        taskFn: async (signal) => {
-          await this.restGate?.waitBeforeStart(signal);
-          return fileScraper.scrapeFile(filePath, { fileIndex, totalFiles }, signal);
-        },
-      });
+      if (
+        !this.session.addTask({
+          sourcePath: filePath,
+          isRetry: true,
+          taskFn: async (signal) => {
+            await this.restGate?.waitBeforeStart(signal);
+            return fileScraper.scrapeFile(filePath, { fileIndex, totalFiles }, signal);
+          },
+        })
+      ) {
+        continue;
+      }
+
+      cursor = Math.min(cursor + 1, totalFiles);
+      requeuedCount += 1;
     }
 
     return { requeuedCount };
@@ -439,8 +442,6 @@ export class ScraperService {
       const fileIndex = index + 1;
       this.session.addTask({
         sourcePath: filePath,
-        fileIndex,
-        totalFiles: filePaths.length,
         isRetry: false,
         taskFn: async (signal) => {
           await this.restGate?.waitBeforeStart(signal);

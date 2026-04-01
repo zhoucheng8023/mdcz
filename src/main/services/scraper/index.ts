@@ -3,5 +3,6 @@ export { FileOrganizer } from "./FileOrganizer";
 export { createFileScraper, FileScraper } from "./FileScraper";
 export { NfoGenerator, nfoGenerator } from "./NfoGenerator";
 export { ScraperService, ScraperServiceError } from "./ScraperService";
-export { ScrapeSession } from "./ScrapeSession";
+export { ScrapeSession } from "./session/ScrapeSession";
+export type { QueueTask, RecoverableSessionSnapshot, ScrapeSessionOptions } from "./session/types";
 export { TranslateService } from "./TranslateService";
