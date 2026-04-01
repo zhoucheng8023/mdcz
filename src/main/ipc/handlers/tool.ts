@@ -1,5 +1,5 @@
 import type { ServiceContainer } from "@main/container";
-import { configManager, configurationSchema } from "@main/services/config";
+import { type Configuration, configManager, configurationSchema } from "@main/services/config";
 import { ActorPhotoFolderConfigurationError } from "@main/services/config/actorPhotoPath";
 import { loggerService } from "@main/services/LoggerService";
 import {
@@ -16,10 +16,34 @@ import { SymlinkServiceError } from "@main/services/tools";
 import { toErrorMessage } from "@main/utils/common";
 import { IpcChannel } from "@shared/IpcChannel";
 import type { IpcRouterContract } from "@shared/ipcContract";
+import type { EmbyConnectionCheckResult, JellyfinConnectionCheckResult, PersonSyncResult } from "@shared/ipcTypes";
 import { createIpcError, IpcErrorCode } from "../errors";
 import { asSerializableIpcError, t } from "../shared";
 
 const logger = loggerService.getLogger("IpcRouter");
+type MediaServerMode = "all" | "missing";
+type MediaServerConfigurationLoader = () => Promise<Configuration>;
+type MediaServerModeParser = (value: unknown) => MediaServerMode | null;
+type MediaServerRunner<TResult = PersonSyncResult> = {
+  run(configuration: Configuration, mode: MediaServerMode): Promise<TResult>;
+};
+type MediaServerConnectionChecker<TResult> = (
+  networkClient: ServiceContainer["networkClient"],
+  configuration: Configuration,
+) => Promise<TResult>;
+type MediaServerErrorCtor = typeof JellyfinServiceError | typeof EmbyServiceError;
+
+interface MediaServerHandlerOptions<TConnectionResult> {
+  checkConnectionOperation: string;
+  syncInfoOperation: string;
+  syncPhotoOperation: string;
+  ensureReady: MediaServerConfigurationLoader;
+  parseMode: MediaServerModeParser;
+  checkConnection: MediaServerConnectionChecker<TConnectionResult>;
+  errorType: MediaServerErrorCtor;
+  infoService: MediaServerRunner<PersonSyncResult>;
+  photoService: MediaServerRunner<PersonSyncResult>;
+}
 
 export const createToolHandlers = (
   context: ServiceContainer,
@@ -64,123 +88,123 @@ export const createToolHandlers = (
     signalService.showLogText(`${operation} failed: ${toErrorMessage(error)}`, "error");
   };
 
-  const ensureJellyfinReady = async () => {
+  const ensureMediaServerReady = async (
+    type: "jellyfin" | "emby",
+    serviceName: "Jellyfin" | "Emby",
+  ): Promise<Configuration> => {
     await configManager.ensureLoaded();
     const configuration = configurationSchema.parse(await configManager.get());
+    const serverConfig = configuration[type];
 
-    if (!configuration.jellyfin.url.trim() || !configuration.jellyfin.apiKey.trim()) {
-      throw createIpcError(IpcErrorCode.NETWORK_ERROR, "Jellyfin URL and API key are required");
+    if (!serverConfig.url.trim() || !serverConfig.apiKey.trim()) {
+      throw createIpcError(IpcErrorCode.NETWORK_ERROR, `${serviceName} URL and API key are required`);
     }
 
     return configuration;
   };
 
-  const ensureEmbyReady = async () => {
-    await configManager.ensureLoaded();
-    const configuration = configurationSchema.parse(await configManager.get());
+  const ensureJellyfinReady = () => ensureMediaServerReady("jellyfin", "Jellyfin");
+  const ensureEmbyReady = () => ensureMediaServerReady("emby", "Emby");
 
-    if (!configuration.emby.url.trim() || !configuration.emby.apiKey.trim()) {
-      throw createIpcError(IpcErrorCode.NETWORK_ERROR, "Emby URL and API key are required");
+  const rethrowMediaServerError = (
+    error: unknown,
+    errorType: MediaServerErrorCtor,
+    options: { includeActorPhotoFolderError?: boolean } = {},
+  ): void => {
+    if (error instanceof errorType) {
+      throw createIpcError(error.code, error.message);
     }
 
-    return configuration;
+    if (options.includeActorPhotoFolderError && error instanceof ActorPhotoFolderConfigurationError) {
+      throw createIpcError(error.code, error.message);
+    }
+  };
+
+  const createModeError = () => createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Mode must be 'all' or 'missing'");
+
+  const createMediaServerCheckConnectionHandler = <TConnectionResult>(
+    options: MediaServerHandlerOptions<TConnectionResult>,
+  ) =>
+    t.procedure.action(async (): Promise<TConnectionResult> => {
+      try {
+        const configuration = await options.ensureReady();
+        return await options.checkConnection(networkClient, configuration);
+      } catch (error) {
+        rethrowMediaServerError(error, options.errorType);
+        return raiseHandlerError(options.checkConnectionOperation, error);
+      }
+    });
+
+  const createMediaServerSyncHandler = (
+    operation: string,
+    options: MediaServerHandlerOptions<unknown>,
+    service: MediaServerRunner<PersonSyncResult>,
+    extra: { includeActorPhotoFolderError?: boolean } = {},
+  ) =>
+    t.procedure.input<{ mode?: MediaServerMode }>().action(async ({ input }): Promise<PersonSyncResult> => {
+      try {
+        const mode = options.parseMode(input?.mode);
+        if (!mode) {
+          throw createModeError();
+        }
+
+        const configuration = await options.ensureReady();
+        return await service.run(configuration, mode);
+      } catch (error) {
+        rethrowMediaServerError(error, options.errorType, extra);
+        return raiseHandlerError(operation, error);
+      }
+    });
+
+  const jellyfinHandlers: MediaServerHandlerOptions<JellyfinConnectionCheckResult> = {
+    checkConnectionOperation: "Tool_JellyfinServerCheckConnection",
+    syncInfoOperation: "Tool_JellyfinActorInfoSync",
+    syncPhotoOperation: "Tool_JellyfinActorPhotoSync",
+    ensureReady: ensureJellyfinReady,
+    parseMode: parseJellyfinMode,
+    checkConnection: checkJellyfinConnection,
+    errorType: JellyfinServiceError,
+    infoService: jellyfinActorInfoService,
+    photoService: jellyfinActorPhotoService,
+  };
+
+  const embyHandlers: MediaServerHandlerOptions<EmbyConnectionCheckResult> = {
+    checkConnectionOperation: "Tool_EmbyServerCheckConnection",
+    syncInfoOperation: "Tool_EmbyActorInfoSync",
+    syncPhotoOperation: "Tool_EmbyActorPhotoSync",
+    ensureReady: ensureEmbyReady,
+    parseMode: parseEmbyMode,
+    checkConnection: checkEmbyConnection,
+    errorType: EmbyServiceError,
+    infoService: embyActorInfoService,
+    photoService: embyActorPhotoService,
   };
 
   return {
-    [IpcChannel.Tool_JellyfinServerCheckConnection]: t.procedure.action(async () => {
-      try {
-        const configuration = await ensureJellyfinReady();
-        return await checkJellyfinConnection(networkClient, configuration);
-      } catch (error) {
-        if (error instanceof JellyfinServiceError) {
-          throw createIpcError(error.code, error.message);
-        }
-        return raiseHandlerError("Tool_JellyfinServerCheckConnection", error);
-      }
-    }),
-    [IpcChannel.Tool_JellyfinActorPhotoSync]: t.procedure
-      .input<{ mode?: "all" | "missing" }>()
-      .action(async ({ input }) => {
-        try {
-          const mode = parseJellyfinMode(input?.mode);
-          if (!mode) {
-            throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Mode must be 'all' or 'missing'");
-          }
-          const configuration = await ensureJellyfinReady();
-          return jellyfinActorPhotoService.run(configuration, mode);
-        } catch (error) {
-          if (error instanceof JellyfinServiceError) {
-            throw createIpcError(error.code, error.message);
-          }
-          if (error instanceof ActorPhotoFolderConfigurationError) {
-            throw createIpcError(error.code, error.message);
-          }
-          return raiseHandlerError("Tool_JellyfinActorPhotoSync", error);
-        }
-      }),
-    [IpcChannel.Tool_JellyfinActorInfoSync]: t.procedure
-      .input<{ mode?: "all" | "missing" }>()
-      .action(async ({ input }) => {
-        try {
-          const mode = parseJellyfinMode(input?.mode);
-          if (!mode) {
-            throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Mode must be 'all' or 'missing'");
-          }
-          const configuration = await ensureJellyfinReady();
-          return jellyfinActorInfoService.run(configuration, mode);
-        } catch (error) {
-          if (error instanceof JellyfinServiceError) {
-            throw createIpcError(error.code, error.message);
-          }
-          return raiseHandlerError("Tool_JellyfinActorInfoSync", error);
-        }
-      }),
-    [IpcChannel.Tool_EmbyServerCheckConnection]: t.procedure.action(async () => {
-      try {
-        const configuration = await ensureEmbyReady();
-        return await checkEmbyConnection(networkClient, configuration);
-      } catch (error) {
-        if (error instanceof EmbyServiceError) {
-          throw createIpcError(error.code, error.message);
-        }
-        return raiseHandlerError("Tool_EmbyServerCheckConnection", error);
-      }
-    }),
-    [IpcChannel.Tool_EmbyActorPhotoSync]: t.procedure
-      .input<{ mode?: "all" | "missing" }>()
-      .action(async ({ input }) => {
-        try {
-          const mode = parseEmbyMode(input?.mode);
-          if (!mode) {
-            throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Mode must be 'all' or 'missing'");
-          }
-          const configuration = await ensureEmbyReady();
-          return embyActorPhotoService.run(configuration, mode);
-        } catch (error) {
-          if (error instanceof EmbyServiceError) {
-            throw createIpcError(error.code, error.message);
-          }
-          if (error instanceof ActorPhotoFolderConfigurationError) {
-            throw createIpcError(error.code, error.message);
-          }
-          return raiseHandlerError("Tool_EmbyActorPhotoSync", error);
-        }
-      }),
-    [IpcChannel.Tool_EmbyActorInfoSync]: t.procedure.input<{ mode?: "all" | "missing" }>().action(async ({ input }) => {
-      try {
-        const mode = parseEmbyMode(input?.mode);
-        if (!mode) {
-          throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Mode must be 'all' or 'missing'");
-        }
-        const configuration = await ensureEmbyReady();
-        return embyActorInfoService.run(configuration, mode);
-      } catch (error) {
-        if (error instanceof EmbyServiceError) {
-          throw createIpcError(error.code, error.message);
-        }
-        return raiseHandlerError("Tool_EmbyActorInfoSync", error);
-      }
-    }),
+    [IpcChannel.Tool_JellyfinServerCheckConnection]: createMediaServerCheckConnectionHandler(jellyfinHandlers),
+    [IpcChannel.Tool_JellyfinActorPhotoSync]: createMediaServerSyncHandler(
+      jellyfinHandlers.syncPhotoOperation,
+      jellyfinHandlers,
+      jellyfinHandlers.photoService,
+      { includeActorPhotoFolderError: true },
+    ),
+    [IpcChannel.Tool_JellyfinActorInfoSync]: createMediaServerSyncHandler(
+      jellyfinHandlers.syncInfoOperation,
+      jellyfinHandlers,
+      jellyfinHandlers.infoService,
+    ),
+    [IpcChannel.Tool_EmbyServerCheckConnection]: createMediaServerCheckConnectionHandler(embyHandlers),
+    [IpcChannel.Tool_EmbyActorPhotoSync]: createMediaServerSyncHandler(
+      embyHandlers.syncPhotoOperation,
+      embyHandlers,
+      embyHandlers.photoService,
+      { includeActorPhotoFolderError: true },
+    ),
+    [IpcChannel.Tool_EmbyActorInfoSync]: createMediaServerSyncHandler(
+      embyHandlers.syncInfoOperation,
+      embyHandlers,
+      embyHandlers.infoService,
+    ),
     [IpcChannel.Tool_CreateSymlink]: t.procedure
       .input<{
         sourceDir?: string;
