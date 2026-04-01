@@ -564,6 +564,62 @@ describe("FileOrganizer naming settings", () => {
     await expect(access(failedSubtitlePath)).rejects.toThrow();
   });
 
+  it("supports absolute success and failed output directories without duplicating the base path", async () => {
+    const organizer = new FileOrganizer();
+    const root = await createTempDir();
+    const mediaRoot = join(root, "media");
+    const absoluteSuccessDir = join(root, "absolute-success");
+    const absoluteFailedDir = join(root, "absolute-failed");
+    const sourcePath = join(mediaRoot, "library", "ABC-123.mp4");
+    const failedSourcePath = join(mediaRoot, "library", "FAIL-001.mp4");
+
+    await mkdir(join(mediaRoot, "library"), { recursive: true });
+    await writeFile(sourcePath, "video", "utf8");
+    await writeFile(failedSourcePath, "video", "utf8");
+
+    const config = createConfig({
+      paths: {
+        mediaPath: mediaRoot,
+        successOutputFolder: absoluteSuccessDir,
+        failedOutputFolder: absoluteFailedDir,
+      },
+      naming: {
+        folderTemplate: "{number}",
+        fileTemplate: "{number}",
+      },
+      behavior: {
+        successFileMove: true,
+        successFileRename: true,
+      },
+    });
+
+    const fileInfo = createFileInfo({
+      filePath: sourcePath,
+      fileName: "ABC-123",
+    });
+    const plan = organizer.plan(
+      fileInfo,
+      createCrawlerData({
+        number: "ABC-123",
+      }),
+      config,
+    );
+    const preparedPlan = await organizer.ensureOutputReady(plan, sourcePath);
+
+    expect(preparedPlan.outputDir).toBe(join(absoluteSuccessDir, "ABC-123-CEN"));
+    expect(preparedPlan.targetVideoPath).toBe(join(absoluteSuccessDir, "ABC-123-CEN", "ABC-123-CEN.mp4"));
+
+    const failedFileInfo = createFileInfo({
+      filePath: failedSourcePath,
+      fileName: "FAIL-001",
+      number: "FAIL-001",
+    });
+    const failedTargetPath = await organizer.moveToFailedFolder(failedFileInfo, config);
+
+    expect(failedTargetPath).toBe(join(absoluteFailedDir, "FAIL-001.mp4"));
+    await expectPathExists(failedTargetPath);
+  });
+
   it("moves generated FC2 feature videos alongside failed movie moves", async () => {
     const organizer = new FileOrganizer();
     const failedRoot = await createTempDir();

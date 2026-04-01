@@ -374,7 +374,7 @@ export class FileOrganizer {
   async moveToFailedFolder(fileInfo: FileInfo, config: Configuration): Promise<string> {
     const mediaRoot = config.paths.mediaPath.trim();
     const base = mediaRoot.length > 0 ? mediaRoot : dirname(fileInfo.filePath);
-    const failedDir = join(base, config.paths.failedOutputFolder);
+    const failedDir = resolve(base, config.paths.failedOutputFolder.trim());
     const resolvedPaths = await this.resolveBundledTargetPaths({
       sourceVideoPath: fileInfo.filePath,
       targetVideoPath: join(failedDir, fileInfo.fileName + fileInfo.extension),
@@ -529,7 +529,7 @@ export class FileOrganizer {
   private resolveBaseOutput(fileInfo: FileInfo, config: Configuration): string {
     const mediaRoot = config.paths.mediaPath.trim();
     const base = mediaRoot.length > 0 ? mediaRoot : dirname(fileInfo.filePath);
-    return join(base, config.paths.successOutputFolder);
+    return resolve(base, config.paths.successOutputFolder.trim());
   }
 
   private async resolveExistingDirectory(dirPath: string): Promise<string> {

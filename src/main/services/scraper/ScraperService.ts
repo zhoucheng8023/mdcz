@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
 import { type Configuration, configManager, configurationSchema } from "@main/services/config";
@@ -327,12 +327,18 @@ export class ScraperService {
     for (const dirPath of paths) {
       const base = mediaRoot.length > 0 ? mediaRoot : dirPath;
       if (successFolder) {
-        for (const excludePath of await collectComparablePaths(join(base, successFolder), includeRealPathComparisons)) {
+        for (const excludePath of await collectComparablePaths(
+          resolve(base, successFolder),
+          includeRealPathComparisons,
+        )) {
           excludePaths.add(excludePath);
         }
       }
       if (failedFolder) {
-        for (const excludePath of await collectComparablePaths(join(base, failedFolder), includeRealPathComparisons)) {
+        for (const excludePath of await collectComparablePaths(
+          resolve(base, failedFolder),
+          includeRealPathComparisons,
+        )) {
           excludePaths.add(excludePath);
         }
       }
