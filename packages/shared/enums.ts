@@ -1,4 +1,5 @@
 export enum Website {
+  AVSOX = "avsox",
   DAHLIA = "dahlia",
   DMM = "dmm",
   DMM_TV = "dmm_tv",
@@ -8,9 +9,11 @@ export enum Website {
   JAV321 = "jav321",
   JAVBUS = "javbus",
   JAVDB = "javdb",
+  KINGDOM = "kingdom",
   KM_PRODUCE = "km_produce",
   MGSTAGE = "mgstage",
   PRESTIGE = "prestige",
+  SOKMIL = "sokmil",
   AVBASE = "avbase",
 }
 

@@ -2,6 +2,7 @@ import { Website } from "@shared/enums";
 
 import type { SiteAdapterConstructor } from "./base/types";
 import { AvbaseCrawler } from "./sites/avbase";
+import { AvsoxCrawler } from "./sites/avsox";
 import { DahliaCrawler } from "./sites/dahlia";
 import { DmmCrawler } from "./sites/dmm";
 import { DmmTvCrawler } from "./sites/dmm/dmm_tv";
@@ -11,9 +12,11 @@ import { Fc2HubCrawler } from "./sites/fc2hub";
 import { Jav321Crawler } from "./sites/jav321";
 import { JavbusCrawler } from "./sites/javbus";
 import { JavdbCrawler } from "./sites/javdb";
+import { KingdomCrawler } from "./sites/kingdom";
 import { KMProduceCrawler } from "./sites/kmproduce";
 import { MGStageCrawler } from "./sites/mgstage";
 import { PrestigeCrawler } from "./sites/prestige";
+import { SokmilCrawler } from "./sites/sokmil";
 
 export type CrawlerConstructor = SiteAdapterConstructor;
 
@@ -44,3 +47,6 @@ registerCrawler(Website.MGSTAGE, MGStageCrawler);
 registerCrawler(Website.JAV321, Jav321Crawler);
 registerCrawler(Website.KM_PRODUCE, KMProduceCrawler);
 registerCrawler(Website.AVBASE, AvbaseCrawler);
+registerCrawler(Website.AVSOX, AvsoxCrawler);
+registerCrawler(Website.KINGDOM, KingdomCrawler);
+registerCrawler(Website.SOKMIL, SokmilCrawler);
