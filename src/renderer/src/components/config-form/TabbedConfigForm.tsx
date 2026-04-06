@@ -151,6 +151,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "naming.nfoTitleTemplate", label: "NFO 标题模板", section: "naming" },
   { key: "naming.actorNameMax", label: "演员名最大数量", section: "naming" },
   { key: "naming.actorNameMore", label: "演员名超出后缀", section: "naming" },
+  { key: "naming.actorFallbackToStudio", label: "演员为空时使用片商或卖家", section: "naming" },
   { key: "naming.releaseRule", label: "发行日期格式", section: "naming" },
   { key: "naming.folderNameMax", label: "文件夹名最大长度", section: "naming" },
   { key: "naming.fileNameMax", label: "文件名最大长度", section: "naming" },
@@ -337,8 +338,8 @@ function PathsSection(_props: SectionRenderProps) {
 function ScrapeSection({ siteOptions }: SectionRenderProps) {
   return (
     <>
-      <ChipArrayFieldWrapper name="scrape.enabledSites" label="启用站点" options={siteOptions} />
-      <ChipArrayFieldWrapper name="scrape.siteOrder" label="站点优先级" options={siteOptions} />
+      <ChipArrayFieldWrapper name="scrape.enabledSites" label="启用站点" options={siteOptions} showBulkActions />
+      <ChipArrayFieldWrapper name="scrape.siteOrder" label="站点优先级" options={siteOptions} showBulkActions />
       <NumberField name="scrape.threadNumber" label="并发线程数" min={1} max={128} />
       <NumberField name="scrape.javdbDelaySeconds" label="JavDB 请求延迟(秒)" min={0} max={120} />
       <NumberField name="scrape.restAfterCount" label="连续刮削后休息(条数)" min={1} max={500} />
@@ -487,6 +488,11 @@ export function NamingSection(_props: SectionRenderProps) {
       <NamingPreview />
       <NumberField name="naming.actorNameMax" label="演员名最大数量" min={1} max={20} />
       <TextField name="naming.actorNameMore" label="演员名超出后缀" />
+      <BoolField
+        name="naming.actorFallbackToStudio"
+        label="演员为空时使用片商或卖家"
+        description="开启后，{actor} 在没有演员名时会回退到片商或卖家名称；仍为空时才使用 Unknown。"
+      />
       <TextField name="naming.releaseRule" label="发行日期格式" />
       <EnumField
         name="naming.partStyle"

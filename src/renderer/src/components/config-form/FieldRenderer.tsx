@@ -363,15 +363,17 @@ export function ChipArrayFieldWrapper({
   label,
   description,
   options,
+  showBulkActions,
 }: {
   name: string;
   label: string;
   description?: string;
   options?: string[];
+  showBulkActions?: boolean;
 }) {
   return (
     <BaseField name={name} label={label} description={description} fullWidthContent>
-      {(field) => <ChipArrayField field={field} options={options} />}
+      {(field) => <ChipArrayField field={field} options={options} showBulkActions={showBulkActions} />}
     </BaseField>
   );
 }

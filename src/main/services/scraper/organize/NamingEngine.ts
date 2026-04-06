@@ -12,9 +12,13 @@ export interface NamingLayout {
   nfoFileName: string;
 }
 
-const pickActorFolder = (config: Configuration, actors: string[]): string => {
+const pickActorFolder = (config: Configuration, actors: string[], studio?: string): string => {
   const cleaned = actors.map((actor) => actor.trim()).filter((actor) => actor.length > 0);
   if (cleaned.length === 0) {
+    const trimmedStudio = studio?.trim();
+    if (config.naming.actorFallbackToStudio && trimmedStudio) {
+      return trimmedStudio;
+    }
     return "Unknown";
   }
 
@@ -174,7 +178,7 @@ const NAMING_PREVIEW_SAMPLES: Array<{
 export class NamingEngine {
   buildLayout(fileInfo: FileInfo, data: CrawlerData, config: Configuration, localState?: NfoLocalState): NamingLayout {
     const title = data.title_zh?.trim() || data.title;
-    const actorFolder = pickActorFolder(config, data.actors ?? []);
+    const actorFolder = pickActorFolder(config, data.actors ?? [], data.studio);
     const styledNumber = buildNumberWithNamingMarkers(fileInfo, data, config, localState);
     const partSuffix = formatPartSuffix(fileInfo, config);
     const formattedReleaseDate = formatReleaseDateByRule(data.release_date, config.naming.releaseRule);

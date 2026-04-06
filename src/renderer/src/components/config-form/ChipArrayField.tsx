@@ -13,12 +13,23 @@ interface ChipArrayFieldProps {
   field: ControllerRenderProps<FieldValues, string>;
   placeholder?: string;
   options?: string[]; // If provided, use a multi-select dropdown instead of free-form input
+  showBulkActions?: boolean;
+  defaultOpen?: boolean;
 }
 
-export function ChipArrayField({ field, placeholder, options }: ChipArrayFieldProps) {
+export function ChipArrayField({
+  field,
+  placeholder,
+  options,
+  showBulkActions = false,
+  defaultOpen = false,
+}: ChipArrayFieldProps) {
   const [inputValue, setInputValue] = useState("");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const values: string[] = Array.isArray(field.value) ? field.value : [];
+  const hasOptions = Array.isArray(options) && options.length > 0;
+  const allOptionsSelected =
+    hasOptions && values.length === options.length && options.every((opt) => values.includes(opt));
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -83,9 +94,36 @@ export function ChipArrayField({ field, placeholder, options }: ChipArrayFieldPr
               </button>
             </PopoverTrigger>
           </FormControl>
-          <PopoverContent className="w-[320px] p-0" align="end">
+          <PopoverContent className="w-[320px] p-0" align="end" disablePortal={defaultOpen}>
             <Command>
               <CommandInput placeholder="搜索..." className="h-8 text-xs" />
+              {showBulkActions && hasOptions && (
+                <div className="flex items-center gap-2 border-b px-3 py-2 text-xs">
+                  <span className="mr-auto text-[11px] text-muted-foreground">
+                    已选 {values.length}/{options.length}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => field.onChange([...options])}
+                    disabled={allOptionsSelected}
+                  >
+                    全选
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => field.onChange([])}
+                    disabled={values.length === 0}
+                  >
+                    全不选
+                  </Button>
+                </div>
+              )}
               <CommandList>
                 <CommandEmpty className="text-xs py-3">无匹配选项</CommandEmpty>
                 <CommandGroup>

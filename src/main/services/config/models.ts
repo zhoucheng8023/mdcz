@@ -55,6 +55,7 @@ const namingSchema = z.object({
   nfoTitleTemplate: z.string().default("{title}"),
   actorNameMax: z.number().int().min(1).max(20).default(3),
   actorNameMore: z.string().default("等演员"),
+  actorFallbackToStudio: z.boolean().default(false),
   releaseRule: z.string().default("YYYY-MM-DD"),
   folderNameMax: z.number().int().min(10).max(255).default(60),
   fileNameMax: z.number().int().min(10).max(255).default(60),

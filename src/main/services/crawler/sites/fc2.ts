@@ -1,4 +1,5 @@
 import { isJapanese } from "@main/utils/language";
+import { normalizeText } from "@main/utils/normalization";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
@@ -77,6 +78,22 @@ const stripFc2Watermark = (title: string): string => {
   return current.trim();
 };
 
+const extractSellerName = ($: CheerioAPI): string | undefined => {
+  const sellerFromProfileLink = $("div[data-section='userInfo']")
+    .first()
+    .find("a[href*='/users/']")
+    .toArray()
+    .map((element) => normalizeText($(element).text()))
+    .find((value) => Boolean(value));
+
+  if (sellerFromProfileLink) {
+    return sellerFromProfileLink;
+  }
+
+  const legacySeller = normalizeText($("div.col-8").first().text());
+  return legacySeller || undefined;
+};
+
 export class Fc2Crawler extends BaseFc2Crawler {
   site(): Website {
     return Website.FC2;
@@ -113,7 +130,7 @@ export class Fc2Crawler extends BaseFc2Crawler {
       .map((element) => $(element).text().trim())
       .filter((value) => value.length > 0 && value !== "無修正");
 
-    const studio = $("div.col-8").first().text().trim() || undefined;
+    const studio = extractSellerName($);
 
     return this.buildFc2Data(context, {
       title,
