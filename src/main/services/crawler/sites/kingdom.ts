@@ -173,8 +173,9 @@ export class KingdomCrawler extends BaseCrawler {
       .map((el: CheerioInput) => toAbsoluteUrl(base, $(el).attr("src")))
       .filter((url): url is string => Boolean(url));
 
-    const thumbUrl = images[0];
-    const sceneImages = images.slice(1);
+    const posterUrl = images[0];
+    const thumbUrl = images[1] ?? images[0];
+    const sceneImages = images.slice(images.length > 1 ? 2 : 1);
     const plot = extractText($, ".detail-profile__meta__desc");
 
     return {
@@ -190,7 +191,7 @@ export class KingdomCrawler extends BaseCrawler {
       release_date: release,
       rating: undefined,
       thumb_url: thumbUrl,
-      poster_url: undefined,
+      poster_url: posterUrl,
       fanart_url: undefined,
       scene_images: sceneImages,
       trailer_url: undefined,

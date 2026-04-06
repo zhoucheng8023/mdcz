@@ -35,7 +35,54 @@ const detailHtml = `
   </body></html>
 `;
 
+const loginHtml = `
+  <html class="sk-nonmember">
+    <head><title>ログイン - ソクミル</title></head>
+    <body>
+      <h1>ログイン</h1>
+      <form action="/member/login/">
+        <input name="login_id" />
+        <input type="password" name="password" />
+      </form>
+    </body>
+  </html>
+`;
+
 describe("SokmilCrawler", () => {
+  it("matches title-plus-actor searches even when filenames use hyphen separators", async () => {
+    const searchUrl =
+      "https://www.sokmil.com/search/keyword/?sectionid=2&q=%E7%94%98%E3%81%88%E3%81%9F%E3%81%84%E3%82%AB%E3%83%A9%E3%83%80%20%E7%9C%9F%E7%94%B0%E3%81%BE%E3%81%93%E3%81%A8";
+    const detailUrl = "https://www.sokmil.com/idol/_item/item536132.htm";
+    const fixtures = new Map<string, string>([
+      [
+        searchUrl,
+        createSearchHtml([
+          {
+            pid: "536132",
+            href: `${detailUrl}?ref=search`,
+            title: "甘えたいカラダ",
+            actor: "真田まこと",
+          },
+        ]),
+      ],
+      [detailUrl, detailHtml],
+    ]);
+    const crawler = new SokmilCrawler(withGateway(new FixtureNetworkClient(fixtures)));
+
+    const response = await crawler.crawl({
+      number: "甘えたいカラダ-真田まこと",
+      site: Website.SOKMIL,
+    });
+
+    expect(response.result.success).toBe(true);
+    if (!response.result.success) {
+      throw new Error("expected success");
+    }
+
+    expect(response.result.data.title).toBe("甘えたいカラダ 真田まこと");
+    expect(response.result.data.actors).toEqual(["真田まこと"]);
+  });
+
   it("matches an exact title from search results instead of guessing the first item", async () => {
     const searchUrl =
       "https://www.sokmil.com/search/keyword/?sectionid=2&q=%E7%94%98%E3%81%88%E3%81%9F%E3%81%84%E3%82%AB%E3%83%A9%E3%83%80%20%E7%9C%9F%E7%94%B0%E3%81%BE%E3%81%93%E3%81%A8";
@@ -107,5 +154,25 @@ describe("SokmilCrawler", () => {
     }
 
     expect(response.result.failureReason).toBe("not_found");
+  });
+
+  it("classifies login-wall search pages instead of reporting not found", async () => {
+    const searchUrl =
+      "https://www.sokmil.com/search/keyword/?sectionid=2&q=%E7%94%98%E3%81%88%E3%81%9F%E3%81%84%E3%82%AB%E3%83%A9%E3%83%80%20%E7%9C%9F%E7%94%B0%E3%81%BE%E3%81%93%E3%81%A8";
+    const fixtures = new Map<string, string>([[searchUrl, loginHtml]]);
+    const crawler = new SokmilCrawler(withGateway(new FixtureNetworkClient(fixtures)));
+
+    const response = await crawler.crawl({
+      number: "甘えたいカラダ-真田まこと",
+      site: Website.SOKMIL,
+    });
+
+    expect(response.result.success).toBe(false);
+    if (response.result.success) {
+      throw new Error("expected failure");
+    }
+
+    expect(response.result.failureReason).toBe("login_wall");
+    expect(response.result.error).toBe("SOKMIL: login wall");
   });
 });

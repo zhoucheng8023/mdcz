@@ -18,8 +18,37 @@ const DEFAULT_SECTION_ID = "2";
 
 type CheerioInput = Parameters<CheerioAPI>[0];
 
+const JAPANESE_CHARACTER_PATTERN = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
+
 const normalizeSokmilSearchText = (value: string | undefined | null): string =>
-  normalizeText(value).replace(/\s+/gu, "");
+  normalizeText(value)
+    .replace(/[\s\-_/・]+/gu, "")
+    .toLowerCase();
+
+const normalizeSokmilSearchQuery = (value: string | undefined | null): string => {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "";
+  }
+
+  if (!JAPANESE_CHARACTER_PATTERN.test(normalized)) {
+    return normalized;
+  }
+
+  return normalized.replace(/[-_]+/gu, " ").replace(/\s+/gu, " ").trim();
+};
+
+const isSokmilLoginWall = ($: CheerioAPI): boolean => {
+  const title = $("title").first().text().trim();
+  const h1 = $("h1").first().text().trim();
+  return (
+    title.includes("ログイン") ||
+    h1 === "ログイン" ||
+    $("html.sk-nonmember").length > 0 ||
+    $("form[action*='/member/login']").length > 0 ||
+    $("input[name='login_id'], input[name='mailaddress']").length > 0
+  );
+};
 
 const extractDtDdValue = ($: CheerioAPI, label: string): string | undefined => {
   const dt = $("dt")
@@ -48,7 +77,7 @@ export class SokmilCrawler extends BaseCrawler {
   }
 
   protected async generateSearchUrl(context: Context): Promise<string | null> {
-    const number = normalizeText(context.number);
+    const number = normalizeSokmilSearchQuery(context.number);
     if (!number) {
       return null;
     }
@@ -68,16 +97,29 @@ export class SokmilCrawler extends BaseCrawler {
       return null;
     }
 
-    const match = $("div.product[data-pid]")
+    if (isSokmilLoginWall($)) {
+      throw new Error("SOKMIL: login wall");
+    }
+
+    const match = $("div.product[data-pid], div.product, li.product")
       .toArray()
       .map((element: CheerioInput) => {
         const root = $(element);
+        const title = root.find(".title").first().text().trim();
+        const actor = root.find(".cast, .performer, .actor").first().text().trim();
         return {
           href: root.find("a[href*='_item/item']").first().attr("href"),
-          title: root.find(".title").first().text().trim(),
+          title,
+          actor,
         };
       })
-      .find((item) => normalizeSokmilSearchText(item.title) === searchText);
+      .find((item) => {
+        const candidates = [item.title, [item.title, item.actor].filter(Boolean).join(" ")]
+          .map((value) => normalizeSokmilSearchText(value))
+          .filter((value) => value.length > 0);
+
+        return candidates.includes(searchText);
+      });
 
     if (!match?.href) {
       return null;
@@ -87,6 +129,11 @@ export class SokmilCrawler extends BaseCrawler {
   }
 
   protected async parseDetailPage(context: Context, $: CheerioAPI, _detailUrl: string): Promise<CrawlerData | null> {
+    const base = this.resolveBaseUrl(context, SOKMIL_BASE_URL);
+    if (isSokmilLoginWall($)) {
+      throw new Error("SOKMIL: login wall");
+    }
+
     const h1 = $("h1").first().text().trim();
     if (!h1) {
       return null;
@@ -125,7 +172,7 @@ export class SokmilCrawler extends BaseCrawler {
       .filter((name: string) => name.length > 0);
 
     // Cover image
-    const jacketImg = $("img.jacket-img").first().attr("src") ?? undefined;
+    const jacketImg = toAbsoluteUrl(base, $("img.jacket-img").first().attr("src") ?? undefined);
 
     return {
       title,

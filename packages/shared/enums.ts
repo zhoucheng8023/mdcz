@@ -1,5 +1,4 @@
 export enum Website {
-  AVSOX = "avsox",
   DAHLIA = "dahlia",
   DMM = "dmm",
   DMM_TV = "dmm_tv",

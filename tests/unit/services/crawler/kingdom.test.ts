@@ -125,8 +125,9 @@ describe("KingdomCrawler", () => {
       expect(response.result.data.studio).toBe("Kingdom");
       expect(response.result.data.publisher).toBe("Queen");
       expect(response.result.data.plot).toBe("熟された身体でファンを魅了する、尾崎ヒカルの最新イメージ。");
-      expect(response.result.data.thumb_url).toBe("https://kingdom.vc/html/upload/save_image/1175.jpg");
-      expect(response.result.data.scene_images).toEqual(["https://kingdom.vc/html/upload/save_image/kidm1175.jpg"]);
+      expect(response.result.data.poster_url).toBe("https://kingdom.vc/html/upload/save_image/1175.jpg");
+      expect(response.result.data.thumb_url).toBe("https://kingdom.vc/html/upload/save_image/kidm1175.jpg");
+      expect(response.result.data.scene_images).toEqual([]);
       expect(networkClient.requests.map((request) => request.url)).toEqual([searchUrl, detailUrl]);
     }
   });
