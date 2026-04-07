@@ -61,6 +61,8 @@ export class ConfigManager extends EventEmitter {
     await this.initializePromise;
   }
 
+  async get(): Promise<Configuration>;
+  async get(path: string): Promise<unknown>;
   async get(path?: string): Promise<Configuration | unknown> {
     await this.ensureLoaded();
 
@@ -69,6 +71,10 @@ export class ConfigManager extends EventEmitter {
     }
 
     return getProperty(this.configuration as unknown as Record<string, unknown>, path);
+  }
+
+  async getValidated(): Promise<Configuration> {
+    return await this.get();
   }
 
   getComputed(): ComputedConfiguration {

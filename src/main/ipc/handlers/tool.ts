@@ -1,5 +1,5 @@
 import type { ServiceContainer } from "@main/container";
-import { type Configuration, configManager, configurationSchema } from "@main/services/config";
+import { type Configuration, configManager } from "@main/services/config";
 import { ActorPhotoFolderConfigurationError } from "@main/services/config/actorPhotoPath";
 import { loggerService } from "@main/services/LoggerService";
 import {
@@ -92,8 +92,7 @@ export const createToolHandlers = (
     type: "jellyfin" | "emby",
     serviceName: "Jellyfin" | "Emby",
   ): Promise<Configuration> => {
-    await configManager.ensureLoaded();
-    const configuration = configurationSchema.parse(await configManager.get());
+    const configuration = await configManager.getValidated();
     const serverConfig = configuration[type];
 
     if (!serverConfig.url.trim() || !serverConfig.apiKey.trim()) {

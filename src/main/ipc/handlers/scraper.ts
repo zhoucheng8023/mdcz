@@ -1,5 +1,5 @@
 import type { ServiceContainer } from "@main/container";
-import { configManager, configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { ScraperServiceError } from "@main/services/scraper";
 import { confirmUncensoredItems } from "@main/services/scraper/confirmUncensored";
@@ -160,7 +160,7 @@ export const createScraperHandlers = (
           return { updatedCount: 0, items: [] };
         }
 
-        const config = configurationSchema.parse(await configManager.get());
+        const config = await configManager.getValidated();
         if (!config.download.generateNfo) {
           logger.warn("Rejecting uncensored confirm because NFO generation is disabled");
           throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "已关闭 NFO 生成功能，无法确认无码类型");

@@ -1,5 +1,5 @@
 import type { Configuration } from "@main/services/config";
-import { configManager, configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { pathExists } from "@main/utils/file";
 import { parseFileInfo } from "@main/utils/number";
 import type { FileInfo, ScrapeResult } from "@shared/types";
@@ -40,7 +40,7 @@ export class ScrapeFailureHandler {
     this.setProgress(context.progress, 100);
 
     try {
-      const configuration = configurationSchema.parse(await configManager.get());
+      const configuration = await configManager.getValidated();
       context.fileInfo = await this.moveToFailedFolder(context.fileInfo, configuration);
     } catch (moveError) {
       const moveMsg = moveError instanceof Error ? moveError.message : String(moveError);

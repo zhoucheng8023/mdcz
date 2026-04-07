@@ -26,10 +26,8 @@ export const createConfigHandlers = (): Pick<
 > => ({
   [IpcChannel.Config_Get]: t.procedure.input<{ path?: string }>().action(async ({ input }) => {
     try {
-      await configManager.ensureLoaded();
-
       if (!input?.path) {
-        return configManager.get();
+        return await configManager.getValidated();
       }
 
       const value = await configManager.get(input.path);

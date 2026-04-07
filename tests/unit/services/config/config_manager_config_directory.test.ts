@@ -58,7 +58,7 @@ describe("ConfigManager configDirectory", () => {
     expect(await fileExists(expectedMetaPath)).toBe(true);
 
     const reloaded = new ConfigManager();
-    const configuration = (await reloaded.get()) as { paths: { configDirectory: string } };
+    const configuration = await reloaded.getValidated();
     expect(configuration.paths.configDirectory).toBe("custom-config");
     expect(reloaded.list().dataDir).toBe(join(mockUserDataPath, "custom-config"));
   });
@@ -107,7 +107,7 @@ describe("ConfigManager configDirectory", () => {
     const { ConfigManager } = await import("@main/services/config/ConfigManager");
 
     const manager = new ConfigManager();
-    const configuration = (await manager.get()) as { paths: { configDirectory: string } };
+    const configuration = await manager.getValidated();
     const persisted = JSON.parse(await readFile(configPath, "utf8"));
 
     expect(configuration.paths.configDirectory).toBe("config");
@@ -168,7 +168,7 @@ describe("ConfigManager configDirectory", () => {
 
     await expect(manager.ensureLoaded()).rejects.toThrow("Injected config load failure");
     await expect(manager.ensureLoaded()).resolves.toBeUndefined();
-    await expect(manager.get()).resolves.toMatchObject({
+    await expect(manager.getValidated()).resolves.toMatchObject({
       paths: {
         configDirectory: "config",
       },

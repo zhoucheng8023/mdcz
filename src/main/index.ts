@@ -12,7 +12,7 @@ import {
   LocalActorSource,
   OfficialActorSource,
 } from "@main/services/actorSource";
-import { type Configuration, configManager } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
 import { EmbyActorInfoService, EmbyActorPhotoService } from "@main/services/mediaServer/emby";
@@ -165,8 +165,7 @@ if (!app.requestSingleInstanceLock()) {
 
       if (windowService) {
         trayService.initialize(windowService);
-        await configManager.ensureLoaded();
-        const initialConfig = (await configManager.get()) as Configuration;
+        const initialConfig = await configManager.getValidated();
         shortcutService.initialize(windowService, initialConfig);
         loggerService.reconfigure(initialConfig.behavior.saveLog);
         windowService.applyUiConfig(initialConfig.ui);
@@ -193,12 +192,12 @@ if (!app.requestSingleInstanceLock()) {
         if (BrowserWindow.getAllWindows().length === 0) {
           void ensureMainWindow().then(() => {
             if (windowService) {
-              void configManager.ensureLoaded().then(async () => {
+              void (async () => {
                 if (!windowService) {
                   return;
                 }
-                shortcutService.initialize(windowService, (await configManager.get()) as Configuration);
-              });
+                shortcutService.initialize(windowService, await configManager.getValidated());
+              })();
             }
           });
           return;

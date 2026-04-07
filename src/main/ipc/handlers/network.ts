@@ -1,5 +1,5 @@
 import type { ServiceContainer } from "@main/container";
-import { configManager, configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { toErrorMessage } from "@main/utils/common";
 import { IpcChannel } from "@shared/IpcChannel";
 import type { IpcRouterContract } from "@shared/ipcContract";
@@ -12,8 +12,7 @@ export const createNetworkHandlers = (
 
   return {
     [IpcChannel.Network_CheckCookies]: t.procedure.action(async () => {
-      await configManager.ensureLoaded();
-      const configuration = configurationSchema.parse(await configManager.get());
+      const configuration = await configManager.getValidated();
       const results: Array<{ site: string; valid: boolean; message: string }> = [];
 
       const javdbCookie = configuration.network.javdbCookie.trim();

@@ -1,4 +1,4 @@
-import { configManager, configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { NetworkClient } from "@main/services/network";
 import {
@@ -18,8 +18,7 @@ const llmApiClient = new LlmApiClient(new NetworkClient({ timeoutMs: 10_000 }));
 export const createTranslateHandlers = (): Pick<IpcRouterContract, typeof IpcChannel.Translate_TestLlm> => {
   return {
     [IpcChannel.Translate_TestLlm]: t.procedure.input<TranslateTestLlmInput>().action(async ({ input }) => {
-      await configManager.ensureLoaded();
-      const config = configurationSchema.parse(await configManager.get());
+      const config = await configManager.getValidated();
       const llmModelName = typeof input?.llmModelName === "string" ? input.llmModelName : config.translate.llmModelName;
       const llmApiKey = typeof input?.llmApiKey === "string" ? input.llmApiKey : config.translate.llmApiKey;
       const llmBaseUrl = typeof input?.llmBaseUrl === "string" ? input.llmBaseUrl : config.translate.llmBaseUrl;

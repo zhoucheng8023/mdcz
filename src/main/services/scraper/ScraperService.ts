@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
-import { type Configuration, configManager, configurationSchema } from "@main/services/config";
+import { type Configuration, configManager } from "@main/services/config";
 import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
@@ -224,8 +224,7 @@ export class ScraperService {
       throw new ScraperServiceError("ALREADY_RUNNING", "Scraper is already running");
     }
 
-    await configManager.ensureLoaded();
-    const configuration = configurationSchema.parse(await configManager.get());
+    const configuration = await configManager.getValidated();
     const filePaths = await this.resolveFilePaths(mode, uniquePaths(paths), configuration);
 
     if (filePaths.length === 0) {
@@ -310,8 +309,7 @@ export class ScraperService {
       throw new ScraperServiceError("NO_FILES", "No files to retry");
     }
 
-    await configManager.ensureLoaded();
-    const configuration = configurationSchema.parse(await configManager.get());
+    const configuration = await configManager.getValidated();
 
     this.configureRuntimeSettings(configuration);
     const concurrency = Math.max(1, configuration.scrape.threadNumber);

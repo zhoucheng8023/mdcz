@@ -1,7 +1,6 @@
 import { lstat, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ServiceContainer } from "@main/container";
-import { configurationSchema } from "@main/services/config";
 import { configManager } from "@main/services/config/ConfigManager";
 import { loggerService } from "@main/services/LoggerService";
 import { findExistingNfoPath, nfoGenerator } from "@main/services/scraper/NfoGenerator";
@@ -172,7 +171,7 @@ export const createFileHandlers = (
           if (!nfoPath || !data) {
             throw createIpcError(IpcErrorCode.FILE_WRITE_ERROR, "NFO path and data are required");
           }
-          const config = configurationSchema.parse(await configManager.get());
+          const config = await configManager.getValidated();
           const existingNfoPath = await findExistingNfoPath(nfoPath, config.download.nfoNaming);
           const existingSnapshot = existingNfoPath
             ? parseNfoSnapshot(await readFile(existingNfoPath, "utf8")).localState

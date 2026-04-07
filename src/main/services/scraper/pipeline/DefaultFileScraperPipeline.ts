@@ -1,5 +1,5 @@
 import { ActorImageService } from "@main/services/ActorImageService";
-import { configManager, configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { LocalScanService } from "@main/services/scraper/maintenance/LocalScanService";
 import type { CrawlerData, NfoLocalState, ScrapeResult } from "@shared/types";
@@ -86,7 +86,7 @@ export class DefaultFileScraperPipeline implements FileScraperPipeline {
       logger: this.logger,
       nfoGenerator: this.deps.nfoGenerator,
       signalService: this.deps.signalService,
-      getConfiguration: async () => configurationSchema.parse(await configManager.get()),
+      getConfiguration: async () => await configManager.getValidated(),
       aggregateMetadata: async (fileInfo, configuration, signal) =>
         await this.aggregationCoordinator.aggregate(fileInfo, configuration, signal),
       handleFailedFileMove: async (fileInfo, configuration) =>

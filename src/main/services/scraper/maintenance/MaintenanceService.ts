@@ -1,6 +1,6 @@
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
-import { type Configuration, configManager, configurationSchema } from "@main/services/config";
+import { type Configuration, configManager } from "@main/services/config";
 import type { DeepPartial } from "@main/services/config/models";
 import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
@@ -72,8 +72,7 @@ export class MaintenanceService {
     this.signalService.showLogText("Scanning maintenance directories");
 
     try {
-      await configManager.ensureLoaded();
-      const config = configurationSchema.parse(await configManager.get());
+      const config = await configManager.getValidated();
       const entries = await this.localScanService.scan(dirPath, config.paths.sceneImagesFolder);
 
       this.signalService.showLogText(`Maintenance scan completed. Found ${entries.length} item(s).`);
@@ -227,8 +226,7 @@ export class MaintenanceService {
     }
 
     const preset = getPreset(presetId);
-    await configManager.ensureLoaded();
-    const baseConfig = configurationSchema.parse(await configManager.get());
+    const baseConfig = await configManager.getValidated();
     const config = mergeDeep(baseConfig, preset.configOverrides as DeepPartial<Configuration>);
     if (!supportsMaintenanceExecution(preset)) {
       throw new Error("当前预设仅用于扫描本地数据，无需执行");

@@ -1,5 +1,5 @@
 import type { ServiceContainer } from "@main/container";
-import { configManager, configurationSchema } from "@main/services/config";
+import { configManager } from "@main/services/config";
 import { buildCrawlerOptions } from "@main/services/scraper/crawlerOptions";
 import { toErrorMessage } from "@main/utils/common";
 import { Website } from "@shared/enums";
@@ -31,8 +31,7 @@ export const createCrawlerHandlers = (
           throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Both site and number are required");
         }
 
-        await configManager.ensureLoaded();
-        const configuration = configurationSchema.parse(await configManager.get());
+        const configuration = await configManager.getValidated();
         const response = await crawlerProvider.crawl({
           number,
           site,
@@ -61,8 +60,7 @@ export const createCrawlerHandlers = (
     }),
     [IpcChannel.Crawler_ListSites]: t.procedure.action(async () => {
       try {
-        await configManager.ensureLoaded();
-        const configuration = configurationSchema.parse(await configManager.get());
+        const configuration = await configManager.getValidated();
         const enabledSites = new Set(configuration.scrape.enabledSites);
         return {
           sites: crawlerProvider.listSites().map(({ site, native }) => ({
