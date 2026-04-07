@@ -15,7 +15,6 @@ import { Website } from "@shared/enums";
 import type { CrawlerData, LocalScanEntry } from "@shared/types";
 import { app } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestConfigManager } from "./helpers";
 
 const tempDirs: string[] = [];
 
@@ -99,7 +98,6 @@ const createScraperHarness = (
 
   const scraper = new MaintenanceFileScraper(
     {
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn(),
       } as never,

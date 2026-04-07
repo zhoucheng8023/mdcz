@@ -16,7 +16,7 @@ import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { app } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestConfigManager } from "./helpers";
+import { mockConfigManager } from "./helpers";
 
 const tempDirs: string[] = [];
 
@@ -104,8 +104,8 @@ describe("FileScraper actor image library", () => {
       },
     });
     const writeNfo = vi.fn().mockResolvedValue(plan.nfoPath);
+    mockConfigManager(config);
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData())),
       } as unknown as AggregationService,
@@ -175,8 +175,8 @@ describe("FileScraper actor image library", () => {
       },
     });
     const writeNfo = vi.fn();
+    mockConfigManager(config);
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData())),
       } as unknown as AggregationService,
@@ -250,8 +250,8 @@ describe("FileScraper actor image library", () => {
       },
     });
     const writeNfo = vi.fn().mockResolvedValue(nfoPath);
+    mockConfigManager(config);
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue(
           createAggregationResult(
@@ -409,8 +409,8 @@ describe("FileScraper actor image library", () => {
       },
     });
     const writeNfo = vi.fn().mockResolvedValue(nfoPath);
+    mockConfigManager(config);
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue(
           createAggregationResult(

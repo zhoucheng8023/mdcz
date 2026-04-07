@@ -1,5 +1,5 @@
-import type { Configuration } from "@main/services/config";
-import { ConfigManager } from "@main/services/config/ConfigManager";
+import { type Configuration, configManager } from "@main/services/config";
+import { vi } from "vitest";
 
 const getByPath = (target: Record<string, unknown>, path: string): unknown => {
   let cursor: unknown = target;
@@ -12,20 +12,18 @@ const getByPath = (target: Record<string, unknown>, path: string): unknown => {
   return cursor;
 };
 
-export class TestConfigManager extends ConfigManager {
-  constructor(private readonly config: Configuration) {
-    super();
-  }
+export const mockConfigManager = (config: Configuration): void => {
+  const ensureLoadedSpy = vi.isMockFunction(configManager.ensureLoaded)
+    ? vi.mocked(configManager.ensureLoaded)
+    : vi.spyOn(configManager, "ensureLoaded");
+  ensureLoadedSpy.mockResolvedValue(undefined);
 
-  override async ensureLoaded(): Promise<void> {
-    return;
-  }
-
-  override async get(path?: string): Promise<Configuration | unknown> {
+  const getSpy = vi.isMockFunction(configManager.get) ? vi.mocked(configManager.get) : vi.spyOn(configManager, "get");
+  getSpy.mockImplementation(async (path?: string) => {
     if (!path) {
-      return this.config;
+      return config;
     }
 
-    return getByPath(this.config as unknown as Record<string, unknown>, path);
-  }
-}
+    return getByPath(config as unknown as Record<string, unknown>, path);
+  });
+};

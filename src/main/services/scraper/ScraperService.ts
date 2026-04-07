@@ -451,7 +451,6 @@ export class ScraperService {
 
   private createFileScraperDependencies() {
     return {
-      configManager,
       aggregationService: new AggregationService(this.sharedCrawlerProvider),
       translateService: new TranslateService(this.sharedNetworkClient),
       nfoGenerator: new NfoGenerator(),

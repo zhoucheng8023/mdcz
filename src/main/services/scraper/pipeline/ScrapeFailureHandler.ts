@@ -1,6 +1,5 @@
 import type { Configuration } from "@main/services/config";
-import { configurationSchema } from "@main/services/config";
-import type { ConfigManager } from "@main/services/config/ConfigManager";
+import { configManager, configurationSchema } from "@main/services/config";
 import { pathExists } from "@main/utils/file";
 import { parseFileInfo } from "@main/utils/number";
 import type { FileInfo, ScrapeResult } from "@shared/types";
@@ -13,7 +12,6 @@ import type { FileScraperStageRuntime } from "./types";
 
 export class ScrapeFailureHandler {
   constructor(
-    private readonly configManager: ConfigManager,
     private readonly fileOrganizer: FileOrganizer,
     private readonly logger: Pick<Logger, "error" | "info" | "warn">,
     private readonly signalService: FileScraperStageRuntime["signalService"],
@@ -42,7 +40,7 @@ export class ScrapeFailureHandler {
     this.setProgress(context.progress, 100);
 
     try {
-      const configuration = configurationSchema.parse(await this.configManager.get());
+      const configuration = configurationSchema.parse(await configManager.get());
       context.fileInfo = await this.moveToFailedFolder(context.fileInfo, configuration);
     } catch (moveError) {
       const moveMsg = moveError instanceof Error ? moveError.message : String(moveError);

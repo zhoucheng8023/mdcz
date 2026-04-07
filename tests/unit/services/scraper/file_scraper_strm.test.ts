@@ -13,7 +13,7 @@ import type { TranslateService } from "@main/services/scraper/TranslateService";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestConfigManager } from "./helpers";
+import { mockConfigManager } from "./helpers";
 
 const tempDirs: string[] = [];
 
@@ -73,9 +73,9 @@ const createScraper = ({
   plan: OrganizePlan;
   writeNfo: ReturnType<typeof vi.fn>;
   localScanService?: Pick<LocalScanService, "scanVideo">;
-}) =>
-  createFileScraper({
-    configManager: new TestConfigManager(config),
+}) => {
+  mockConfigManager(config);
+  return createFileScraper({
     aggregationService: {
       aggregate: vi.fn().mockResolvedValue(createAggregationResult(crawlerData)),
     } as unknown as AggregationService,
@@ -99,9 +99,11 @@ const createScraper = ({
     signalService: new SignalService(null),
     localScanService,
   });
+};
 
 describe("FileScraper .strm support", () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(
       tempDirs.splice(0, tempDirs.length).map(async (dirPath) => {
         await rm(dirPath, { recursive: true, force: true });
@@ -205,8 +207,8 @@ describe("FileScraper .strm support", () => {
     const localScanService: Pick<LocalScanService, "scanVideo"> = {
       scanVideo: async () => (await scanVideoMock()) as Awaited<ReturnType<LocalScanService["scanVideo"]>>,
     };
+    mockConfigManager(config);
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(crawlerData)),
       } as unknown as AggregationService,

@@ -149,4 +149,8 @@ export class LoggerService {
   }
 }
 
+/**
+ * Main-process logging is intentionally exposed as a module singleton.
+ * Consumers should import this directly instead of mixing it with container injection.
+ */
 export const loggerService = LoggerService.getInstance();

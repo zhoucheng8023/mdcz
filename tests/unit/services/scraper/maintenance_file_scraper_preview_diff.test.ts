@@ -48,7 +48,6 @@ const plan = {
 const createScraper = (crawlerData: CrawlerData) =>
   new MaintenanceFileScraper(
     {
-      configManager: {} as never,
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue({
           data: crawlerData,

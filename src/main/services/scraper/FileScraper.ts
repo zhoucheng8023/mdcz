@@ -1,6 +1,5 @@
 import type { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
-import type { ConfigManager } from "@main/services/config/ConfigManager";
 import type { SignalService } from "@main/services/SignalService";
 import type { ScrapeResult } from "@shared/types";
 import { isAbortError } from "./abort";
@@ -13,7 +12,6 @@ import { DefaultFileScraperPipeline, type FileScraperPipeline } from "./pipeline
 import type { TranslateService } from "./TranslateService";
 
 export interface FileScraperDependencies {
-  configManager: ConfigManager;
   aggregationService: AggregationService;
   translateService: TranslateService;
   nfoGenerator: NfoGenerator;

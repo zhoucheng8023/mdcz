@@ -9,8 +9,8 @@ import type { NfoGenerator } from "@main/services/scraper/NfoGenerator";
 import type { TranslateService } from "@main/services/scraper/TranslateService";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
-import { describe, expect, it, vi } from "vitest";
-import { TestConfigManager } from "./helpers";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mockConfigManager } from "./helpers";
 
 const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData => ({
   title: "Original Title",
@@ -23,6 +23,10 @@ const createCrawlerData = (overrides: Partial<CrawlerData> = {}): CrawlerData =>
 });
 
 describe("FileScraper plan timing", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("plans output paths from translated metadata so naming stays aligned with maintenance", async () => {
     const config = configurationSchema.parse({
       ...defaultConfiguration,
@@ -58,8 +62,8 @@ describe("FileScraper plan timing", () => {
     const actorImageService = {
       prepareActorProfilesForMovie: vi.fn().mockResolvedValue(undefined),
     } as unknown as ActorImageService;
+    mockConfigManager(config);
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(config),
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue({
           data: aggregatedData,

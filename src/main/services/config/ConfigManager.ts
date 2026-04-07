@@ -377,4 +377,8 @@ export class ConfigManager extends EventEmitter {
   }
 }
 
+/**
+ * Main-process configuration is intentionally exposed as a module singleton.
+ * Services should import this directly instead of threading it through ad-hoc deps.
+ */
 export const configManager = new ConfigManager();

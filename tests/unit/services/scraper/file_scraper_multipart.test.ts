@@ -12,7 +12,7 @@ import type { TranslateService } from "@main/services/scraper/TranslateService";
 import { Website } from "@shared/enums";
 import type { CrawlerData, FileInfo } from "@shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestConfigManager } from "./helpers";
+import { mockConfigManager } from "./helpers";
 
 const config = configurationSchema.parse({
   ...defaultConfiguration,
@@ -74,6 +74,7 @@ const createScraper = (
     moveToFailedFolder?: ReturnType<typeof vi.fn>;
   } = {},
 ) => {
+  mockConfigManager(config);
   const downloadAll =
     overrides.downloadAll ??
     vi.fn().mockResolvedValue({
@@ -86,7 +87,6 @@ const createScraper = (
   const moveToFailedFolder = overrides.moveToFailedFolder ?? vi.fn(async (fileInfo: FileInfo) => fileInfo.filePath);
 
   const scraper = createFileScraper({
-    configManager: new TestConfigManager(config),
     aggregationService: {
       aggregate,
     } as unknown as AggregationService,
@@ -121,6 +121,7 @@ const createScraper = (
 
 describe("FileScraper multipart aggregation cache", () => {
   afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(
       tempDirs.splice(0, tempDirs.length).map((dirPath) => rm(dirPath, { recursive: true, force: true })),
     );

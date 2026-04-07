@@ -12,7 +12,7 @@ import type { TranslateService } from "@main/services/scraper/TranslateService";
 import { Website } from "@shared/enums";
 import type { CrawlerData, FileInfo } from "@shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestConfigManager } from "./helpers";
+import { mockConfigManager } from "./helpers";
 
 const tempDirs: string[] = [];
 
@@ -67,9 +67,9 @@ describe("FileScraper subtitle sidecars", () => {
     );
   });
 
-  const createScraper = (plan: OrganizePlan, writeNfo: ReturnType<typeof vi.fn>) =>
-    createFileScraper({
-      configManager: new TestConfigManager(config),
+  const createScraper = (plan: OrganizePlan, writeNfo: ReturnType<typeof vi.fn>) => {
+    mockConfigManager(config);
+    return createFileScraper({
       aggregationService: {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData())),
       } as unknown as AggregationService,
@@ -92,6 +92,7 @@ describe("FileScraper subtitle sidecars", () => {
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });
+  };
 
   it.each([
     ["ABC-123.srt", "字幕"],

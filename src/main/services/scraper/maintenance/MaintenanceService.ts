@@ -253,7 +253,6 @@ export class MaintenanceService {
 
   private createDependencies(): FileScraperDependencies {
     return {
-      configManager,
       aggregationService: new AggregationService(this.crawlerProvider),
       translateService: new TranslateService(this.networkClient),
       nfoGenerator: new NfoGenerator(),

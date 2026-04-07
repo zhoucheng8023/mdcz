@@ -1,5 +1,5 @@
 import { ActorImageService } from "@main/services/ActorImageService";
-import { configurationSchema } from "@main/services/config";
+import { configManager, configurationSchema } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { LocalScanService } from "@main/services/scraper/maintenance/LocalScanService";
 import type { CrawlerData, NfoLocalState, ScrapeResult } from "@shared/types";
@@ -53,12 +53,7 @@ export class DefaultFileScraperPipeline implements FileScraperPipeline {
     this.actorImageService = deps.actorImageService ?? new ActorImageService();
     this.localScanService = deps.localScanService ?? new LocalScanService();
     this.aggregationCoordinator = new AggregationCoordinator(deps.aggregationService);
-    this.failureHandler = new ScrapeFailureHandler(
-      deps.configManager,
-      deps.fileOrganizer,
-      this.logger,
-      deps.signalService,
-    );
+    this.failureHandler = new ScrapeFailureHandler(deps.fileOrganizer, this.logger, deps.signalService);
     this.stages = this.createStages();
   }
 
@@ -91,7 +86,7 @@ export class DefaultFileScraperPipeline implements FileScraperPipeline {
       logger: this.logger,
       nfoGenerator: this.deps.nfoGenerator,
       signalService: this.deps.signalService,
-      getConfiguration: async () => configurationSchema.parse(await this.deps.configManager.get()),
+      getConfiguration: async () => configurationSchema.parse(await configManager.get()),
       aggregateMetadata: async (fileInfo, configuration, signal) =>
         await this.aggregationCoordinator.aggregate(fileInfo, configuration, signal),
       handleFailedFileMove: async (fileInfo, configuration) =>

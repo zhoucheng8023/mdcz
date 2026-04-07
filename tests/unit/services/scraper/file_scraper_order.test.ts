@@ -10,8 +10,8 @@ import { createFileScraper } from "@main/services/scraper/FileScraper";
 import { NfoGenerator } from "@main/services/scraper/NfoGenerator";
 import { TranslateService } from "@main/services/scraper/TranslateService";
 import { Website } from "@shared/enums";
-import { describe, expect, it } from "vitest";
-import { TestConfigManager } from "./helpers";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mockConfigManager } from "./helpers";
 
 class OrderedStubCrawlerProvider extends CrawlerProvider {
   readonly calledSites: Website[] = [];
@@ -47,10 +47,14 @@ const createConfig = (): Configuration => {
 };
 
 describe("FileScraper site aggregation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("attempts all enabled sites via aggregation", async () => {
     const crawlerProvider = new OrderedStubCrawlerProvider();
+    mockConfigManager(createConfig());
     const scraper = createFileScraper({
-      configManager: new TestConfigManager(createConfig()),
       aggregationService: new AggregationService(crawlerProvider),
       translateService: new TranslateService(new NetworkClient()),
       nfoGenerator: new NfoGenerator(),
