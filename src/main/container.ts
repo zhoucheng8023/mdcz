@@ -34,4 +34,5 @@ export interface ServiceContainer {
   embyActorInfoService: EmbyActorInfoService;
   symlinkService: SymlinkService;
   amazonPosterToolService: AmazonPosterToolService;
+  shutdown(): Promise<void>;
 }

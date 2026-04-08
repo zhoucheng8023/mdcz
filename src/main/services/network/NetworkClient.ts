@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { loggerService } from "@main/services/LoggerService";
+import { createAbortError } from "@main/utils/abort";
 import { parseRetryAfterMs } from "@main/utils/http";
 import { parseImageDimensions } from "@main/utils/image";
 import { type Browser, Impit, type RequestInit as ImpitRequestInit } from "impit";
@@ -14,6 +15,7 @@ const PROBE_FALLBACK_STATUS_CODES = new Set([403, 405, 501]);
 const PROBE_RANGE_HEADER = "bytes=0-0";
 const IMAGE_METADATA_PROBE_BYTES = 64 * 1024;
 const IMAGE_METADATA_PROBE_RETRY_BYTES = 256 * 1024;
+type HeaderInit = ConstructorParameters<typeof Headers>[0];
 type ImpitResponse = Awaited<ReturnType<Impit["fetch"]>>;
 type ProbeMethod = "HEAD" | "GET";
 type ProbeOptions = Omit<ImpitRequestInit, "method"> & {
@@ -30,6 +32,17 @@ export interface NetworkSession {
   getText(url: string, init?: Omit<ImpitRequestInit, "method">): Promise<string>;
 }
 
+export interface SiteRequestConfig {
+  id: string;
+  matches: (url: URL) => boolean;
+  headers?: HeaderInit | ((url: URL) => HeaderInit | undefined);
+}
+
+export interface SiteRequestConfigRegistrar {
+  registerSiteRequestConfig(config: SiteRequestConfig): void;
+  registerSiteRequestConfigs(configs: readonly SiteRequestConfig[]): void;
+}
+
 export interface NetworkClientOptions {
   timeoutMs?: number;
   browserImpersonation?: Browser;
@@ -37,6 +50,7 @@ export interface NetworkClientOptions {
   getTimeoutMs?: () => number | undefined;
   getRetryCount?: () => number | undefined;
   rateLimiter?: RateLimiter;
+  siteRequestConfigs?: readonly SiteRequestConfig[];
 }
 
 export interface ProbeResult {
@@ -62,13 +76,22 @@ interface RequestBehavior {
   retryLogPrefix?: string;
 }
 
-export class NetworkClient {
+interface ImpitClientState {
+  key: string;
+  client: Impit;
+}
+
+export class NetworkClient implements SiteRequestConfigRegistrar {
   private readonly logger = loggerService.getLogger("NetworkClient");
 
   private readonly options: Required<Pick<NetworkClientOptions, "timeoutMs" | "browserImpersonation">> &
     Pick<NetworkClientOptions, "getProxyUrl" | "getTimeoutMs" | "getRetryCount">;
 
   private readonly rateLimiter: RateLimiter;
+
+  private readonly siteRequestConfigs: SiteRequestConfig[] = [];
+
+  private defaultClientState: ImpitClientState | null = null;
 
   constructor(options: NetworkClientOptions = {}) {
     this.options = {
@@ -79,6 +102,7 @@ export class NetworkClient {
       getRetryCount: options.getRetryCount,
     };
     this.rateLimiter = options.rateLimiter ?? new RateLimiter(5);
+    this.registerSiteRequestConfigs(options.siteRequestConfigs ?? []);
   }
 
   setDomainInterval(domain: string, intervalMs: number, intervalCap = 1, concurrency = 1): void {
@@ -238,7 +262,7 @@ export class NetworkClient {
   }
 
   createSession(options: { cookieJar?: NetworkCookieJar } = {}): NetworkSession {
-    const client = this.createImpitClient(options.cookieJar);
+    const client = options.cookieJar ? this.createImpitClient(options.cookieJar) : undefined;
 
     return {
       getText: async (url: string, init: Omit<ImpitRequestInit, "method"> = {}) => {
@@ -253,6 +277,22 @@ export class NetworkClient {
         return response.text();
       },
     };
+  }
+
+  registerSiteRequestConfig(config: SiteRequestConfig): void {
+    const existingIndex = this.siteRequestConfigs.findIndex((candidate) => candidate.id === config.id);
+    if (existingIndex >= 0) {
+      this.siteRequestConfigs.splice(existingIndex, 1, config);
+      return;
+    }
+
+    this.siteRequestConfigs.push(config);
+  }
+
+  registerSiteRequestConfigs(configs: readonly SiteRequestConfig[]): void {
+    for (const config of configs) {
+      this.registerSiteRequestConfig(config);
+    }
   }
 
   private toProbeResult(url: string, response: ImpitResponse): ProbeResult {
@@ -327,39 +367,77 @@ export class NetworkClient {
     client?: Impit,
     behavior: RequestBehavior = {},
   ): Promise<ImpitResponse> {
-    return this.rateLimiter.schedule(url, async () => {
-      const maxRetries = this.resolveRetryCount();
-      let attempt = 0;
-
-      while (true) {
-        const response = await this.fetchOnce(url, init, client);
-        if (response.ok) {
-          return response;
+    return this.rateLimiter.schedule(
+      url,
+      async () => {
+        if (init.signal?.aborted) {
+          throw createAbortError();
         }
 
-        const retryable = this.shouldRetryResponse(response);
-        if (!retryable || attempt >= maxRetries) {
-          if (behavior.allowNonOkResponse) {
+        const maxRetries = this.resolveRetryCount();
+        let attempt = 0;
+
+        while (true) {
+          const response = await this.fetchOnce(url, init, client);
+          if (response.ok) {
             return response;
           }
 
-          throw this.toHttpError(url, response);
-        }
+          const retryable = this.shouldRetryResponse(response);
+          if (!retryable || attempt >= maxRetries) {
+            if (behavior.allowNonOkResponse) {
+              return response;
+            }
 
-        const delayMs = this.getRetryDelayMs(response, attempt);
-        attempt += 1;
-        this.logger.warn(
-          `Retrying ${behavior.retryLogPrefix ?? url} (${attempt}/${maxRetries}) after ${delayMs}ms due to HTTP ${response.status}`,
-        );
-        await sleep(delayMs);
-      }
+            throw this.toHttpError(url, response);
+          }
+
+          const delayMs = this.getRetryDelayMs(response, attempt);
+          attempt += 1;
+          this.logger.warn(
+            `Retrying ${behavior.retryLogPrefix ?? url} (${attempt}/${maxRetries}) after ${delayMs}ms due to HTTP ${response.status}`,
+          );
+          await this.waitForRetryDelay(delayMs, init.signal);
+        }
+      },
+      init.signal,
+    );
+  }
+
+  private async waitForRetryDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      await sleep(delayMs);
+      return;
+    }
+
+    if (signal.aborted) {
+      throw createAbortError();
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, delayMs);
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        reject(createAbortError());
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
     });
   }
 
   private async fetchOnce(url: string, init: ImpitRequestInit, client?: Impit): Promise<ImpitResponse> {
-    const currentClient = client ?? this.createImpitClient();
+    if (init.signal?.aborted) {
+      throw createAbortError();
+    }
+
+    const currentClient = client ?? this.getOrCreateDefaultClient();
     const headers = new Headers(init.headers);
-    this.applyReferer(url, headers);
+    this.applySiteRequestConfig(url, headers);
 
     return currentClient.fetch(url, {
       ...init,
@@ -493,6 +571,25 @@ export class NetworkClient {
     return Math.max(0, Math.trunc(value));
   }
 
+  private getOrCreateDefaultClient(): Impit {
+    const key = this.buildDefaultClientKey();
+    if (!this.defaultClientState || this.defaultClientState.key !== key) {
+      this.defaultClientState = {
+        key,
+        client: this.createImpitClient(),
+      };
+    }
+
+    return this.defaultClientState.client;
+  }
+
+  private buildDefaultClientKey(): string {
+    return JSON.stringify({
+      browserImpersonation: this.options.browserImpersonation,
+      proxyUrl: this.options.getProxyUrl?.() ?? "",
+    });
+  }
+
   private createImpitClient(cookieJar?: NetworkCookieJar): Impit {
     return new Impit({
       browser: this.options.browserImpersonation,
@@ -505,23 +602,38 @@ export class NetworkClient {
     });
   }
 
-  private applyReferer(url: string, headers: Headers): void {
-    const hostname = new URL(url).hostname;
+  private applySiteRequestConfig(url: string, headers: Headers): void {
+    const parsedUrl = new URL(url);
 
-    if (headers.has("referer")) {
-      return;
+    for (const [key, value] of this.resolveSiteHeaders(parsedUrl)) {
+      if (!headers.has(key)) {
+        headers.set(key, value);
+      }
     }
 
-    if (hostname.includes("javdb")) {
-      headers.set("referer", "https://javdb.com/");
-      return;
+    if (!headers.has("referer")) {
+      headers.set("referer", `${parsedUrl.origin}/`);
+    }
+  }
+
+  private resolveSiteHeaders(url: URL): Headers {
+    const headers = new Headers();
+
+    for (const config of this.siteRequestConfigs) {
+      if (!config.matches(url)) {
+        continue;
+      }
+
+      const resolvedHeaders = typeof config.headers === "function" ? config.headers(url) : config.headers;
+      if (!resolvedHeaders) {
+        continue;
+      }
+
+      for (const [key, value] of new Headers(resolvedHeaders)) {
+        headers.set(key, value);
+      }
     }
 
-    if (hostname.includes("javbus")) {
-      headers.set("referer", "https://www.javbus.com/");
-      return;
-    }
-
-    headers.set("referer", `${new URL(url).origin}/`);
+    return headers;
   }
 }

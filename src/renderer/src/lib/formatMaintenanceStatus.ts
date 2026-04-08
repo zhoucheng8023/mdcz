@@ -50,6 +50,10 @@ export const formatMaintenanceStatus = (
     return "正在扫描目录...";
   }
 
+  if (status.state === "previewing") {
+    return "正在预览数据...";
+  }
+
   if (status.state === "executing") {
     return localSummary.totalCount > 0
       ? `已完成 ${localSummary.completedCount}/${localSummary.totalCount} · 成功 ${localSummary.successCount} · 失败 ${localSummary.failedCount}`

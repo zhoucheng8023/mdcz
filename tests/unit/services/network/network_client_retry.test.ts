@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchMock, sleepMock } = vi.hoisted(() => {
+const { fetchMock, sleepMock, impitConstructorMock } = vi.hoisted(() => {
   const fetchMock = vi.fn();
   const sleepMock = vi.fn().mockResolvedValue(undefined);
-  return { fetchMock, sleepMock };
+  const impitConstructorMock = vi.fn();
+  return { fetchMock, sleepMock, impitConstructorMock };
 });
 
 vi.mock("impit", () => {
   return {
     Impit: class {
+      constructor(options?: unknown) {
+        impitConstructorMock(options);
+      }
+
       fetch = fetchMock;
     },
   };
@@ -20,6 +25,8 @@ vi.mock("node:timers/promises", () => {
   };
 });
 
+import { CrawlerProvider } from "@main/services/crawler/CrawlerProvider";
+import { FetchGateway } from "@main/services/crawler/FetchGateway";
 import { NetworkClient } from "@main/services/network/NetworkClient";
 
 const createProbeResponse = (
@@ -59,6 +66,7 @@ describe("NetworkClient retry policy", () => {
   beforeEach(() => {
     fetchMock.mockReset();
     sleepMock.mockClear();
+    impitConstructorMock.mockClear();
   });
 
   it("does not retry unretryable failures", async () => {
@@ -246,5 +254,64 @@ describe("NetworkClient retry policy", () => {
         expect(new Headers(fetchMock.mock.calls[index]?.[1]?.headers).get("range")).toBe(range);
       });
     }
+  });
+
+  it("reuses a shared Impit client until proxy settings change", async () => {
+    let proxyUrl = "http://proxy-a";
+    fetchMock.mockImplementation(async () => new Response("ok", { status: 200 }));
+    const client = new NetworkClient({
+      getProxyUrl: () => proxyUrl,
+    });
+
+    await expect(client.getText("https://example.com/one")).resolves.toBe("ok");
+    await expect(client.getText("https://example.com/two")).resolves.toBe("ok");
+
+    expect(impitConstructorMock).toHaveBeenCalledTimes(1);
+    expect(impitConstructorMock.mock.calls[0]?.[0]).toMatchObject({
+      proxyUrl: "http://proxy-a",
+    });
+
+    proxyUrl = "http://proxy-b";
+    await expect(client.getText("https://example.com/three")).resolves.toBe("ok");
+
+    expect(impitConstructorMock).toHaveBeenCalledTimes(2);
+    expect(impitConstructorMock.mock.calls[1]?.[0]).toMatchObject({
+      proxyUrl: "http://proxy-b",
+    });
+  });
+
+  it("applies crawler-registered site request defaults without overriding explicit headers", async () => {
+    fetchMock.mockImplementation(async () => new Response("ok", { status: 200 }));
+    const client = new NetworkClient();
+    new CrawlerProvider({
+      fetchGateway: new FetchGateway(client),
+      siteRequestConfigRegistrar: client,
+    });
+
+    await expect(client.getText("https://www.javbus.com/search/ABP-123")).resolves.toBe("ok");
+
+    const defaultHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(defaultHeaders.get("referer")).toBe("https://www.javbus.com/");
+    expect(defaultHeaders.get("accept-language")).toContain("zh-CN");
+
+    fetchMock.mockClear();
+    await expect(
+      client.getText("https://www.javbus.com/search/ABP-123", {
+        headers: {
+          referer: "https://custom.example/",
+        },
+      }),
+    ).resolves.toBe("ok");
+
+    const explicitHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(explicitHeaders.get("referer")).toBe("https://custom.example/");
+    expect(explicitHeaders.get("accept-language")).toContain("zh-CN");
+
+    fetchMock.mockClear();
+    await expect(client.getText("https://pics.javbus.com/sample.jpg")).resolves.toBe("ok");
+
+    const subdomainHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(subdomainHeaders.get("referer")).toBe("https://www.javbus.com/");
+    expect(subdomainHeaders.get("accept-language")).toContain("zh-CN");
   });
 });

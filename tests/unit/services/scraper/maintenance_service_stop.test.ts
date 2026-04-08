@@ -2,6 +2,8 @@ import { configManager, configurationSchema, defaultConfiguration } from "@main/
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
 import { NetworkClient } from "@main/services/network";
 import { SignalService } from "@main/services/SignalService";
+import { createAbortError } from "@main/services/scraper/abort";
+import { LocalScanService } from "@main/services/scraper/maintenance/LocalScanService";
 import { MaintenanceFileScraper } from "@main/services/scraper/maintenance/MaintenanceFileScraper";
 import { MaintenanceService } from "@main/services/scraper/maintenance/MaintenanceService";
 import { Website } from "@shared/enums";
@@ -158,5 +160,112 @@ describe("MaintenanceService stop flow", () => {
       successCount: 0,
       failedCount: 0,
     });
+  });
+
+  it("shutdown aborts the active maintenance run and waits until it becomes idle", async () => {
+    const signalService = new CaptureSignalService(null);
+    const networkClient = new NetworkClient();
+    const crawlerProvider = new CrawlerProvider({
+      fetchGateway: new FetchGateway(networkClient),
+    });
+    const service = new MaintenanceService(signalService, networkClient, crawlerProvider);
+    const config = configurationSchema.parse(defaultConfiguration);
+
+    vi.spyOn(configManager, "ensureLoaded").mockResolvedValue(undefined);
+    vi.spyOn(configManager, "get").mockResolvedValue(config);
+    vi.spyOn(MaintenanceFileScraper.prototype, "processFile").mockImplementation(
+      (_entry, _config, _progress, signal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+          }
+
+          signal?.addEventListener(
+            "abort",
+            () => {
+              reject(createAbortError());
+            },
+            { once: true },
+          );
+        }) as never,
+    );
+
+    await service.execute([createCommitItem("abp-789")], "organize_files");
+    await service.shutdown({ timeoutMs: 500 });
+
+    expect(service.getStatus().state).toBe("idle");
+  });
+
+  it("shutdown aborts an active maintenance preview and waits until it becomes idle", async () => {
+    const signalService = new CaptureSignalService(null);
+    const networkClient = new NetworkClient();
+    const crawlerProvider = new CrawlerProvider({
+      fetchGateway: new FetchGateway(networkClient),
+    });
+    const service = new MaintenanceService(signalService, networkClient, crawlerProvider);
+    const config = configurationSchema.parse(defaultConfiguration);
+
+    vi.spyOn(configManager, "ensureLoaded").mockResolvedValue(undefined);
+    vi.spyOn(configManager, "get").mockResolvedValue(config);
+    vi.spyOn(MaintenanceFileScraper.prototype, "previewFile").mockImplementation(
+      (_entry, _config, signal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+          }
+
+          signal?.addEventListener(
+            "abort",
+            () => {
+              reject(createAbortError());
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    const previewPromise = service.preview([createCommitItem("abp-900").entry], "organize_files");
+    await service.shutdown({ timeoutMs: 500 });
+
+    await expect(previewPromise).rejects.toThrow("Operation aborted");
+    expect(service.getStatus().state).toBe("idle");
+  });
+
+  it("shutdown aborts an active maintenance scan and waits until it becomes idle", async () => {
+    const signalService = new CaptureSignalService(null);
+    const networkClient = new NetworkClient();
+    const crawlerProvider = new CrawlerProvider({
+      fetchGateway: new FetchGateway(networkClient),
+    });
+    const service = new MaintenanceService(signalService, networkClient, crawlerProvider);
+    const config = configurationSchema.parse(defaultConfiguration);
+
+    vi.spyOn(configManager, "ensureLoaded").mockResolvedValue(undefined);
+    vi.spyOn(configManager, "get").mockResolvedValue(config);
+    vi.spyOn(LocalScanService.prototype, "scan").mockImplementation(
+      async (_dirPath, _sceneImagesFolder, signal) =>
+        await new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+          }
+
+          signal?.addEventListener(
+            "abort",
+            () => {
+              reject(createAbortError());
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    const scanPromise = service.scan("/tmp");
+    await service.shutdown({ timeoutMs: 500 });
+
+    await expect(scanPromise).rejects.toThrow("Operation aborted");
+    expect(service.getStatus().state).toBe("idle");
   });
 });

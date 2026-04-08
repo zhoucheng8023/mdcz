@@ -1,5 +1,6 @@
 import { mkdir, readdir, realpath, rename, stat, statfs } from "node:fs/promises";
 import { dirname, extname, join, parse, resolve } from "node:path";
+import { throwIfAborted } from "./abort";
 
 const DEFAULT_VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -44,7 +45,13 @@ const resolveDirectoryKey = async (dirPath: string): Promise<string> => {
   }
 };
 
-const walkDirectory = async (dirPath: string, recursive: boolean, visitedDirs: Set<string>): Promise<string[]> => {
+const walkDirectory = async (
+  dirPath: string,
+  recursive: boolean,
+  visitedDirs: Set<string>,
+  signal?: AbortSignal,
+): Promise<string[]> => {
+  throwIfAborted(signal);
   const dirKey = await resolveDirectoryKey(dirPath);
   if (visitedDirs.has(dirKey)) {
     return [];
@@ -55,11 +62,12 @@ const walkDirectory = async (dirPath: string, recursive: boolean, visitedDirs: S
   const files: string[] = [];
 
   for (const entry of entries) {
+    throwIfAborted(signal);
     const absolutePath = join(dirPath, entry.name);
 
     if (entry.isDirectory()) {
       if (recursive) {
-        files.push(...(await walkDirectory(absolutePath, true, visitedDirs)));
+        files.push(...(await walkDirectory(absolutePath, true, visitedDirs, signal)));
       }
       continue;
     }
@@ -74,7 +82,7 @@ const walkDirectory = async (dirPath: string, recursive: boolean, visitedDirs: S
         const targetStats = await stat(absolutePath);
         if (targetStats.isDirectory()) {
           if (recursive) {
-            files.push(...(await walkDirectory(absolutePath, true, visitedDirs)));
+            files.push(...(await walkDirectory(absolutePath, true, visitedDirs, signal)));
           }
           continue;
         }
@@ -91,16 +99,17 @@ const walkDirectory = async (dirPath: string, recursive: boolean, visitedDirs: S
   return files;
 };
 
-export const listFiles = async (dirPath: string, recursive = false): Promise<string[]> => {
-  return walkDirectory(dirPath, recursive, new Set<string>());
+export const listFiles = async (dirPath: string, recursive = false, signal?: AbortSignal): Promise<string[]> => {
+  return walkDirectory(dirPath, recursive, new Set<string>(), signal);
 };
 
 export const listVideoFiles = async (
   dirPath: string,
   recursive = false,
   extensions: Set<string> = DEFAULT_VIDEO_EXTENSIONS,
+  signal?: AbortSignal,
 ): Promise<string[]> => {
-  const files = await listFiles(dirPath, recursive);
+  const files = await listFiles(dirPath, recursive, signal);
   return files.filter((filePath) => extensions.has(extname(filePath).toLowerCase()));
 };
 

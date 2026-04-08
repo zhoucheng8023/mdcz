@@ -36,11 +36,11 @@ export class RateLimiter {
     this.queues.delete(domain);
   }
 
-  async schedule<T>(urlOrDomain: string, task: () => Promise<T>): Promise<T> {
+  async schedule<T>(urlOrDomain: string, task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const domain = this.extractDomain(urlOrDomain);
     const queue = this.getOrCreateQueue(domain);
 
-    return queue.add(task);
+    return queue.add(task, signal ? { signal } : undefined);
   }
 
   clear(): void {

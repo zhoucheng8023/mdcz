@@ -5,6 +5,7 @@ import { listVideoFiles } from "@main/utils/file";
 import { parseNfoSnapshot } from "@main/utils/nfo";
 import { buildFileId } from "@shared/mediaIdentity";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry } from "@shared/types";
+import { throwIfAborted } from "../abort";
 import { isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "../media";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
@@ -62,19 +63,26 @@ export class LocalScanService {
    * Scan a directory for video files and discover their local NFO and assets.
    * This is a pure read-only operation — no files are modified.
    */
-  async scan(dirPath: string, sceneImagesFolder: string): Promise<LocalScanEntry[]> {
+  async scan(dirPath: string, sceneImagesFolder: string, signal?: AbortSignal): Promise<LocalScanEntry[]> {
+    throwIfAborted(signal);
     this.logger.info(`Scanning directory: ${dirPath}`);
 
-    const videoFiles = (await listVideoFiles(dirPath, true)).filter((videoPath) => !isGeneratedSidecarVideo(videoPath));
+    const videoFiles = (await listVideoFiles(dirPath, true, undefined, signal)).filter(
+      (videoPath) => !isGeneratedSidecarVideo(videoPath),
+    );
     this.logger.info(`Found ${videoFiles.length} video file(s)`);
 
     const entries: LocalScanEntry[] = [];
 
     for (const videoPath of videoFiles) {
+      throwIfAborted(signal);
       try {
-        const entry = await this.scanVideo(videoPath, sceneImagesFolder);
+        const entry = await this.scanVideo(videoPath, sceneImagesFolder, signal);
         entries.push(entry);
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw error;
+        }
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(`Failed to scan ${videoPath}: ${message}`);
       }
@@ -85,13 +93,14 @@ export class LocalScanService {
   }
 
   /** Scan a single video file and discover its NFO and assets. */
-  async scanVideo(videoPath: string, sceneImagesFolder: string): Promise<LocalScanEntry> {
+  async scanVideo(videoPath: string, sceneImagesFolder: string, signal?: AbortSignal): Promise<LocalScanEntry> {
+    throwIfAborted(signal);
     const { fileInfo } = await resolveFileInfoWithSubtitles(videoPath);
     const dir = dirname(videoPath);
 
     const [assets, nfoPath] = await Promise.all([
-      this.discoverAssets(dir, sceneImagesFolder),
-      this.findNfo(dir, fileInfo),
+      this.discoverAssets(dir, sceneImagesFolder, signal),
+      this.findNfo(dir, fileInfo, signal),
     ]);
     let crawlerData: CrawlerData | undefined;
     let nfoLocalState: LocalScanEntry["nfoLocalState"];
@@ -124,7 +133,12 @@ export class LocalScanService {
   }
 
   /** Discover assets (NFO, images, trailer, actor photos) in a video directory. */
-  private async discoverAssets(dir: string, sceneImagesFolder: string): Promise<DiscoveredAssets> {
+  private async discoverAssets(
+    dir: string,
+    sceneImagesFolder: string,
+    signal?: AbortSignal,
+  ): Promise<DiscoveredAssets> {
+    throwIfAborted(signal);
     const [thumb, poster, fanart, trailer, sceneImages, actorPhotos] = await Promise.all([
       findAssetByName(dir, "thumb", IMAGE_EXTENSIONS),
       findAssetByName(dir, "poster", IMAGE_EXTENSIONS),
@@ -145,8 +159,13 @@ export class LocalScanService {
   }
 
   /** Find the NFO file in a directory, preferring one that matches the video filename. */
-  private async findNfo(dir: string, fileInfo: LocalScanEntry["fileInfo"]): Promise<string | undefined> {
+  private async findNfo(
+    dir: string,
+    fileInfo: LocalScanEntry["fileInfo"],
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
     try {
+      throwIfAborted(signal);
       const entries = await readdir(dir, { withFileTypes: true });
       const nfoEntries = entries.filter((e) => e.isFile() && extname(e.name).toLowerCase() === ".nfo");
 

@@ -2,6 +2,7 @@ import { configManager, configurationSchema, defaultConfiguration } from "@main/
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
 import { NetworkClient } from "@main/services/network";
 import { SignalService } from "@main/services/SignalService";
+import { createAbortError } from "@main/services/scraper/abort";
 import { FileScraper } from "@main/services/scraper/FileScraper";
 import { ScraperService } from "@main/services/scraper/ScraperService";
 import type { ScrapeResult } from "@shared/types";
@@ -210,5 +211,41 @@ describe("ScraperService stop flow", () => {
       expect.any(AbortSignal),
     );
     expect(service.getStatus().running).toBe(false);
+  });
+
+  it("shutdown aborts the active scrape and waits until the session is idle", async () => {
+    const signalService = new CaptureSignalService(null);
+    const networkClient = new NetworkClient();
+    const crawlerProvider = new CrawlerProvider({
+      fetchGateway: new FetchGateway(networkClient),
+    });
+    const service = new ScraperService(signalService, networkClient, crawlerProvider);
+    const config = configurationSchema.parse(defaultConfiguration);
+
+    vi.spyOn(configManager, "ensureLoaded").mockResolvedValue(undefined);
+    vi.spyOn(configManager, "get").mockResolvedValue(config);
+    vi.spyOn(FileScraper.prototype, "scrapeFile").mockImplementation(
+      (_filePath, _progress, signal) =>
+        new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+          }
+
+          signal?.addEventListener(
+            "abort",
+            () => {
+              reject(createAbortError());
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    await service.start("single", ["/tmp/ABP-999.mp4"]);
+    await service.shutdown({ timeoutMs: 500 });
+
+    expect(service.getStatus().running).toBe(false);
+    expect(signalService.buttonStatusEvents.at(-1)).toEqual({ startEnabled: true, stopEnabled: false });
   });
 });

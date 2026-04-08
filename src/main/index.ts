@@ -37,10 +37,12 @@ const sharedNetworkClient = new NetworkClient({
 });
 const updateService = new UpdateService(sharedNetworkClient);
 let windowService: WindowService | null = null;
+let serviceContainer: ServiceContainer | null = null;
 const trayService = new TrayService();
 const shortcutService = new ShortcutService();
 let ipcRegistered = false;
-let cleaningUp = false;
+let cleanupPromise: Promise<void> | null = null;
+let allowQuitAfterCleanup = false;
 let disposeShortcutConfigListener: (() => void) | null = null;
 let disposeLoggerListener: (() => void) | null = loggerService.onLog((payload) => {
   signalService.forwardLoggerLog(payload);
@@ -58,6 +60,7 @@ const ensureMainWindow = async (): Promise<void> => {
     const fetchGateway = new FetchGateway(sharedNetworkClient);
     const crawlerProvider = new CrawlerProvider({
       fetchGateway,
+      siteRequestConfigRegistrar: sharedNetworkClient,
     });
     const amazonJpImageService = new AmazonJpImageService(sharedNetworkClient);
     const actorImageService = new ActorImageService({ networkClient: sharedNetworkClient });
@@ -74,25 +77,27 @@ const ensureMainWindow = async (): Promise<void> => {
       ]),
     });
 
+    const scraperService = new ScraperService(
+      signalService,
+      sharedNetworkClient,
+      crawlerProvider,
+      actorImageService,
+      actorSourceProvider,
+    );
+    const maintenanceService = new MaintenanceService(
+      signalService,
+      sharedNetworkClient,
+      crawlerProvider,
+      actorImageService,
+      actorSourceProvider,
+    );
     const container: ServiceContainer = {
       signalService,
       windowService,
       networkClient: sharedNetworkClient,
       fetchGateway,
-      scraperService: new ScraperService(
-        signalService,
-        sharedNetworkClient,
-        crawlerProvider,
-        actorImageService,
-        actorSourceProvider,
-      ),
-      maintenanceService: new MaintenanceService(
-        signalService,
-        sharedNetworkClient,
-        crawlerProvider,
-        actorImageService,
-        actorSourceProvider,
-      ),
+      scraperService,
+      maintenanceService,
       crawlerProvider,
       actorSourceProvider,
       actorImageService,
@@ -118,9 +123,13 @@ const ensureMainWindow = async (): Promise<void> => {
       }),
       symlinkService: new SymlinkService({ signalService }),
       amazonPosterToolService: new AmazonPosterToolService(sharedNetworkClient, amazonJpImageService),
+      shutdown: async () => {
+        await Promise.allSettled([scraperService.shutdown(), maintenanceService.shutdown()]);
+      },
     };
 
     registerIpcHandlers(container);
+    serviceContainer = container;
     ipcRegistered = true;
   }
 
@@ -128,18 +137,29 @@ const ensureMainWindow = async (): Promise<void> => {
 };
 
 const cleanupResources = async (): Promise<void> => {
-  if (cleaningUp) {
-    return;
+  if (cleanupPromise) {
+    return cleanupPromise;
   }
 
-  cleaningUp = true;
-  disposeLoggerListener?.();
-  disposeLoggerListener = null;
-  disposeShortcutConfigListener?.();
-  disposeShortcutConfigListener = null;
-  shortcutService.dispose();
-  trayService.dispose();
-  await loggerService.close();
+  cleanupPromise = (async () => {
+    const logger = loggerService.getLogger("Main");
+    try {
+      await serviceContainer?.shutdown();
+    } catch (error) {
+      const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
+      logger.error(`Failed to shutdown services cleanly: ${message}`);
+    }
+
+    disposeLoggerListener?.();
+    disposeLoggerListener = null;
+    disposeShortcutConfigListener?.();
+    disposeShortcutConfigListener = null;
+    shortcutService.dispose();
+    trayService.dispose();
+    await loggerService.close();
+  })();
+
+  return cleanupPromise;
 };
 
 // Must be called before app.whenReady()
@@ -219,11 +239,18 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  app.on("before-quit", () => {
-    void cleanupResources();
-  });
+  const handleQuitCleanup = (event: Electron.Event) => {
+    if (allowQuitAfterCleanup) {
+      return;
+    }
 
-  app.on("will-quit", () => {
-    void cleanupResources();
-  });
+    event.preventDefault();
+    void cleanupResources().finally(() => {
+      allowQuitAfterCleanup = true;
+      app.quit();
+    });
+  };
+
+  app.on("before-quit", handleQuitCleanup);
+  app.on("will-quit", handleQuitCleanup);
 }

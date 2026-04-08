@@ -89,9 +89,11 @@ export default function MaintenanceWorkbench() {
       ? undefined
       : executionStatus === "scanning"
         ? "正在扫描"
-        : executionStatus === "stopping"
-          ? "正在停止"
-          : "正在维护";
+        : executionStatus === "previewing"
+          ? "正在预览"
+          : executionStatus === "stopping"
+            ? "正在停止"
+            : "正在维护";
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

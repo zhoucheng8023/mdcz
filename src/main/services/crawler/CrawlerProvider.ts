@@ -1,15 +1,17 @@
 import { type CooldownFailurePolicy, PersistentCooldownStore } from "@main/services/cooldown/PersistentCooldownStore";
 import { loggerService } from "@main/services/LoggerService";
+import type { SiteRequestConfigRegistrar } from "@main/services/network";
 import { toErrorMessage } from "@main/utils/common";
 import { Website } from "@shared/enums";
 
 import type { AdapterDependencies, CrawlerInput, CrawlerResponse, SiteAdapter } from "./base/types";
 import type { FetchGateway } from "./FetchGateway";
-import { getCrawlerConstructor, listRegisteredCrawlerSites } from "./registry";
+import { getCrawlerConstructor, listRegisteredCrawlerRequestConfigs, listRegisteredCrawlerSites } from "./registry";
 
 export interface CrawlerProviderOptions {
   fetchGateway: FetchGateway;
   siteCooldownStore?: PersistentCooldownStore;
+  siteRequestConfigRegistrar?: SiteRequestConfigRegistrar;
 }
 
 const SITE_COOLDOWN_MS = 5 * 60 * 1000;
@@ -60,6 +62,7 @@ export class CrawlerProvider {
         fileName: "crawler-site-cooldowns.json",
         loggerName: "CrawlerSiteCooldownStore",
       });
+    options.siteRequestConfigRegistrar?.registerSiteRequestConfigs(listRegisteredCrawlerRequestConfigs());
   }
 
   getCrawler(site: Website): SiteAdapter | null {

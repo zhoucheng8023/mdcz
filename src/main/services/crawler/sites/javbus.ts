@@ -1,3 +1,4 @@
+import type { SiteRequestConfig } from "@main/services/network";
 import { normalizeCode, normalizeText } from "@main/utils/normalization";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
@@ -8,6 +9,16 @@ import type { Context } from "../base/types";
 import { extractParentTextByLabelSelector, toAbsoluteUrl } from "./helpers";
 
 const JAVBUS_BASE_URL = "https://www.javbus.com";
+const JAVBUS_SITE_REQUEST_CONFIGS: readonly SiteRequestConfig[] = [
+  {
+    id: "crawler:javbus",
+    matches: (url) => url.hostname === "javbus.com" || url.hostname.endsWith(".javbus.com"),
+    headers: {
+      referer: `${JAVBUS_BASE_URL}/`,
+      "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6",
+    },
+  },
+];
 
 type CheerioInput = Parameters<CheerioAPI>[0];
 type JavbusSearchResult = { detailUrl: string; matched: boolean };
@@ -69,15 +80,10 @@ const pickJavbusSearchResult = (candidateHrefs: string[], expectedNumber: string
 };
 
 export class JavbusCrawler extends BaseCrawler {
+  static readonly siteRequestConfigs = JAVBUS_SITE_REQUEST_CONFIGS;
+
   site(): Website {
     return Website.JAVBUS;
-  }
-
-  protected override buildHeaders(context: Context): Record<string, string> {
-    return {
-      ...super.buildHeaders(context),
-      "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6",
-    };
   }
 
   protected async generateSearchUrl(context: Context): Promise<string | null> {

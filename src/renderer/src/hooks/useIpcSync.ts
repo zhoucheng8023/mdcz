@@ -20,6 +20,7 @@ const getPollingInterval = (
     scrapeState === "paused" ||
     scrapeState === "stopping" ||
     maintenanceState === "scanning" ||
+    maintenanceState === "previewing" ||
     maintenanceState === "stopping"
   ) {
     return 2000;

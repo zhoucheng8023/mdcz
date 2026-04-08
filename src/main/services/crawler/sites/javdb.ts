@@ -1,3 +1,4 @@
+import type { SiteRequestConfig } from "@main/services/network";
 import { normalizeCode, normalizeText } from "@main/utils/normalization";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
@@ -8,6 +9,15 @@ import type { Context } from "../base/types";
 import { extractParentLinksByLabelSelector, extractParentTextByLabelSelector, toAbsoluteUrl } from "./helpers";
 
 const JAVDB_BASE_URL = "https://javdb.com";
+const JAVDB_SITE_REQUEST_CONFIGS: readonly SiteRequestConfig[] = [
+  {
+    id: "crawler:javdb",
+    matches: (url) => url.hostname === "javdb.com" || url.hostname === "www.javdb.com",
+    headers: {
+      referer: `${JAVDB_BASE_URL}/`,
+    },
+  },
+];
 
 type CheerioInput = Parameters<CheerioAPI>[0];
 
@@ -46,6 +56,8 @@ const pickJavdbSearchResultUrl = (
 };
 
 export class JavdbCrawler extends BaseCrawler {
+  static readonly siteRequestConfigs = JAVDB_SITE_REQUEST_CONFIGS;
+
   site(): Website {
     return Website.JAVDB;
   }

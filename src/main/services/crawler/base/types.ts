@@ -1,3 +1,4 @@
+import type { SiteRequestConfig } from "@main/services/network";
 import type { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { FetchGateway } from "../FetchGateway";
@@ -60,4 +61,7 @@ export interface AdapterDependencies {
   gateway: FetchGateway;
 }
 
-export type SiteAdapterConstructor = new (dependencies: AdapterDependencies) => SiteAdapter;
+export interface SiteAdapterConstructor {
+  new (dependencies: AdapterDependencies): SiteAdapter;
+  readonly siteRequestConfigs?: readonly SiteRequestConfig[];
+}

@@ -7,6 +7,7 @@ import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
+import { didPromiseTimeout } from "@main/utils/async";
 import { listVideoFiles } from "@main/utils/file";
 import type { ScraperStatus } from "@shared/types";
 import { createAbortError } from "./abort";
@@ -42,6 +43,7 @@ export class ScraperServiceError extends Error {
 }
 
 const DEFAULT_DOMAIN_RPS = 5;
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const sleepWithAbort = (durationMs: number, signal?: AbortSignal): Promise<void> => {
   if (durationMs <= 0) {
@@ -165,6 +167,8 @@ export class ScraperService {
 
   private readonly aggregationService: AggregationService;
 
+  private currentRunPromise: Promise<void> | null = null;
+
   constructor(
     private readonly signalService: SignalService,
     networkClient: NetworkClient,
@@ -243,6 +247,24 @@ export class ScraperService {
 
     this.signalService.setButtonStatus(false, false);
     return this.session.stop();
+  }
+
+  async waitForIdle(): Promise<void> {
+    await (this.currentRunPromise ?? Promise.resolve());
+  }
+
+  async shutdown(options: { timeoutMs?: number } = {}): Promise<void> {
+    if (!this.session.getStatus().running) {
+      return;
+    }
+
+    const timeoutMs = Math.max(0, Math.trunc(options.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS));
+    this.logger.info("Shutting down scraper service");
+    this.stop();
+    const timedOut = this.currentRunPromise ? await didPromiseTimeout(this.currentRunPromise, timeoutMs) : false;
+    if (timedOut) {
+      this.logger.warn(`Timed out waiting ${timeoutMs}ms for scraper service shutdown`);
+    }
   }
 
   pause(): void {
@@ -504,10 +526,16 @@ export class ScraperService {
       });
     }
 
-    void this.session.onIdle().then(() => {
+    const runPromise = this.session.onIdle().then(async () => {
       this.restGate = null;
-      void this.finish(taskId);
+      await this.finish(taskId);
     });
+    const trackedRunPromise = runPromise.finally(() => {
+      if (this.currentRunPromise === trackedRunPromise) {
+        this.currentRunPromise = null;
+      }
+    });
+    this.currentRunPromise = trackedRunPromise;
 
     return {
       taskId,

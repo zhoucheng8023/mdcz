@@ -1,3 +1,4 @@
+import type { SiteRequestConfig } from "@main/services/network";
 import { Website } from "@shared/enums";
 
 import type { SiteAdapterConstructor } from "./base/types";
@@ -31,6 +32,10 @@ export const getCrawlerConstructor = (site: Website): CrawlerConstructor | undef
 
 export const listRegisteredCrawlerSites = (): Website[] => {
   return Array.from(crawlerConstructors.keys());
+};
+
+export const listRegisteredCrawlerRequestConfigs = (): SiteRequestConfig[] => {
+  return Array.from(crawlerConstructors.values()).flatMap((crawler) => [...(crawler.siteRequestConfigs ?? [])]);
 };
 
 registerCrawler(Website.JAVBUS, JavbusCrawler);
