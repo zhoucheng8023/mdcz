@@ -11,7 +11,7 @@ import type { CrawlerProvider } from "@main/services/crawler";
 import { loggerService } from "@main/services/LoggerService";
 import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
-import { didPromiseTimeout } from "@main/utils/async";
+import { didPromiseTimeout, mapWithConcurrency } from "@main/utils/async";
 import { toErrorMessage } from "@main/utils/common";
 import { listVideoFiles } from "@main/utils/file";
 import type { ScraperStatus } from "@shared/types";
@@ -49,6 +49,7 @@ export class ScraperServiceError extends Error {
 
 const DEFAULT_DOMAIN_RPS = 5;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
+const BATCH_PATH_RESOLUTION_CONCURRENCY = 16;
 
 const sleepWithAbort = (durationMs: number, signal?: AbortSignal): Promise<void> => {
   if (durationMs <= 0) {
@@ -393,29 +394,25 @@ export class ScraperService {
     scanRoots: string[],
     configuration: Configuration,
     includeRealPathComparisons: boolean,
-  ): Promise<Set<string>> {
-    const excludePaths = new Set<string>();
+  ): Promise<string[]> {
     const successFolder = configuration.paths.successOutputFolder.trim();
     const failedFolder = configuration.paths.failedOutputFolder.trim();
     const mediaRoot = configuration.paths.mediaPath.trim();
+    const outputFolders = [successFolder, failedFolder].filter((outputFolder) => outputFolder.length > 0);
 
-    for (const dirPath of scanRoots) {
-      const base = mediaRoot.length > 0 ? mediaRoot : dirPath;
-      for (const outputFolder of [successFolder, failedFolder]) {
-        if (!outputFolder) {
-          continue;
-        }
+    const outputDirectories = uniquePaths(
+      scanRoots.flatMap((dirPath) => {
+        const base = mediaRoot.length > 0 ? mediaRoot : dirPath;
+        return outputFolders.map((outputFolder) => resolve(base, outputFolder));
+      }),
+    );
 
-        for (const comparablePath of await collectComparablePaths(
-          resolve(base, outputFolder),
-          includeRealPathComparisons,
-        )) {
-          excludePaths.add(comparablePath);
-        }
-      }
-    }
-
-    return excludePaths;
+    const comparablePathGroups = await mapWithConcurrency(
+      outputDirectories,
+      BATCH_PATH_RESOLUTION_CONCURRENCY,
+      (dirPath) => collectComparablePaths(dirPath, includeRealPathComparisons),
+    );
+    return [...new Set(comparablePathGroups.flat())];
   }
 
   private async collectBatchCandidateFiles(paths: string[], configuration: Configuration): Promise<string[]> {
@@ -436,32 +433,23 @@ export class ScraperService {
 
   private async filterExcludedBatchFiles(
     filePaths: string[],
-    excludePaths: Set<string>,
+    excludeDirectoryPaths: readonly string[],
     includeRealPathComparisons: boolean,
   ): Promise<string[]> {
-    const filteredPaths: string[] = [];
-
-    for (const filePath of filePaths) {
+    const filteredPaths = await mapWithConcurrency(filePaths, BATCH_PATH_RESOLUTION_CONCURRENCY, async (filePath) => {
       if (isGeneratedSidecarVideo(filePath)) {
-        continue;
+        return null;
       }
 
       const comparablePaths = await collectComparablePaths(filePath, includeRealPathComparisons);
-      const isExcluded = comparablePaths.some((candidatePath) => {
-        for (const excludePath of excludePaths) {
-          if (isPathWithinDirectory(candidatePath, excludePath)) {
-            return true;
-          }
-        }
+      const isExcluded = comparablePaths.some((candidatePath) =>
+        excludeDirectoryPaths.some((excludePath) => isPathWithinDirectory(candidatePath, excludePath)),
+      );
 
-        return false;
-      });
-      if (!isExcluded) {
-        filteredPaths.push(filePath);
-      }
-    }
+      return isExcluded ? null : filePath;
+    });
 
-    return filteredPaths;
+    return filteredPaths.filter((filePath): filePath is string => typeof filePath === "string");
   }
 
   private async collectSoftlinkFiles(configuration: Configuration): Promise<string[]> {
