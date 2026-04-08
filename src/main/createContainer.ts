@@ -18,7 +18,7 @@ import type { SignalService } from "@main/services/SignalService";
 import { ScraperService } from "@main/services/scraper";
 import { AmazonJpImageService } from "@main/services/scraper/AmazonJpImageService";
 import { MaintenanceService } from "@main/services/scraper/maintenance/MaintenanceService";
-import { AmazonPosterToolService, SymlinkService } from "@main/services/tools";
+import { AmazonPosterToolService, BatchTranslateToolService, SymlinkService } from "@main/services/tools";
 import type { WindowService } from "@main/services/WindowService";
 
 export interface CreateContainerOptions {
@@ -102,6 +102,7 @@ export const createContainer = ({
     }),
     symlinkService: new SymlinkService({ signalService }),
     amazonPosterToolService: new AmazonPosterToolService(networkClient, amazonJpImageService),
+    batchTranslateToolService: new BatchTranslateToolService(networkClient),
     shutdown: async () => {
       await Promise.allSettled([scraperService.shutdown(), maintenanceService.shutdown(), crawlerProvider.shutdown()]);
     },

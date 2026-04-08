@@ -56,6 +56,8 @@ export enum IpcChannel {
   Tool_AmazonPosterScan = "tool:amazon-poster-scan",
   Tool_AmazonPosterLookup = "tool:amazon-poster-lookup",
   Tool_AmazonPosterApply = "tool:amazon-poster-apply",
+  Tool_BatchTranslateScan = "tool:batch-translate-scan",
+  Tool_BatchTranslateApply = "tool:batch-translate-apply",
   Tool_ToggleDevTools = "tool:toggle-devtools",
 
   Maintenance_Scan = "maintenance:scan",

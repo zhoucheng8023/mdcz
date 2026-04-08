@@ -7,7 +7,7 @@ import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
 import type { ScraperService } from "@main/services/scraper";
 import type { MaintenanceService } from "@main/services/scraper/maintenance/MaintenanceService";
-import type { AmazonPosterToolService, SymlinkService } from "@main/services/tools";
+import type { AmazonPosterToolService, BatchTranslateToolService, SymlinkService } from "@main/services/tools";
 import type { WindowService } from "@main/services/WindowService";
 
 /**
@@ -34,5 +34,6 @@ export interface ServiceContainer {
   embyActorInfoService: EmbyActorInfoService;
   symlinkService: SymlinkService;
   amazonPosterToolService: AmazonPosterToolService;
+  batchTranslateToolService: BatchTranslateToolService;
   shutdown(): Promise<void>;
 }

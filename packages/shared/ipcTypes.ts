@@ -89,3 +89,25 @@ export type AmazonPosterApplyResultItem = {
   fileSize: number;
   error?: string;
 };
+
+export type BatchTranslateField = "title" | "plot";
+
+export type BatchTranslateScanItem = {
+  filePath: string;
+  nfoPath: string;
+  directory: string;
+  number: string;
+  title: string;
+  pendingFields: BatchTranslateField[];
+};
+
+export type BatchTranslateApplyResultItem = {
+  filePath: string;
+  nfoPath: string;
+  directory: string;
+  number: string;
+  success: boolean;
+  translatedFields: BatchTranslateField[];
+  savedNfoPath?: string;
+  error?: string;
+};

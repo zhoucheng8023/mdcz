@@ -3,6 +3,8 @@ import type {
   AmazonPosterApplyResultItem,
   AmazonPosterLookupResult,
   AmazonPosterScanItem,
+  BatchTranslateApplyResultItem,
+  BatchTranslateScanItem,
   EmbyConnectionCheckResult,
   IpcProcedure,
   JellyfinConnectionCheckResult,
@@ -15,6 +17,11 @@ export type ToolIpcContract = {
   [IpcChannel.Tool_AmazonPosterApply]: IpcProcedure<
     { items?: Array<{ directory: string; amazonPosterUrl: string }> },
     { results: AmazonPosterApplyResultItem[] }
+  >;
+  [IpcChannel.Tool_BatchTranslateScan]: IpcProcedure<{ directory?: string }, { items: BatchTranslateScanItem[] }>;
+  [IpcChannel.Tool_BatchTranslateApply]: IpcProcedure<
+    { items?: BatchTranslateScanItem[] },
+    { results: BatchTranslateApplyResultItem[] }
   >;
   [IpcChannel.Tool_CreateSymlink]: IpcProcedure<
     {
