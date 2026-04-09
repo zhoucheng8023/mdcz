@@ -32,6 +32,19 @@ const waitForDelay = async (delayMs: number): Promise<void> => {
   });
 };
 
+const waitFor = async (predicate: () => boolean, timeoutMs = 1000): Promise<void> => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+
+    await waitForDelay(10);
+  }
+
+  throw new Error("Timed out waiting for persistent cooldown store state");
+};
+
 describe("PersistentCooldownStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,7 +74,7 @@ describe("PersistentCooldownStore", () => {
 
     expect(vi.mocked(fsPromises.writeFile)).not.toHaveBeenCalled();
 
-    await waitForDelay(60);
+    await waitFor(() => vi.mocked(fsPromises.writeFile).mock.calls.length === 1);
 
     expect(vi.mocked(fsPromises.writeFile)).toHaveBeenCalledTimes(1);
     expect(JSON.parse(await fsPromises.readFile(storePath, "utf8"))).toMatchObject({
@@ -71,6 +84,7 @@ describe("PersistentCooldownStore", () => {
     });
 
     await store.flush();
+    expect(vi.mocked(fsPromises.writeFile)).toHaveBeenCalledTimes(1);
   });
 
   it("flushes pending mutations immediately", async () => {

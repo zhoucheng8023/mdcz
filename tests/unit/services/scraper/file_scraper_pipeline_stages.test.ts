@@ -252,6 +252,9 @@ describe("FileScraper pipeline stages", () => {
       context.translatedCrawlerData,
       config,
       undefined,
+      {
+        executionMode: "batch",
+      },
     );
     expect(context.plan).toEqual({
       ...basePlan,

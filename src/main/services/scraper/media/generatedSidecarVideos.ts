@@ -28,7 +28,7 @@ const extractGeneratedVideoSidecarSuffix = (filePath: string, fc2Number: string)
 export const isGeneratedSidecarVideo = (filePath: string): boolean => {
   const rawName = parse(filePath).name.normalize("NFC");
   const normalizedName = rawName.toLowerCase();
-  if (normalizedName === "trailer") {
+  if (normalizedName === "trailer" || /(?:^|[-_.\s])trailer$/iu.test(normalizedName)) {
     return true;
   }
 

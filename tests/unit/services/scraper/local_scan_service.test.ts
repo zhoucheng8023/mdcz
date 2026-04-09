@@ -36,6 +36,23 @@ describe("LocalScanService", () => {
     expect(entries[0]?.assets.trailer).toBe(trailerPath);
   });
 
+  it("skips follow-video trailer sidecars and keeps them attached as trailer assets", async () => {
+    const root = await createTempDir();
+    const movieDir = join(root, "ABC-123");
+    const videoPath = join(movieDir, "ABC-123.mp4");
+    const trailerPath = join(movieDir, "ABC-123-trailer.mp4");
+
+    await mkdir(movieDir, { recursive: true });
+    await writeFile(videoPath, "video");
+    await writeFile(trailerPath, "trailer");
+
+    const entries = await new LocalScanService().scan(root, "extrafanart");
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.fileInfo.filePath).toBe(videoPath);
+    expect(entries[0]?.assets.trailer).toBe(trailerPath);
+  });
+
   it("returns no entries when a directory only contains generated trailer sidecars", async () => {
     const root = await createTempDir();
 
@@ -97,5 +114,47 @@ describe("LocalScanService", () => {
     expect(entries[0]?.fileInfo.filePath).toBe(videoPath);
     expect(entries[0]?.fileInfo.isSubtitled).toBe(true);
     expect(entries[0]?.fileInfo.subtitleTag).toBe("中文字幕");
+  });
+
+  it("prefers follow-video artwork and ignores ambiguous fixed artwork in shared directories", async () => {
+    const root = await createTempDir();
+    const actorDir = join(root, "Actor A");
+    const firstVideoPath = join(actorDir, "ABC-123.mp4");
+    const secondVideoPath = join(actorDir, "DEF-456.mp4");
+    const firstPosterPath = join(actorDir, "ABC-123-poster.jpg");
+    const ambiguousPosterPath = join(actorDir, "poster.jpg");
+
+    await mkdir(actorDir, { recursive: true });
+    await writeFile(firstVideoPath, "video-a");
+    await writeFile(secondVideoPath, "video-b");
+    await writeFile(firstPosterPath, "poster-a");
+    await writeFile(ambiguousPosterPath, "poster-shared");
+
+    const entries = await new LocalScanService().scan(root, "extrafanart");
+    const firstEntry = entries.find((entry) => entry.fileInfo.filePath === firstVideoPath);
+    const secondEntry = entries.find((entry) => entry.fileInfo.filePath === secondVideoPath);
+
+    expect(firstEntry?.assets.poster).toBe(firstPosterPath);
+    expect(secondEntry?.assets.poster).toBeUndefined();
+  });
+
+  it("keeps shared .actors photos discoverable even when multiple movies share a directory", async () => {
+    const root = await createTempDir();
+    const actorDir = join(root, "Actor A");
+    const firstVideoPath = join(actorDir, "ABC-123.mp4");
+    const secondVideoPath = join(actorDir, "DEF-456.mp4");
+    const actorPhotoPath = join(actorDir, ".actors", "Actor A.jpg");
+
+    await mkdir(join(actorDir, ".actors"), { recursive: true });
+    await writeFile(firstVideoPath, "video-a");
+    await writeFile(secondVideoPath, "video-b");
+    await writeFile(actorPhotoPath, "actor-a");
+
+    const entries = await new LocalScanService().scan(root, "extrafanart");
+    const firstEntry = entries.find((entry) => entry.fileInfo.filePath === firstVideoPath);
+    const secondEntry = entries.find((entry) => entry.fileInfo.filePath === secondVideoPath);
+
+    expect(firstEntry?.assets.actorPhotos).toEqual([actorPhotoPath]);
+    expect(secondEntry?.assets.actorPhotos).toEqual([actorPhotoPath]);
   });
 });

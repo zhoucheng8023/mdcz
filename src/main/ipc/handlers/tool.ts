@@ -285,7 +285,7 @@ export const createToolHandlers = (
         }
       }),
     [IpcChannel.Tool_AmazonPosterApply]: t.procedure
-      .input<{ items?: Array<{ directory: string; amazonPosterUrl: string }> }>()
+      .input<{ items?: Array<{ nfoPath: string; amazonPosterUrl: string }> }>()
       .action(async ({ input }) => {
         try {
           return {

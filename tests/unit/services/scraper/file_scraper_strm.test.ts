@@ -240,6 +240,9 @@ describe("FileScraper .strm support", () => {
       {
         uncensoredChoice: "umr",
       },
+      {
+        executionMode: "batch",
+      },
     );
     expect(writeNfo).not.toHaveBeenCalled();
     expect(result.uncensoredAmbiguous).toBe(false);

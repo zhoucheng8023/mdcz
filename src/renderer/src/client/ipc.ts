@@ -106,7 +106,7 @@ export const ipc = {
     amazonPosterScan: (directory: string) => client[IpcChannel.Tool_AmazonPosterScan]({ directory }),
     amazonPosterLookup: (nfoPath: string, title: string) =>
       client[IpcChannel.Tool_AmazonPosterLookup]({ nfoPath, title }),
-    amazonPosterApply: (items: Array<{ directory: string; amazonPosterUrl: string }>) =>
+    amazonPosterApply: (items: Array<{ nfoPath: string; amazonPosterUrl: string }>) =>
       client[IpcChannel.Tool_AmazonPosterApply]({ items }),
     batchTranslateScan: (directory: string) =>
       client[IpcChannel.Tool_BatchTranslateScan]({ directory }) as Promise<{ items: BatchTranslateScanItem[] }>,

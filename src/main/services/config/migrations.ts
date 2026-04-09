@@ -8,6 +8,7 @@
  * users have upgraded past the corresponding configVersion.
  */
 
+import { isSharedDirectoryMode } from "@shared/assetNaming";
 import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
 
 export interface Migration {
@@ -111,24 +112,7 @@ const V3_FIELD_PRIORITY_DEFAULTS: Record<string, readonly string[]> = {
 const V050_LEGACY_TRANSLATE_PROMPT = "请将以下文本翻译成{lang}。只输出翻译结果。\\n{content}";
 const V052_DEFAULT_TRANSLATE_PROMPT = "自动识别原文语言，将以下内容翻译为{lang}。只输出最终翻译结果。\\n{content}";
 
-const appendPathSegment = (template: string, segment: string): string => {
-  const trimmed = template.trim();
-  if (!trimmed) {
-    return DEFAULT_FOLDER_TEMPLATE;
-  }
-  if (trimmed.endsWith("/")) {
-    return `${trimmed}${segment}`;
-  }
-  return `${trimmed}/${segment}`;
-};
-
 const migrateFolderTemplate = (raw: Record<string, unknown>): void => {
-  const successFileMove =
-    !isRecord(raw.behavior) || !("successFileMove" in raw.behavior) ? true : raw.behavior.successFileMove !== false;
-  if (!successFileMove) {
-    return;
-  }
-
   const naming = raw.naming;
   if (!isRecord(naming) || !("folderTemplate" in naming)) {
     return;
@@ -137,12 +121,32 @@ const migrateFolderTemplate = (raw: Record<string, unknown>): void => {
   const folderTemplate = naming.folderTemplate;
   if (typeof folderTemplate !== "string" || folderTemplate.trim() === "") {
     naming.folderTemplate = DEFAULT_FOLDER_TEMPLATE;
+  }
+};
+
+const normalizeSharedDirectorySettings = (raw: Record<string, unknown>): void => {
+  const naming = raw.naming;
+  const behavior = raw.behavior;
+  if (!isRecord(naming) || !isRecord(behavior)) {
     return;
   }
 
-  if (!folderTemplate.includes("{number}")) {
-    naming.folderTemplate = appendPathSegment(folderTemplate, "{number}");
+  const folderTemplate = typeof naming.folderTemplate === "string" ? naming.folderTemplate : "";
+  const successFileMove = behavior.successFileMove === true;
+  if (!isSharedDirectoryMode({ successFileMove, folderTemplate })) {
+    return;
   }
+
+  naming.assetNamingMode = "followVideo";
+
+  if (!isRecord(raw.download)) {
+    raw.download = {};
+  }
+
+  const download = raw.download as Record<string, unknown>;
+  download.nfoNaming = "filename";
+  download.downloadSceneImages = false;
+  download.keepSceneImages = false;
 };
 
 const normalizeScrapeSiteDefaults = (
@@ -269,7 +273,7 @@ function migrateV030ToV040(raw: Record<string, unknown>): void {
     paths.sceneImagesFolder = "extrafanart";
   }
 
-  // 7. Ensure folderTemplate stays valid under the new successFileMove rule
+  // 7. Normalize an empty folderTemplate to the default value
   migrateFolderTemplate(raw);
 
   // 8. Normalize untouched legacy enabledSites / siteOrder arrays to the current defaults
@@ -358,13 +362,11 @@ function migrateV050ToV052(raw: Record<string, unknown>): void {
 
 function migrateV052ToV060(raw: Record<string, unknown>): void {
   const translate = raw.translate;
-  if (!isRecord(translate)) {
-    return;
-  }
-
-  if (typeof translate.llmBaseUrl !== "string" || translate.llmBaseUrl.trim() === "") {
+  if (isRecord(translate) && (typeof translate.llmBaseUrl !== "string" || translate.llmBaseUrl.trim() === "")) {
     translate.llmBaseUrl = DEFAULT_LLM_BASE_URL;
   }
+
+  normalizeSharedDirectorySettings(raw);
 }
 
 // ── Registry ─────────────────────────────────────────────────────────────────

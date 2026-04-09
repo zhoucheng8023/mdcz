@@ -1,4 +1,5 @@
 import type { Configuration } from "@main/services/config";
+import type { MovieAssetFileNames } from "@shared/assetNaming";
 import type { CrawlerData, DownloadedAssets, MaintenanceAssetDecisions } from "@shared/types";
 import type { ImageAlternatives } from "../../aggregation";
 import type { ImageDownloadService } from "../ImageDownloadService";
@@ -24,6 +25,8 @@ export interface DownloadCallbacks {
 
 export interface DownloadExecutionPlan {
   outputDir: string;
+  movieBaseName: string;
+  assetFileNames: MovieAssetFileNames;
   data: CrawlerData;
   config: Configuration;
   imageAlternatives: Partial<ImageAlternatives>;

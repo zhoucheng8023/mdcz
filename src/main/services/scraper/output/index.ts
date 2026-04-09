@@ -90,6 +90,7 @@ export const downloadCrawlerAssets = async (input: {
   downloadManager: DownloadManager;
   fileNumber: string;
   imageAlternatives?: Partial<ImageAlternatives>;
+  movieBaseName?: string;
   outputDir: string;
   signalService: Pick<SignalService, "showLogText">;
   sources?: Pick<SourceMap, "thumb_url" | "poster_url" | "scene_images">;
@@ -112,6 +113,9 @@ export const downloadCrawlerAssets = async (input: {
         input.signalService.showLogText(`[${input.fileNumber}] Scene images: ${downloaded}/${total}`);
         input.callbacks?.onSceneProgress?.(downloaded, total);
       },
+    },
+    {
+      movieBaseName: input.movieBaseName,
     },
   );
 };

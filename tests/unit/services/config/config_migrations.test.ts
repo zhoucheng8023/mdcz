@@ -350,7 +350,7 @@ describe("Configuration migrations", () => {
       expect(parsed.aggregation.fieldPriorities.rating).toEqual(["javdb"]);
     });
 
-    it("updates folderTemplate only when successFileMove requires {number}", () => {
+    it("keeps customized folderTemplate values and only normalizes blank templates", () => {
       const cases = [
         {
           raw: buildV030Config({
@@ -359,25 +359,29 @@ describe("Configuration migrations", () => {
               fileTemplate: "{number}",
             },
           }),
-          expected: "{actor}/{number}",
+          expected: "{actor}",
         },
         {
           raw: buildV030Config({
             naming: {
-              folderTemplate: "{actor}",
+              folderTemplate: "   ",
               fileTemplate: "{number}",
             },
-            behavior: {
-              successFileMove: false,
-            },
           }),
-          expected: "{actor}",
+          expected: "{actor}/{number}",
         },
       ];
 
       for (const { raw, expected } of cases) {
-        migrate(raw);
+        const { parsed } = migrate(raw);
         expect((raw.naming as Record<string, unknown>).folderTemplate).toBe(expected);
+
+        if (expected === "{actor}") {
+          expect(parsed.naming.assetNamingMode).toBe("followVideo");
+          expect(parsed.download.nfoNaming).toBe("filename");
+          expect(parsed.download.downloadSceneImages).toBe(false);
+          expect(parsed.download.keepSceneImages).toBe(false);
+        }
       }
     });
   });

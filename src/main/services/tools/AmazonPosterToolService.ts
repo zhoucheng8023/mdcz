@@ -6,12 +6,30 @@ import type { NetworkClient } from "@main/services/network";
 import type { AmazonJpImageService } from "@main/services/scraper/AmazonJpImageService";
 import { toErrorMessage } from "@main/utils/common";
 import { validateImage } from "@main/utils/image";
+import { resolveLocalAssetReference, uniqueDefinedPaths } from "@main/utils/localAssetReferences";
 import { parseNfo } from "@main/utils/nfo";
+import { buildMovieAssetFileNames, isMovieNfoBaseName, MOVIE_NFO_BASE_NAME } from "@shared/assetNaming";
 import { Website } from "@shared/enums";
 import type { AmazonPosterApplyResultItem, AmazonPosterLookupResult, AmazonPosterScanItem } from "@shared/ipcTypes";
 import type { CrawlerData } from "@shared/types";
 
 const POSTER_FILE_NAME = "poster.jpg";
+
+const buildPosterCandidatePaths = (
+  directory: string,
+  nfoPath: string,
+  parsed: CrawlerData,
+  options: { allowFixedPosterFallback: boolean },
+): string[] => {
+  const nfoBaseName = basename(nfoPath, extname(nfoPath));
+  return uniqueDefinedPaths([
+    resolveLocalAssetReference(directory, parsed.poster_url),
+    options.allowFixedPosterFallback ? join(directory, POSTER_FILE_NAME) : undefined,
+    nfoBaseName && !isMovieNfoBaseName(nfoBaseName)
+      ? join(directory, buildMovieAssetFileNames(nfoBaseName, "followVideo").poster)
+      : undefined,
+  ]);
+};
 
 export class AmazonPosterToolService {
   private readonly logger = loggerService.getLogger("AmazonPosterToolService");
@@ -29,6 +47,16 @@ export class AmazonPosterToolService {
     }
 
     const nfoPaths = await this.listNfoFiles(normalizedRoot);
+    const directoryNamedNfoCounts = new Map<string, number>();
+    for (const nfoPath of nfoPaths) {
+      const directory = dirname(nfoPath);
+      const nfoBaseName = basename(nfoPath, extname(nfoPath)).toLowerCase();
+      if (nfoBaseName === MOVIE_NFO_BASE_NAME) {
+        continue;
+      }
+
+      directoryNamedNfoCounts.set(directory, (directoryNamedNfoCounts.get(directory) ?? 0) + 1);
+    }
     const items: AmazonPosterScanItem[] = [];
 
     for (const nfoPath of nfoPaths) {
@@ -36,31 +64,37 @@ export class AmazonPosterToolService {
         const xml = await readFile(nfoPath, "utf8");
         const parsed = parseNfo(xml);
         const directory = dirname(nfoPath);
-        const posterPath = join(directory, POSTER_FILE_NAME);
+        const allowFixedPosterFallback = (directoryNamedNfoCounts.get(directory) ?? 0) <= 1;
+        const currentPosterPath = await this.findCurrentPosterPath(
+          directory,
+          nfoPath,
+          parsed,
+          allowFixedPosterFallback,
+        );
 
-        let currentPosterPath: string | null = null;
         let currentPosterWidth = 0;
         let currentPosterHeight = 0;
         let currentPosterSize = 0;
 
-        try {
-          const posterStats = await stat(posterPath);
-          if (posterStats.isFile()) {
-            currentPosterPath = posterPath;
-            currentPosterSize = posterStats.size;
+        if (currentPosterPath) {
+          try {
+            const posterStats = await stat(currentPosterPath);
+            if (posterStats.isFile()) {
+              currentPosterSize = posterStats.size;
 
-            try {
-              const validation = await validateImage(posterPath);
-              if (validation.valid) {
-                currentPosterWidth = validation.width;
-                currentPosterHeight = validation.height;
+              try {
+                const validation = await validateImage(currentPosterPath);
+                if (validation.valid) {
+                  currentPosterWidth = validation.width;
+                  currentPosterHeight = validation.height;
+                }
+              } catch (error) {
+                this.logger.warn(`Failed to inspect poster image '${currentPosterPath}': ${toErrorMessage(error)}`);
               }
-            } catch (error) {
-              this.logger.warn(`Failed to inspect poster image '${posterPath}': ${toErrorMessage(error)}`);
             }
+          } catch {
+            // Poster disappeared during scan; ignore and report as missing.
           }
-        } catch {
-          // No poster image in the directory.
         }
 
         items.push({
@@ -114,19 +148,20 @@ export class AmazonPosterToolService {
     }
   }
 
-  async apply(items: Array<{ directory: string; amazonPosterUrl: string }>): Promise<AmazonPosterApplyResultItem[]> {
+  async apply(items: Array<{ nfoPath: string; amazonPosterUrl: string }>): Promise<AmazonPosterApplyResultItem[]> {
     const results: AmazonPosterApplyResultItem[] = [];
 
     for (const item of items) {
-      const directoryInput = item.directory?.trim() ?? "";
-      const amazonPosterUrl = item.amazonPosterUrl?.trim() ?? "";
-      const directory = directoryInput ? resolve(directoryInput) : "";
-      const savedPosterPath = directory ? join(directory, POSTER_FILE_NAME) : POSTER_FILE_NAME;
-      const replacedExisting = directory ? await this.pathExists(savedPosterPath) : false;
+      const normalizedNfoPath = resolve(item.nfoPath.trim());
+      const amazonPosterUrl = item.amazonPosterUrl.trim();
+      const directory = dirname(normalizedNfoPath);
+
+      let savedPosterPath = join(directory, POSTER_FILE_NAME);
+      let replacedExisting = false;
 
       try {
-        if (!directory) {
-          throw new Error("Directory is required");
+        if (!item.nfoPath.trim()) {
+          throw new Error("NFO path is required");
         }
         if (!amazonPosterUrl) {
           throw new Error("Amazon poster URL is required");
@@ -136,6 +171,22 @@ export class AmazonPosterToolService {
         if (!directoryStats.isDirectory()) {
           throw new Error(`Directory not found: ${directory}`);
         }
+
+        let parsedNfo: CrawlerData | undefined;
+        try {
+          parsedNfo = parseNfo(await readFile(normalizedNfoPath, "utf8"));
+        } catch (error) {
+          this.logger.warn(`Failed to parse NFO '${normalizedNfoPath}' before poster apply: ${toErrorMessage(error)}`);
+        }
+
+        const allowFixedPosterFallback = (await this.countNamedNfoFiles(directory)) <= 1;
+        savedPosterPath = this.resolvePosterTargetPath(
+          directory,
+          normalizedNfoPath,
+          parsedNfo,
+          allowFixedPosterFallback,
+        );
+        replacedExisting = await this.pathExists(savedPosterPath);
 
         const tempPosterPath = join(directory, `.amazon-poster-${randomUUID()}.jpg`);
 
@@ -180,6 +231,49 @@ export class AmazonPosterToolService {
     return results;
   }
 
+  private async findCurrentPosterPath(
+    directory: string,
+    nfoPath: string,
+    parsed: CrawlerData,
+    allowFixedPosterFallback: boolean,
+  ): Promise<string | null> {
+    for (const candidatePath of buildPosterCandidatePaths(directory, nfoPath, parsed, { allowFixedPosterFallback })) {
+      try {
+        const info = await stat(candidatePath);
+        if (info.isFile()) {
+          return candidatePath;
+        }
+      } catch {
+        // Try the next candidate.
+      }
+    }
+
+    return null;
+  }
+
+  private resolvePosterTargetPath(
+    directory: string,
+    nfoPath: string,
+    parsedNfo: CrawlerData | undefined,
+    allowFixedPosterFallback: boolean,
+  ): string {
+    const candidates = buildPosterCandidatePaths(
+      directory,
+      nfoPath,
+      parsedNfo ?? {
+        title: "",
+        number: "",
+        actors: [],
+        genres: [],
+        scene_images: [],
+        website: Website.JAVDB,
+      },
+      { allowFixedPosterFallback },
+    );
+
+    return candidates[0] ?? join(directory, POSTER_FILE_NAME);
+  }
+
   private async listNfoFiles(rootDirectory: string): Promise<string[]> {
     const outputs: string[] = [];
     const stack: string[] = [rootDirectory];
@@ -216,5 +310,17 @@ export class AmazonPosterToolService {
     } catch {
       return false;
     }
+  }
+
+  private async countNamedNfoFiles(directory: string): Promise<number> {
+    const entries = await readdir(directory, { withFileTypes: true });
+
+    return entries.reduce((count, entry) => {
+      if (!entry.isFile() || extname(entry.name).toLowerCase() !== ".nfo") {
+        return count;
+      }
+
+      return basename(entry.name, extname(entry.name)).toLowerCase() === MOVIE_NFO_BASE_NAME ? count : count + 1;
+    }, 0);
   }
 }

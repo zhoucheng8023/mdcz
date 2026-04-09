@@ -256,6 +256,54 @@ describe("DownloadManager keep flags", () => {
     );
   });
 
+  it("names companion assets after the shared movie base when follow-video naming is enabled", async () => {
+    const { root, manager } = await createDownloadSubject();
+    mockImageValidation(true);
+    const config = createConfig({
+      naming: {
+        ...defaultConfiguration.naming,
+        assetNamingMode: "followVideo",
+      },
+      download: {
+        ...defaultConfiguration.download,
+        keepThumb: false,
+        keepPoster: false,
+        keepFanart: false,
+        keepTrailer: false,
+        downloadSceneImages: false,
+      },
+    });
+
+    const assets = await manager.downloadAll(
+      root,
+      createCrawlerData({
+        thumb_url: "https://example.com/thumb.jpg",
+        poster_url: "https://example.com/poster.jpg",
+        trailer_url: "https://example.com/trailer.mp4",
+      }),
+      config,
+      {},
+      undefined,
+      {
+        movieBaseName: "ABC-123-CEN",
+      },
+    );
+
+    expect(assets.thumb).toBe(join(root, "ABC-123-CEN-thumb.jpg"));
+    expect(assets.poster).toBe(join(root, "ABC-123-CEN-poster.jpg"));
+    expect(assets.fanart).toBe(join(root, "ABC-123-CEN-fanart.jpg"));
+    expect(assets.trailer).toBe(join(root, "ABC-123-CEN-trailer.mp4"));
+    await expect(readFile(join(root, "ABC-123-CEN-thumb.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/thumb.jpg",
+    );
+    await expect(readFile(join(root, "ABC-123-CEN-poster.jpg"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/poster.jpg",
+    );
+    await expect(readFile(join(root, "ABC-123-CEN-trailer.mp4"), "utf8")).resolves.toBe(
+      "downloaded:https://example.com/trailer.mp4",
+    );
+  });
+
   it("reuses existing sidecar assets when keep flags are enabled", async () => {
     const { root, manager, networkClient } = await createDownloadSubject({
       "thumb.jpg": "thumb",

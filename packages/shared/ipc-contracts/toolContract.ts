@@ -15,7 +15,7 @@ export type ToolIpcContract = {
   [IpcChannel.Tool_AmazonPosterScan]: IpcProcedure<{ directory?: string }, { items: AmazonPosterScanItem[] }>;
   [IpcChannel.Tool_AmazonPosterLookup]: IpcProcedure<{ nfoPath?: string; title?: string }, AmazonPosterLookupResult>;
   [IpcChannel.Tool_AmazonPosterApply]: IpcProcedure<
-    { items?: Array<{ directory: string; amazonPosterUrl: string }> },
+    { items?: Array<{ nfoPath: string; amazonPosterUrl: string }> },
     { results: AmazonPosterApplyResultItem[] }
   >;
   [IpcChannel.Tool_BatchTranslateScan]: IpcProcedure<{ directory?: string }, { items: BatchTranslateScanItem[] }>;

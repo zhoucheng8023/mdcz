@@ -1,11 +1,39 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildMovieAssetFileNames, isMovieNfoBaseName } from "@shared/assetNaming";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { readNfo, updateNfo } from "@/api/manual";
 import type { DetailViewItem } from "@/components/detail/types";
 import { useResolvedImageCandidates } from "@/hooks/useResolvedImageSources";
-import { buildImageSourceCandidates } from "@/utils/image";
+import { buildImageSourceCandidates, buildLocalImageCandidate } from "@/utils/image";
 import { getDirFromPath } from "@/utils/path";
 import { playMediaPath } from "@/utils/playback";
+
+const getPathBaseName = (path: string | undefined): string => {
+  const trimmed = path?.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const normalizedPath = trimmed.replace(/[\\/]+$/u, "");
+  const separatorIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+  const fileName = separatorIndex >= 0 ? normalizedPath.slice(separatorIndex + 1) : normalizedPath;
+  const extensionIndex = fileName.lastIndexOf(".");
+  return extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName;
+};
+
+const resolveMovieBaseName = (item: DetailViewItem | null | undefined): string => {
+  const videoBaseName = getPathBaseName(item?.path);
+  if (videoBaseName) {
+    return videoBaseName;
+  }
+
+  const nfoBaseName = getPathBaseName(item?.nfoPath);
+  if (nfoBaseName && !isMovieNfoBaseName(nfoBaseName)) {
+    return nfoBaseName;
+  }
+
+  return item?.number?.trim() ?? "";
+};
 
 export function useDetailViewController(item?: DetailViewItem | null) {
   const [nfoOpen, setNfoOpen] = useState(false);
@@ -17,48 +45,65 @@ export function useDetailViewController(item?: DetailViewItem | null) {
   const [thumbSrc, setThumbSrc] = useState("");
   const [posterCandidateIndex, setPosterCandidateIndex] = useState(0);
   const [thumbCandidateIndex, setThumbCandidateIndex] = useState(0);
-
-  const posterCandidates = useMemo(
-    () =>
-      buildImageSourceCandidates({
-        remotePath: item?.posterUrl,
-        filePath: item?.path,
-        outputPath: item?.outputPath,
-        fileName: "poster.jpg",
-      }),
-    [item?.outputPath, item?.path, item?.posterUrl],
+  const assetBasePath = item?.path ?? item?.nfoPath;
+  const movieAssetFileNames = useMemo(
+    () => buildMovieAssetFileNames(resolveMovieBaseName(item), "followVideo"),
+    [item],
   );
 
-  const thumbCandidates = useMemo(
-    () =>
-      buildImageSourceCandidates({
-        remotePath: item?.thumbUrl ?? item?.fanartUrl,
-        filePath: item?.path,
-        outputPath: item?.outputPath,
-        fileName: "thumb.jpg",
-      }),
-    [item?.fanartUrl, item?.outputPath, item?.path, item?.thumbUrl],
-  );
-  const posterRenderableCandidates = useResolvedImageCandidates([posterCandidates.primary, posterCandidates.fallback]);
-  const thumbRenderableCandidates = useResolvedImageCandidates([thumbCandidates.primary, thumbCandidates.fallback]);
+  const posterCandidates = useMemo(() => {
+    const fixedCandidates = buildImageSourceCandidates({
+      remotePath: item?.posterUrl,
+      filePath: assetBasePath,
+      outputPath: item?.outputPath,
+      fileName: "poster.jpg",
+    });
+
+    return [
+      fixedCandidates.primary,
+      buildLocalImageCandidate(assetBasePath, item?.outputPath, movieAssetFileNames.poster),
+      fixedCandidates.fallback,
+    ];
+  }, [assetBasePath, item?.outputPath, item?.posterUrl, movieAssetFileNames.poster]);
+
+  const thumbCandidates = useMemo(() => {
+    const fixedCandidates = buildImageSourceCandidates({
+      remotePath: item?.thumbUrl ?? item?.fanartUrl,
+      filePath: assetBasePath,
+      outputPath: item?.outputPath,
+      fileName: "thumb.jpg",
+    });
+
+    return [
+      fixedCandidates.primary,
+      buildLocalImageCandidate(assetBasePath, item?.outputPath, movieAssetFileNames.thumb),
+      fixedCandidates.fallback,
+    ];
+  }, [assetBasePath, item?.fanartUrl, item?.outputPath, item?.thumbUrl, movieAssetFileNames.thumb]);
+  const posterCandidateKey = posterCandidates.join("\u0000");
+  const thumbCandidateKey = thumbCandidates.join("\u0000");
+  const posterCandidateKeyRef = useRef(posterCandidateKey);
+  const thumbCandidateKeyRef = useRef(thumbCandidateKey);
+  const posterRenderableCandidates = useResolvedImageCandidates(posterCandidates);
+  const thumbRenderableCandidates = useResolvedImageCandidates(thumbCandidates);
 
   useEffect(() => {
-    if (posterCandidates.primary || posterCandidates.fallback) {
-      setPosterCandidateIndex(0);
+    if (posterCandidateKeyRef.current === posterCandidateKey) {
       return;
     }
 
+    posterCandidateKeyRef.current = posterCandidateKey;
     setPosterCandidateIndex(0);
-  }, [posterCandidates.fallback, posterCandidates.primary]);
+  }, [posterCandidateKey]);
 
   useEffect(() => {
-    if (thumbCandidates.primary || thumbCandidates.fallback) {
-      setThumbCandidateIndex(0);
+    if (thumbCandidateKeyRef.current === thumbCandidateKey) {
       return;
     }
 
+    thumbCandidateKeyRef.current = thumbCandidateKey;
     setThumbCandidateIndex(0);
-  }, [thumbCandidates.fallback, thumbCandidates.primary]);
+  }, [thumbCandidateKey]);
 
   useEffect(() => {
     setPosterSrc(posterRenderableCandidates[posterCandidateIndex] ?? "");

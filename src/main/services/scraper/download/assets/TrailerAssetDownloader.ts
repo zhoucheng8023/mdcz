@@ -15,7 +15,7 @@ export class TrailerAssetDownloader implements AssetDownloader {
 
     throwIfAborted(plan.signal);
 
-    const trailerPath = join(plan.outputDir, "trailer.mp4");
+    const trailerPath = join(plan.outputDir, plan.assetFileNames.trailer);
     const url = normalizeUrl(plan.data.trailer_url);
     const keepTrailer = shouldKeepAsset(plan.assetDecisions.trailer, plan.config.download.keepTrailer);
     const trailerResult = await resolveSingleAsset({

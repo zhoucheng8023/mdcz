@@ -14,7 +14,7 @@ export class FanartAssetDownloader implements AssetDownloader {
 
     throwIfAborted(plan.signal);
 
-    const fanartTargetPath = join(plan.outputDir, "fanart.jpg");
+    const fanartTargetPath = join(plan.outputDir, plan.assetFileNames.fanart);
     const thumbPath = assets.thumb;
 
     if (thumbPath) {

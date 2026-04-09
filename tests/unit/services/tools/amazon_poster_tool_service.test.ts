@@ -164,7 +164,9 @@ describe("AmazonPosterToolService", () => {
 
   it("applies poster downloads by replacing, creating, or reporting failures", async () => {
     const replaceRoot = await createTempDir();
+    const replaceNfoPath = join(replaceRoot, "AAA-001.nfo");
     const existingPosterPath = join(replaceRoot, "poster.jpg");
+    await writeFile(replaceNfoPath, createNfoXml({ title: "Replace", number: "AAA-001" }), "utf8");
     await writeFile(existingPosterPath, Buffer.from("old-poster"));
     const replacementContent = Buffer.alloc(14_000, 2);
     const replaceDownload = vi.fn(async (_url: string, outputPath: string) => {
@@ -176,7 +178,7 @@ describe("AmazonPosterToolService", () => {
     const replaceService = createService({ download: replaceDownload }).service;
 
     const replaceResults = await replaceService.apply([
-      { directory: replaceRoot, amazonPosterUrl: "https://example.com/poster.jpg" },
+      { nfoPath: replaceNfoPath, amazonPosterUrl: "https://example.com/poster.jpg" },
     ]);
     expect(replaceResults[0]).toMatchObject({
       directory: replaceRoot,
@@ -188,7 +190,9 @@ describe("AmazonPosterToolService", () => {
     await expect(readFile(existingPosterPath)).resolves.toEqual(replacementContent);
 
     const createRoot = await createTempDir();
+    const createNfoPath = join(createRoot, "BBB-002.nfo");
     const createdPosterPath = join(createRoot, "poster.jpg");
+    await writeFile(createNfoPath, createNfoXml({ title: "Create", number: "BBB-002" }), "utf8");
     const createContent = Buffer.alloc(15_000, 3);
     const createDownload = vi.fn(async (_url: string, outputPath: string) => {
       await mkdir(dirname(outputPath), { recursive: true });
@@ -199,7 +203,7 @@ describe("AmazonPosterToolService", () => {
     const createServiceResult = createService({ download: createDownload }).service;
 
     const createResults = await createServiceResult.apply([
-      { directory: createRoot, amazonPosterUrl: "https://example.com/new-poster.jpg" },
+      { nfoPath: createNfoPath, amazonPosterUrl: "https://example.com/new-poster.jpg" },
     ]);
     expect(createResults[0]).toMatchObject({
       directory: createRoot,
@@ -211,13 +215,15 @@ describe("AmazonPosterToolService", () => {
     await expect(stat(createdPosterPath)).resolves.toBeTruthy();
 
     const failureRoot = await createTempDir();
+    const failureNfoPath = join(failureRoot, "CCC-003.nfo");
+    await writeFile(failureNfoPath, createNfoXml({ title: "Failure", number: "CCC-003" }), "utf8");
     const failureDownload = vi.fn(async () => {
       throw new Error("download failed");
     });
     const failureService = createService({ download: failureDownload }).service;
 
     const failureResults = await failureService.apply([
-      { directory: failureRoot, amazonPosterUrl: "https://example.com/fail.jpg" },
+      { nfoPath: failureNfoPath, amazonPosterUrl: "https://example.com/fail.jpg" },
     ]);
     expect(failureResults[0]).toMatchObject({
       directory: failureRoot,
@@ -226,5 +232,46 @@ describe("AmazonPosterToolService", () => {
       fileSize: 0,
     });
     expect(failureResults[0]?.error).toContain("download failed");
+  });
+
+  it("uses per-NFO follow-video poster paths inside shared directories", async () => {
+    const root = await createTempDir();
+    const sharedDir = join(root, "Actor A");
+    const firstNfoPath = join(sharedDir, "AAA-001.nfo");
+    const secondNfoPath = join(sharedDir, "BBB-002.nfo");
+    const firstPosterPath = join(sharedDir, "AAA-001-poster.jpg");
+
+    await mkdir(sharedDir, { recursive: true });
+    await writeFile(firstNfoPath, createNfoXml({ title: "First", number: "AAA-001" }), "utf8");
+    await writeFile(secondNfoPath, createNfoXml({ title: "Second", number: "BBB-002" }), "utf8");
+    await writeFile(firstPosterPath, Buffer.alloc(11_000, 4));
+
+    const { service } = createService();
+    const items = await service.scan(root);
+    const firstItem = items.find((item) => item.nfoPath === firstNfoPath);
+    const secondItem = items.find((item) => item.nfoPath === secondNfoPath);
+
+    expect(firstItem?.currentPosterPath).toBe(firstPosterPath);
+    expect(secondItem?.currentPosterPath).toBeNull();
+
+    const replacementContent = Buffer.alloc(16_000, 5);
+    const replaceDownload = vi.fn(async (_url: string, outputPath: string) => {
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, replacementContent);
+      return outputPath;
+    });
+    const replaceService = createService({ download: replaceDownload }).service;
+
+    const results = await replaceService.apply([
+      { nfoPath: secondNfoPath, amazonPosterUrl: "https://example.com/shared-poster.jpg" },
+    ]);
+
+    expect(results[0]).toMatchObject({
+      directory: sharedDir,
+      success: true,
+      savedPosterPath: join(sharedDir, "BBB-002-poster.jpg"),
+      replacedExisting: false,
+      fileSize: replacementContent.length,
+    });
   });
 });

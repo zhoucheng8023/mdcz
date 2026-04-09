@@ -1,5 +1,6 @@
 import { ACTOR_IMAGE_SOURCE_OPTIONS, ACTOR_OVERVIEW_SOURCE_OPTIONS } from "@main/services/actorSource/types";
 import { CURRENT_CONFIG_VERSION } from "@main/services/config/migrator";
+import { ASSET_NAMING_MODES, isSharedDirectoryMode } from "@shared/assetNaming";
 import { ProxyType, ThemeMode, TRANSLATION_TARGET_OPTIONS, TranslateEngine, UiLanguage, Website } from "@shared/enums";
 import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
 import { z } from "zod";
@@ -52,6 +53,7 @@ const scrapeSchema = z.object({
 const namingSchema = z.object({
   folderTemplate: z.string().default("{actor}/{number}"),
   fileTemplate: z.string().default("{number}"),
+  assetNamingMode: z.enum(ASSET_NAMING_MODES).default("fixed"),
   nfoTitleTemplate: z.string().default("{title}"),
   actorNameMax: z.number().int().min(1).max(20).default(3),
   actorNameMore: z.string().default("等演员"),
@@ -284,11 +286,32 @@ export const configurationSchema = z
     aggregation: aggregationSchema.default(() => aggregationSchema.parse({})),
   })
   .superRefine((data, ctx) => {
-    if (data.behavior.successFileMove && !data.naming.folderTemplate.includes("{number}")) {
+    const sharedDirectoryMode = isSharedDirectoryMode({
+      successFileMove: data.behavior.successFileMove,
+      folderTemplate: data.naming.folderTemplate,
+    });
+
+    if (sharedDirectoryMode && data.naming.assetNamingMode !== "followVideo") {
       ctx.addIssue({
         code: "custom",
-        path: ["naming", "folderTemplate"],
-        message: "开启成功后移动文件时，文件夹模板必须包含 {number}",
+        path: ["naming", "assetNamingMode"],
+        message: "共享目录模式下，附属文件命名必须使用“跟随影片文件名”",
+      });
+    }
+
+    if (sharedDirectoryMode && data.download.nfoNaming !== "filename") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["download", "nfoNaming"],
+        message: "共享目录模式下，NFO 文件命名必须使用“仅 文件名.nfo”",
+      });
+    }
+
+    if (sharedDirectoryMode && data.download.downloadSceneImages) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["download", "downloadSceneImages"],
+        message: "共享目录模式下不支持下载剧照，请关闭“下载剧照”",
       });
     }
 

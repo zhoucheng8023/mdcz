@@ -1,3 +1,4 @@
+import { isSharedDirectoryMode } from "@shared/assetNaming";
 import type { Configuration } from "@shared/config";
 import { TRANSLATION_TARGET_OPTIONS } from "@shared/enums";
 import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
@@ -89,7 +90,10 @@ const PART_STYLE_OPTIONS: EnumOption[] = [
   { value: "PART", label: "统一为 PART1 / PART2" },
   { value: "DISC", label: "统一为 DISC1 / DISC2" },
 ];
-
+const ASSET_NAMING_OPTIONS: EnumOption[] = [
+  { value: "fixed", label: "固定命名" },
+  { value: "followVideo", label: "跟随影片文件名" },
+];
 const NFO_NAMING_OPTIONS: EnumOption[] = [
   { value: "both", label: "同时生成两种" },
   { value: "movie", label: "仅 movie.nfo" },
@@ -148,6 +152,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   // naming
   { key: "naming.folderTemplate", label: "文件夹模板", section: "naming" },
   { key: "naming.fileTemplate", label: "文件名模板", section: "naming" },
+  { key: "naming.assetNamingMode", label: "附属文件命名", section: "naming" },
   { key: "naming.nfoTitleTemplate", label: "NFO 标题模板", section: "naming" },
   { key: "naming.actorNameMax", label: "演员名最大数量", section: "naming" },
   { key: "naming.actorNameMore", label: "演员名超出后缀", section: "naming" },
@@ -213,7 +218,7 @@ const SECTION_DESCRIPTIONS: Record<string, string> = {
   scrape: "配置刮削行为、站点及并发策略",
   network: "代理、超时、重试及 Cookie 设置",
   download: "控制缩略图、海报、背景图、剧照与 NFO 的生成与保留",
-  naming: "文件和文件夹的命名模板与规则",
+  naming: "文件、文件夹和附属资源的命名规则",
   translate: "LLM 翻译引擎配置",
   personSync: "共享人物来源顺序，以及 Jellyfin 与 Emby 的人物同步设置",
   shortcuts: "自定义快捷键，留空可禁用（工作台快捷键仅在工作台页生效）",
@@ -380,9 +385,17 @@ function DownloadSection(_props: SectionRenderProps) {
     boolean | undefined,
     boolean | undefined,
   ];
+  const folderTemplate = String(form.watch("naming.folderTemplate") ?? "");
+  const successFileMove = Boolean(form.watch("behavior.successFileMove"));
+  const sharedDirectoryMode = isSharedDirectoryMode({ successFileMove, folderTemplate });
 
   return (
     <>
+      {sharedDirectoryMode && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          当前为共享目录模式：多个影片会写入同一目录。此模式下必须使用“仅 文件名.nfo”，且不支持下载剧照。
+        </div>
+      )}
       <BoolField name="download.downloadThumb" label="下载横版缩略图" />
       <BoolField name="download.downloadPoster" label="下载海报" />
       <BoolField name="download.downloadFanart" label="下载背景图" />
@@ -406,6 +419,10 @@ function NamingPreview() {
     control: form.control,
     name: "naming",
   }) as Record<string, unknown> | undefined;
+  const download = useWatch({
+    control: form.control,
+    name: "download",
+  }) as Record<string, unknown> | undefined;
   const behavior = useWatch({
     control: form.control,
     name: "behavior",
@@ -415,9 +432,10 @@ function NamingPreview() {
   const previewConfig = useMemo(
     () => ({
       naming: naming ?? {},
+      download: download ?? {},
       behavior: behavior ?? {},
     }),
-    [behavior, naming],
+    [behavior, download, naming],
   );
   const previewConfigRef = useRef(previewConfig);
 
@@ -475,10 +493,27 @@ function NamingPreview() {
 }
 
 export function NamingSection(_props: SectionRenderProps) {
+  const form = useFormContext<FieldValues>();
+  const folderTemplate = String(form.watch("naming.folderTemplate") ?? "");
+  const successFileMove = Boolean(form.watch("behavior.successFileMove"));
+  const sharedDirectoryMode = isSharedDirectoryMode({ successFileMove, folderTemplate });
+
   return (
     <>
       <TextField name="naming.folderTemplate" label="文件夹模板" description={NAMING_TEMPLATE_DESCRIPTION} />
       <TextField name="naming.fileTemplate" label="文件名模板" description={NAMING_TEMPLATE_DESCRIPTION} />
+      <EnumField
+        name="naming.assetNamingMode"
+        label="附属文件命名"
+        description="海报、横版缩略图、背景图与预告片的文件名规则。共享目录模式下必须使用“跟随影片文件名”。"
+        options={ASSET_NAMING_OPTIONS}
+      />
+      {sharedDirectoryMode && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          当前文件夹模板不会为每部影片创建独立目录，属于共享目录模式。推荐默认使用 <code>{`{actor}/{number}`}</code>；
+          如需共享目录，请同时将附属文件命名切换为“跟随影片文件名”。
+        </div>
+      )}
       <TextField
         name="naming.nfoTitleTemplate"
         label="NFO 标题模板"

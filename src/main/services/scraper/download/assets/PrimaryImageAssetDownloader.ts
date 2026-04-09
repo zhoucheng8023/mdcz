@@ -72,7 +72,7 @@ export class PrimaryImageAssetDownloader implements AssetDownloader {
       plan.config.download.keepThumb,
       plan.data.thumb_url,
       plan.imageAlternatives.thumb_url,
-      join(plan.outputDir, "thumb.jpg"),
+      join(plan.outputDir, plan.assetFileNames.thumb),
     );
     this.addPrimaryImageTask(
       tasks,
@@ -81,7 +81,7 @@ export class PrimaryImageAssetDownloader implements AssetDownloader {
       plan.config.download.keepPoster,
       plan.data.poster_url,
       plan.imageAlternatives.poster_url,
-      join(plan.outputDir, "poster.jpg"),
+      join(plan.outputDir, plan.assetFileNames.poster),
     );
 
     return tasks;

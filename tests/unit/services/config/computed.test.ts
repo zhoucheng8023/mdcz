@@ -56,19 +56,58 @@ describe("buildComputedConfiguration", () => {
     expect(computed.networkRetryCount).toBe(4);
   });
 
-  it("enforces schema rules for folderTemplate, overview sources, and Jellyfin userId", () => {
+  it("enforces shared-directory rules, overview sources, and Jellyfin userId", () => {
     const cases = [
       {
         result: configurationSchema.safeParse({
           naming: {
             folderTemplate: "{actor}",
+            assetNamingMode: "fixed",
           },
           behavior: {
             successFileMove: true,
           },
+          download: {
+            nfoNaming: "filename",
+            downloadSceneImages: false,
+          },
         }),
-        path: ["naming", "folderTemplate"],
-        message: "开启成功后移动文件时，文件夹模板必须包含 {number}",
+        path: ["naming", "assetNamingMode"],
+        message: "共享目录模式下，附属文件命名必须使用“跟随影片文件名”",
+      },
+      {
+        result: configurationSchema.safeParse({
+          naming: {
+            folderTemplate: "{actor}",
+            assetNamingMode: "followVideo",
+          },
+          behavior: {
+            successFileMove: true,
+          },
+          download: {
+            nfoNaming: "movie",
+            downloadSceneImages: false,
+          },
+        }),
+        path: ["download", "nfoNaming"],
+        message: "共享目录模式下，NFO 文件命名必须使用“仅 文件名.nfo”",
+      },
+      {
+        result: configurationSchema.safeParse({
+          naming: {
+            folderTemplate: "{actor}",
+            assetNamingMode: "followVideo",
+          },
+          behavior: {
+            successFileMove: true,
+          },
+          download: {
+            nfoNaming: "filename",
+            downloadSceneImages: true,
+          },
+        }),
+        path: ["download", "downloadSceneImages"],
+        message: "共享目录模式下不支持下载剧照，请关闭“下载剧照”",
       },
       {
         result: configurationSchema.safeParse({
@@ -107,6 +146,24 @@ describe("buildComputedConfiguration", () => {
         );
       }
     }
+  });
+
+  it("allows shared-directory templates when companion naming rules are satisfied", () => {
+    const result = configurationSchema.safeParse({
+      naming: {
+        folderTemplate: "{actor}",
+        assetNamingMode: "followVideo",
+      },
+      behavior: {
+        successFileMove: true,
+      },
+      download: {
+        nfoNaming: "filename",
+        downloadSceneImages: false,
+      },
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it("rejects optional groups that try to span multiple path segments", () => {

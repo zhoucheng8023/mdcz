@@ -27,7 +27,7 @@ export class SceneImageAssetDownloader implements AssetDownloader {
     const existingSceneImages = await listExistingSceneImages(sceneDir);
     const sceneImageComparisonPaths = uniqueFilePaths([
       assets.thumb,
-      await resolveExistingAsset(join(plan.outputDir, "fanart.jpg")),
+      await resolveExistingAsset(join(plan.outputDir, plan.assetFileNames.fanart)),
     ]);
     const forceReplaceSceneImages = plan.assetDecisions.sceneImages === "replace";
     const keepSceneImages = shouldKeepAsset(plan.assetDecisions.sceneImages, plan.config.download.keepSceneImages);

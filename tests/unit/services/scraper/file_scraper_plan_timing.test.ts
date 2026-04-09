@@ -110,6 +110,9 @@ describe("FileScraper plan timing", () => {
       translatedData,
       expect.any(Object),
       undefined,
+      {
+        executionMode: "batch",
+      },
     );
   });
 });
