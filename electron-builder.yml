@@ -19,6 +19,8 @@ files:
   - "!**/*.map"
   - "!node_modules/mediainfo.js/dist/MediaInfoModule.wasm"
   - "!node_modules/openai/src/**"
+  - node_modules/@img/sharp-linux-x64/**
+  - node_modules/@img/sharp-libvips-linux-x64/**
 
 extraResources:
   - from: node_modules/mediainfo.js/dist/MediaInfoModule.wasm
