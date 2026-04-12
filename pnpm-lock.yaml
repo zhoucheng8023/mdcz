@@ -160,31 +160,10 @@ importers:
       '@img/sharp-libvips-darwin-x64':
         specifier: 1.2.4
         version: 1.2.4
-      '@img/sharp-libvips-linux-arm64':
-        specifier: 1.2.4
-        version: 1.2.4
       '@img/sharp-libvips-linux-x64':
         specifier: 1.2.4
         version: 1.2.4
-      '@img/sharp-libvips-linuxmusl-arm64':
-        specifier: 1.2.4
-        version: 1.2.4
-      '@img/sharp-libvips-linuxmusl-x64':
-        specifier: 1.2.4
-        version: 1.2.4
-      '@img/sharp-linux-arm64':
-        specifier: 0.34.5
-        version: 0.34.5
       '@img/sharp-linux-x64':
-        specifier: 0.34.5
-        version: 0.34.5
-      '@img/sharp-linuxmusl-arm64':
-        specifier: 0.34.5
-        version: 0.34.5
-      '@img/sharp-linuxmusl-x64':
-        specifier: 0.34.5
-        version: 0.34.5
-      '@img/sharp-win32-arm64':
         specifier: 0.34.5
         version: 0.34.5
       '@img/sharp-win32-x64':
