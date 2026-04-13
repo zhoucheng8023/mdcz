@@ -12,14 +12,28 @@ export interface NamingLayout {
   nfoFileName: string;
 }
 
-const pickActorFolder = (config: Configuration, actors: string[], studio?: string): string => {
+interface ActorTemplateValue {
+  actor: string;
+  actorFallbackPrefix?: string;
+}
+
+const FC2_NUMBER_PATTERN = /^FC2(?:-?PPV)?-?\d+$/iu;
+
+const isSellerFallback = (data: CrawlerData): boolean => {
+  return FC2_NUMBER_PATTERN.test(data.number.trim());
+};
+
+const pickActorTemplateValue = (config: Configuration, actors: string[], data: CrawlerData): ActorTemplateValue => {
   const cleaned = actors.map((actor) => actor.trim()).filter((actor) => actor.length > 0);
   if (cleaned.length === 0) {
-    const trimmedStudio = studio?.trim();
-    if (config.naming.actorFallbackToStudio && trimmedStudio) {
-      return trimmedStudio;
+    const fallbackValue = data.studio?.trim();
+    if (config.naming.actorFallbackToStudio && fallbackValue) {
+      return {
+        actor: fallbackValue,
+        actorFallbackPrefix: isSellerFallback(data) ? "卖家：" : "片商：",
+      };
     }
-    return "Unknown";
+    return { actor: "Unknown" };
   }
 
   const max = Math.max(1, config.naming.actorNameMax);
@@ -28,7 +42,7 @@ const pickActorFolder = (config: Configuration, actors: string[], studio?: strin
     selected.push(config.naming.actorNameMore);
   }
 
-  return selected.join(" ");
+  return { actor: selected.join(" ") };
 };
 
 const normalizeMarker = (value: string): string => value.trim();
@@ -173,21 +187,33 @@ const NAMING_PREVIEW_SAMPLES: Array<{
       studio: "Studio W",
     }),
   },
+  {
+    label: "演员为空",
+    fileInfo: previewFileInfo("FC2-123456"),
+    data: previewData("FC2-123456", {
+      actors: [],
+      studio: "示例卖家",
+      publisher: "示例卖家",
+      website: Website.FC2,
+    }),
+  },
 ];
 
 export class NamingEngine {
   buildLayout(fileInfo: FileInfo, data: CrawlerData, config: Configuration, localState?: NfoLocalState): NamingLayout {
     const title = data.title_zh?.trim() || data.title;
-    const actorFolder = pickActorFolder(config, data.actors ?? [], data.studio);
+    const actorTemplateValue = pickActorTemplateValue(config, data.actors ?? [], data);
     const styledNumber = buildNumberWithNamingMarkers(fileInfo, data, config, localState);
     const partSuffix = formatPartSuffix(fileInfo, config);
     const formattedReleaseDate = formatReleaseDateByRule(data.release_date, config.naming.releaseRule);
     const templateData = {
       title,
       number: styledNumber,
-      actor: actorFolder,
+      actor: actorTemplateValue.actor,
+      actorFallbackPrefix: actorTemplateValue.actorFallbackPrefix,
       date: formattedReleaseDate,
       studio: data.studio,
+      publisher: data.publisher,
     };
 
     const sourceVideo = parse(fileInfo.filePath);

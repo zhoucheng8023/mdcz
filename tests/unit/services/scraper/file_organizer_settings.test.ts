@@ -218,6 +218,102 @@ describe("FileOrganizer naming settings", () => {
     );
   });
 
+  it("renders actor fallback prefixes only when the actor value falls back", () => {
+    const organizer = new FileOrganizer();
+    const config = createConfig({
+      naming: {
+        folderTemplate: "{actorFallbackPrefix}{actor}/{number}",
+        fileTemplate: "{number}",
+        actorFallbackToStudio: true,
+        censoredStyle: "",
+      },
+    });
+
+    const explicitActorPlan = organizer.plan(
+      createFileInfo(),
+      createCrawlerData({
+        actors: ["Actor A"],
+        studio: "Studio A",
+      }),
+      config,
+    );
+    expect(splitSegments(explicitActorPlan.outputDir)).toEqual(["media", "output", "Actor A", "ABC-123"]);
+
+    const studioFallbackPlan = organizer.plan(
+      createFileInfo(),
+      createCrawlerData({
+        actors: [],
+        studio: "Studio A",
+      }),
+      config,
+    );
+    expect(splitSegments(studioFallbackPlan.outputDir)).toEqual(["media", "output", "片商：Studio A", "ABC-123"]);
+
+    const sellerFallbackPlan = organizer.plan(
+      createFileInfo({
+        filePath: "/input/FC2-123456.mp4",
+        fileName: "FC2-123456",
+        number: "FC2-123456",
+      }),
+      createCrawlerData({
+        number: "FC2-123456",
+        actors: [],
+        studio: "Seller A",
+        publisher: "Seller A",
+        website: Website.FC2,
+      }),
+      config,
+    );
+    expect(splitSegments(sellerFallbackPlan.outputDir)).toEqual(["media", "output", "卖家：Seller A", "FC2-123456"]);
+
+    const fc2PpvFallbackPlan = organizer.plan(
+      createFileInfo({
+        filePath: "/input/FC2-PPV-789012.mp4",
+        fileName: "FC2-PPV-789012",
+        number: "FC2-789012",
+      }),
+      createCrawlerData({
+        number: "FC2-PPV-789012",
+        actors: [],
+        studio: "PPV Seller",
+        website: Website.FC2,
+      }),
+      config,
+    );
+    expect(splitSegments(fc2PpvFallbackPlan.outputDir)).toEqual([
+      "media",
+      "output",
+      "卖家：PPV Seller",
+      "FC2-PPV-789012",
+    ]);
+
+    const publisherOnlyPlan = organizer.plan(
+      createFileInfo(),
+      createCrawlerData({
+        actors: [],
+        publisher: "Publisher Only",
+      }),
+      config,
+    );
+    expect(splitSegments(publisherOnlyPlan.outputDir)).toEqual(["media", "output", "Unknown", "ABC-123"]);
+
+    const disabledFallbackPlan = organizer.plan(
+      createFileInfo(),
+      createCrawlerData({
+        actors: [],
+        studio: "Studio A",
+      }),
+      createConfig({
+        naming: {
+          folderTemplate: "{actorFallbackPrefix}{actor}/{number}",
+          actorFallbackToStudio: false,
+          censoredStyle: "",
+        },
+      }),
+    );
+    expect(splitSegments(disabledFallbackPlan.outputDir)).toEqual(["media", "output", "Unknown", "ABC-123"]);
+  });
+
   it("sanitizes colon-heavy titles without turning them into nested folders", () => {
     const organizer = new FileOrganizer();
     const plan = organizer.plan(
@@ -316,6 +412,17 @@ describe("FileOrganizer naming settings", () => {
 
     expect(previews.find((item) => item.label === "中文字幕")?.file).toContain("-SUB");
     expect(previews.find((item) => item.label === "多演员")?.folder).toContain("等演员");
+
+    const fallbackPreviews = organizer.buildNamingPreview(
+      createConfig({
+        naming: {
+          folderTemplate: "{actorFallbackPrefix}{actor}/{number}",
+          actorFallbackToStudio: true,
+          censoredStyle: "",
+        },
+      }),
+    );
+    expect(fallbackPreviews.find((item) => item.label === "演员为空")?.folder).toContain("卖家：示例卖家");
   });
 
   it("preserves input extension and explicit multipart suffix casing when renaming", () => {

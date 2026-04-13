@@ -7,45 +7,25 @@ Desktop.ini
 *.swp
 *.tmp
 
-# Node and package manager
+# Node and pnpm
 node_modules/
 .pnpm-store/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 
-# Build and runtime artifacts
+# Build artifacts
 out/
 release/
-dist/
-coverage/
+
+# Runtime scratch data
 logs/
 tmp/
-.tsbuildinfo/
+.tmp/
 
 # Environment files
 .env
 .env.*
 !.env.example
 
-# Local application data
-config.ini
-config.json
-config.v2.json
-test.ini
-test.json
-test.v2.json
-MDCz.config
-userdata/
-Log/
-
-# Local tooling state
+# Local assistant state
 .claude/
-.codex/
-.opencode/
-.agent/
-.specify/
-.venv/
-.ruff_cache/
-*.egg-info/
+.codex

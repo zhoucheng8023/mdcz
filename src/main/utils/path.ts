@@ -10,8 +10,10 @@ export interface TemplateData {
   title?: string;
   number?: string;
   actor?: string;
+  actorFallbackPrefix?: string;
   date?: string;
   studio?: string;
+  publisher?: string;
   [key: string]: string | number | undefined;
 }
 

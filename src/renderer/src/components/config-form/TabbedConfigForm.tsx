@@ -100,7 +100,8 @@ const NFO_NAMING_OPTIONS: EnumOption[] = [
   { value: "filename", label: "仅 文件名.nfo" },
 ];
 
-export const NAMING_TEMPLATE_DESCRIPTION = "可用占位符：{actor} {number} {date} {title} {studio}";
+export const NAMING_TEMPLATE_DESCRIPTION =
+  "可用占位符：{actor} {actorFallbackPrefix} {number} {date} {title} {studio} {publisher}";
 
 // ── Field registry for search/filter ──
 
@@ -532,7 +533,7 @@ export function NamingSection(_props: SectionRenderProps) {
       <BoolField
         name="naming.actorFallbackToStudio"
         label="演员为空时使用片商或卖家"
-        description="开启后，{actor} 在没有演员名时会回退到片商或卖家名称；仍为空时才使用 Unknown。"
+        description="开启后，{actor} 在没有演员名时会回退到片商或卖家名称；如需显示来源，可在模板中使用 {actorFallbackPrefix}{actor}。"
       />
       <TextField name="naming.releaseRule" label="发行日期格式" />
       <EnumField
