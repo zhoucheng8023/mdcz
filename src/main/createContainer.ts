@@ -13,7 +13,11 @@ import { createImageHostCooldownStore } from "@main/services/cooldown/Persistent
 import { CrawlerProvider, FetchGateway } from "@main/services/crawler";
 import { EmbyActorInfoService, EmbyActorPhotoService } from "@main/services/mediaServer/emby";
 import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@main/services/mediaServer/jellyfin";
-import { createElectronCookieResolver, type NetworkClient } from "@main/services/network";
+import {
+  createElectronBrowserChallengeResolver,
+  createElectronCookieResolver,
+  type NetworkClient,
+} from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
 import { ScraperService } from "@main/services/scraper";
 import { AmazonJpImageService } from "@main/services/scraper/AmazonJpImageService";
@@ -25,16 +29,22 @@ export interface CreateContainerOptions {
   windowService: WindowService;
   signalService: SignalService;
   networkClient: NetworkClient;
+  getProxyUrl?: () => string | undefined;
 }
 
 export const createContainer = ({
   windowService,
   signalService,
   networkClient,
+  getProxyUrl,
 }: CreateContainerOptions): ServiceContainer => {
   const fetchGateway = new FetchGateway(networkClient);
+  const browserChallengeResolver = createElectronBrowserChallengeResolver({
+    getProxyUrl,
+  });
   const crawlerProvider = new CrawlerProvider({
     fetchGateway,
+    browserChallengeResolver,
     siteRequestConfigRegistrar: networkClient,
   });
   const imageHostCooldownStore = createImageHostCooldownStore();

@@ -1,6 +1,6 @@
 import { type CooldownFailurePolicy, PersistentCooldownStore } from "@main/services/cooldown/PersistentCooldownStore";
 import { loggerService } from "@main/services/LoggerService";
-import type { SiteRequestConfigRegistrar } from "@main/services/network";
+import type { BrowserChallengeResolver, SiteRequestConfigRegistrar } from "@main/services/network";
 import { toErrorMessage } from "@main/utils/common";
 import { Website } from "@shared/enums";
 
@@ -10,6 +10,7 @@ import { getCrawlerConstructor, listRegisteredCrawlerRequestConfigs, listRegiste
 
 export interface CrawlerProviderOptions {
   fetchGateway: FetchGateway;
+  browserChallengeResolver?: BrowserChallengeResolver;
   siteCooldownStore?: PersistentCooldownStore;
   siteRequestConfigRegistrar?: SiteRequestConfigRegistrar;
 }
@@ -55,6 +56,7 @@ export class CrawlerProvider {
   constructor(options: CrawlerProviderOptions) {
     this.dependencies = {
       gateway: options.fetchGateway,
+      browserChallengeResolver: options.browserChallengeResolver,
     };
     this.siteCooldownStore =
       options.siteCooldownStore ??

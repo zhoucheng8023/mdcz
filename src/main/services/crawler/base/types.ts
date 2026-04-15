@@ -1,7 +1,12 @@
-import type { SiteRequestConfig } from "@main/services/network";
+import type { BrowserChallengeResolver, SiteRequestConfig } from "@main/services/network";
 import type { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { FetchGateway } from "../FetchGateway";
+
+export interface CloudflareChallengeOptions {
+  interactiveFallback: boolean;
+  timeoutMs: number;
+}
 
 export interface CrawlerOptions {
   timeoutMs?: number;
@@ -10,6 +15,7 @@ export interface CrawlerOptions {
   userAgent?: string;
   apiToken?: string;
   customUrl?: string;
+  cloudflareChallenge?: CloudflareChallengeOptions;
   signal?: AbortSignal;
 }
 
@@ -59,6 +65,7 @@ export interface SiteAdapter {
 
 export interface AdapterDependencies {
   gateway: FetchGateway;
+  browserChallengeResolver?: BrowserChallengeResolver;
 }
 
 export interface SiteAdapterConstructor {

@@ -42,7 +42,12 @@ export class FixtureNetworkClient extends NetworkClient {
     return JSON.stringify(fixture);
   }
 
-  override async getJson<T>(url: string): Promise<T> {
+  override async getJson<T>(url: string, init: GetTextInit = {}): Promise<T> {
+    this.requests.push({
+      url,
+      headers: new Headers(init.headers),
+    });
+
     const fixture = this.getFixture(url);
     if (!fixture) {
       throw new Error(`Missing fixture for ${url}`);

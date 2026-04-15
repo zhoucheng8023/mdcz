@@ -5,6 +5,7 @@ import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { load } from "cheerio";
 import type { AdapterDependencies, CrawlerInput, CrawlerResponse, FailureReason, SiteAdapter } from "../base/types";
+import { CloudflareChallengeSupport } from "../challenge/CloudflareChallengeSupport";
 import type { FetchOptions } from "../FetchGateway";
 import type { CrawlerRegistration } from "../registration";
 
@@ -263,10 +264,15 @@ export class AvwikidbCrawler implements SiteAdapter {
 
   private readonly logger = loggerService.getLogger("AvwikidbCrawler");
   private readonly gateway: AdapterDependencies["gateway"];
+  private readonly cloudflareChallenge: CloudflareChallengeSupport;
   private buildId: string | null = null;
 
   constructor(dependencies: AdapterDependencies) {
     this.gateway = dependencies.gateway;
+    this.cloudflareChallenge = new CloudflareChallengeSupport({
+      resolver: dependencies.browserChallengeResolver,
+      challengeUrl: (input) => `${this.resolveBaseUrl(input)}/`,
+    });
   }
 
   site(): Website {
@@ -315,6 +321,16 @@ export class AvwikidbCrawler implements SiteAdapter {
   }
 
   private async fetchMetadata(input: CrawlerInput): Promise<CrawlerData | null> {
+    return this.cloudflareChallenge.withRetry({
+      input,
+      operation: () => this.fetchMetadataWithCurrentSession(input),
+      onResolved: () => {
+        this.buildId = null;
+      },
+    });
+  }
+
+  private async fetchMetadataWithCurrentSession(input: CrawlerInput): Promise<CrawlerData | null> {
     const number = normalizeNumber(input.number);
     const cachedBuildId = this.buildId;
     const direct = await this.fetchWorkData(number, input);
@@ -452,11 +468,11 @@ export class AvwikidbCrawler implements SiteAdapter {
   }
 
   private createFetchOptions(input: CrawlerInput): FetchOptions {
-    return {
+    return this.cloudflareChallenge.createFetchOptions({
       timeout: input.options?.timeoutMs,
       signal: input.options?.signal,
       cookies: input.options?.cookies,
-    };
+    });
   }
 
   private resolveBaseUrl(input: CrawlerInput): string {

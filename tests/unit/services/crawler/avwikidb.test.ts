@@ -1,8 +1,55 @@
 import { AvwikidbCrawler } from "@main/services/crawler/sites/avwikidb";
+import { type BrowserChallengeResolver, NetworkClient } from "@main/services/network";
 import { Website } from "@shared/enums";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { FixtureNetworkClient, withGateway } from "./fixtures";
+
+type GetTextInit = Parameters<NetworkClient["getText"]>[1];
+
+class CloudflareFixtureNetworkClient extends NetworkClient {
+  readonly requests: Array<{ url: string; headers: Headers }> = [];
+
+  private challengeResolved = false;
+
+  constructor(private readonly fixtures: Map<string, unknown>) {
+    super({});
+  }
+
+  private getFixture(url: string): unknown | undefined {
+    return this.fixtures.get(url) ?? this.fixtures.get(url.split("?", 1)[0] ?? url);
+  }
+
+  override async getText(url: string, init: GetTextInit = {}): Promise<string> {
+    const headers = new Headers(init.headers);
+    this.requests.push({ url, headers });
+
+    if (url === "https://avwikidb.com/" && !this.challengeResolved) {
+      if (!headers.get("cookie")?.includes("cf_clearance=resolved")) {
+        throw new Error("HTTP 403 Forbidden for https://avwikidb.com/");
+      }
+      this.challengeResolved = true;
+    }
+
+    const fixture = this.getFixture(url);
+    if (!fixture) {
+      throw new Error(`Missing fixture for ${url}`);
+    }
+
+    return typeof fixture === "string" ? fixture : JSON.stringify(fixture);
+  }
+
+  override async getJson<T>(url: string, init: GetTextInit = {}): Promise<T> {
+    this.requests.push({ url, headers: new Headers(init.headers) });
+
+    const fixture = this.getFixture(url);
+    if (!fixture) {
+      throw new Error(`Missing fixture for ${url}`);
+    }
+
+    return fixture as T;
+  }
+}
 
 const createHomeHtml = (buildId: string): string =>
   `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ buildId })}</script></body></html>`;
@@ -113,6 +160,61 @@ describe("AvwikidbCrawler", () => {
       "https://pics.dmm.co.jp/digital/video/zake00020/zake00020jp-1.jpg",
       "https://pics.dmm.co.jp/digital/video/zake00020/zake00020jp-2.jpg",
     ]);
+  });
+
+  it("resolves Cloudflare challenges with browser cookies and reusable headers before retrying", async () => {
+    const buildId = "test-build";
+    const networkClient = new CloudflareFixtureNetworkClient(
+      new Map<string, unknown>([
+        ["https://avwikidb.com/", createHomeHtml(buildId)],
+        [`https://avwikidb.com/_next/data/${buildId}/work/ZAKE-020.json`, createWorkPayload()],
+      ]),
+    );
+    const browserChallengeResolver: BrowserChallengeResolver = {
+      resolve: vi.fn(async (request) => {
+        expect(request).toMatchObject({
+          url: "https://avwikidb.com/",
+          expectedCookieNames: ["cf_clearance"],
+          timeoutMs: 12_000,
+          interactive: true,
+        });
+
+        return {
+          cookies: [{ name: "cf_clearance", value: "resolved", domain: "avwikidb.com", path: "/" }],
+          headers: {
+            "accept-language": "ja,en-US;q=0.9,en;q=0.8",
+            "sec-ch-ua": '"Chromium";v="146"',
+            "user-agent": "Mozilla/5.0 Browser Challenge",
+          },
+        };
+      }),
+    };
+    const crawler = new AvwikidbCrawler({
+      ...withGateway(networkClient),
+      browserChallengeResolver,
+    });
+
+    const response = await crawler.crawl({
+      number: "ZAKE-020",
+      site: Website.AVWIKIDB,
+      options: {
+        cloudflareChallenge: {
+          interactiveFallback: true,
+          timeoutMs: 12_000,
+        },
+      },
+    });
+
+    expect(response.result.success).toBe(true);
+    expect(browserChallengeResolver.resolve).toHaveBeenCalledTimes(1);
+
+    const retriedHomeRequest = networkClient.requests.filter((request) => request.url === "https://avwikidb.com/")[1];
+    expect(retriedHomeRequest?.headers.get("cookie")).toContain("cf_clearance=resolved");
+    expect(retriedHomeRequest?.headers.get("user-agent")).toBe("Mozilla/5.0 Browser Challenge");
+
+    const detailRequest = networkClient.requests.find((request) => request.url.endsWith("/work/ZAKE-020.json"));
+    expect(detailRequest?.headers.get("cookie")).toContain("cf_clearance=resolved");
+    expect(detailRequest?.headers.get("sec-ch-ua")).toBe('"Chromium";v="146"');
   });
 
   it("strips actor names appended to the end of AVWikiDB titles", async () => {

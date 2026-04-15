@@ -1,5 +1,6 @@
 import type { Configuration } from "@main/services/config";
 import type { CrawlerOptions } from "@main/services/crawler/base/types";
+import { supportsCloudflareChallengeSite } from "@main/services/crawler/challenge/supportedSites";
 import { Website } from "@shared/enums";
 
 interface BuildCrawlerOptionsInput {
@@ -27,6 +28,13 @@ export const buildCrawlerOptions = ({ site, configuration, signal }: BuildCrawle
   const javbusCookie = configuration.network.javbusCookie.trim();
   if (site === Website.JAVBUS && javbusCookie) {
     options.cookies = javbusCookie;
+  }
+
+  if (configuration.network.cloudflareChallenge.enabled && supportsCloudflareChallengeSite(site)) {
+    options.cloudflareChallenge = {
+      interactiveFallback: configuration.network.cloudflareChallenge.interactiveFallback,
+      timeoutMs: Math.max(1, Math.trunc(configuration.network.cloudflareChallenge.timeout * 1000)),
+    };
   }
 
   if (signal) {
