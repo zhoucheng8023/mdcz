@@ -161,6 +161,43 @@ describe("FieldAggregator", () => {
     expect(sources.scene_images).toBe(Website.DMM);
   });
 
+  it("keeps metadata coherent with the title-winning source when that source has values", () => {
+    const aggregator = new FieldAggregator({
+      title: [Website.DMM_TV, Website.JAV321],
+      genres: [Website.JAV321, Website.DMM_TV],
+      studio: [Website.JAV321, Website.DMM_TV],
+    });
+    const results = new Map<Website, CrawlerData>([
+      [
+        Website.DMM_TV,
+        makeCrawlerData({
+          title: "DMM TV Title",
+          genres: ["Tag TV 1", "Tag TV 2"],
+          studio: "Studio TV",
+          website: Website.DMM_TV,
+        }),
+      ],
+      [
+        Website.JAV321,
+        makeCrawlerData({
+          title: "JAV321 Title",
+          genres: ["Tag JAV321"],
+          studio: "Studio JAV321",
+          website: Website.JAV321,
+        }),
+      ],
+    ]);
+
+    const { data, sources } = aggregator.aggregate(results);
+
+    expect(data.title).toBe("DMM TV Title");
+    expect(data.genres).toEqual(["Tag TV 1", "Tag TV 2"]);
+    expect(data.studio).toBe("Studio TV");
+    expect(sources.title).toBe(Website.DMM_TV);
+    expect(sources.genres).toBe(Website.DMM_TV);
+    expect(sources.studio).toBe(Website.DMM_TV);
+  });
+
   it("respects maxActors limit", () => {
     const aggregator = new FieldAggregator({}, { maxActors: 2 });
     const results = new Map<Website, CrawlerData>([
