@@ -143,6 +143,22 @@ describe("Batch2 crawlers", () => {
       },
     },
     {
+      name: "parses fc2 and strips single dash-delimited watermark fragments",
+      number: "FC2-3103702",
+      site: Website.FC2,
+      fixtures: new Map<string, unknown>([
+        [
+          "https://adult.contents.fc2.com/article/3103702/",
+          `<div data-section="userInfo"><h3>【期間限定数量販売】 -sznzpjo- 【復刻版】【無】期間限定！大人気！現○女子○超スレンダー美！</h3></div><ul class="items_article_SampleImagesArea"><li><a href="https://img.example.com/fc2f.jpg"></a></li></ul><div class="items_article_MainitemThumb"><img src="https://img.example.com/fc2fs.jpg" /></div><p class="card-text"><a href="/tag/a">TagFC2</a></p><div class="col-8">Seller FC2</div>`,
+        ],
+      ]),
+      createCrawler: (fixtures) => new Fc2Crawler(withGateway(new FixtureNetworkClient(fixtures))),
+      verify: (data) => {
+        expect(data.number).toBe("FC2-3103702");
+        expect(data.title).toBe("【期間限定数量販売】 【復刻版】【無】期間限定！大人気！現○女子○超スレンダー美！");
+      },
+    },
+    {
       name: "parses fc2 and strips current star-delimited watermark fragments",
       number: "FC2-4428347",
       site: Website.FC2,

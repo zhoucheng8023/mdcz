@@ -9,7 +9,11 @@ import type { CrawlerRegistration } from "../registration";
 import { BaseFc2Crawler } from "./BaseFc2Crawler";
 import { parseClockDurationToSeconds, toAbsoluteUrl, uniqueStrings } from "./helpers";
 
-const FC2_WATERMARK_PATTERNS = [/\s*\*{2,}[a-z]+(?:\*+[a-z]+)+\*{0,}\s*/g, /\s*-[a-z]+(?:-[a-z]+)+\s*/g];
+const FC2_WATERMARK_PATTERNS = [
+  /\s*\*{2,}[a-z]+(?:\*+[a-z]+)+\*{0,}\s*/g,
+  /\s*-[a-z]+(?:-[a-z]+)+\s*/g,
+  /\s*-[a-z]{5,16}-\s*/g,
+];
 const LATIN_OR_DIGIT_PATTERN = /[A-Za-z0-9]/u;
 const FC2_NOT_FOUND_MARKERS = [
   "お探しの商品が見つかりません",

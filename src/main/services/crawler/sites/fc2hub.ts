@@ -209,8 +209,11 @@ const extractSellerName = ($: CheerioAPI): string | undefined => {
     .find((element) => normalizeText(element.text()).includes("売り手情報"))
     ?.closest("div.card");
 
-  const seller = sellerCard?.find("div.col-8").first().text();
-  const normalized = normalizeText(seller);
+  const sellerColumn = sellerCard?.find("div.col-8").first();
+  const sellerName = sellerColumn?.clone();
+  sellerName?.find(".badge").remove();
+
+  const normalized = normalizeText(sellerName?.text());
   return normalized || undefined;
 };
 

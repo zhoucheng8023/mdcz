@@ -76,7 +76,11 @@ describe("Fc2HubCrawler", () => {
             <div class="card-header">売り手情報</div>
             <div class="card-body">
               <div class="row">
-                <div class="col-8">DIVA&#039;s Entertainment</div>
+                <div class="col-8">
+                  DIVA&#039;s Entertainment
+                  <br>
+                  <span class="badge badge-success"><i class="fas fa-bell"></i> 139</span>
+                </div>
               </div>
             </div>
           </div>

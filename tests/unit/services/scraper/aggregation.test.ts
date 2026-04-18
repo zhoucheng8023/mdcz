@@ -524,6 +524,57 @@ describe("AggregationService", () => {
     expect(result?.sources.rating).toBe(Website.FC2HUB);
   });
 
+  it("keeps official FC2 seller metadata ahead of FC2HUB seller fallback", async () => {
+    const siteResults = new Map<Website, CrawlerData>([
+      [
+        Website.FC2,
+        makeCrawlerData({
+          title: "Official FC2 Title",
+          number: "FC2-2896877",
+          actors: [],
+          thumb_url: "https://fc2.example/thumb.jpg",
+          studio: "趣味はめ",
+          publisher: "趣味はめ",
+          website: Website.FC2,
+        }),
+      ],
+      [
+        Website.FC2HUB,
+        makeCrawlerData({
+          title: "FC2HUB Title",
+          number: "FC2-2896877",
+          actors: [],
+          thumb_url: "https://fc2hub.example/thumb.jpg",
+          studio: "アビス",
+          publisher: "アビス",
+          website: Website.FC2HUB,
+        }),
+      ],
+    ]);
+
+    const config = configurationSchema.parse({
+      ...defaultConfiguration,
+      scrape: {
+        ...defaultConfiguration.scrape,
+        sites: [Website.FC2, Website.FC2HUB],
+        siteOrder: [Website.FC2, Website.FC2HUB],
+      },
+    });
+
+    const result = await new AggregationService(new MultiResultCrawlerProvider(siteResults)).aggregate(
+      "FC2-2896877",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.data.title).toBe("FC2HUB Title");
+    expect(result?.data.studio).toBe("趣味はめ");
+    expect(result?.data.publisher).toBe("趣味はめ");
+    expect(result?.sources.title).toBe(Website.FC2HUB);
+    expect(result?.sources.studio).toBe(Website.FC2);
+    expect(result?.sources.publisher).toBe(Website.FC2);
+  });
+
   it("keeps DMM family identity fields aligned with the title-winning source", async () => {
     const siteResults = new Map<Website, CrawlerData>([
       [
