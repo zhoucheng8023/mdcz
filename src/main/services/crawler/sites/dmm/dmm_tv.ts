@@ -1,4 +1,5 @@
 import { toErrorMessage } from "@main/utils/common";
+import { uniqueStrings } from "@main/utils/strings";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { type CheerioAPI, load } from "cheerio";
@@ -6,7 +7,7 @@ import { type CheerioAPI, load } from "cheerio";
 import type { Context, CrawlerInput, SearchPageResolution } from "../../base/types";
 import type { FetchOptions } from "../../FetchGateway";
 import type { CrawlerRegistration } from "../../registration";
-import { toAbsoluteUrl, uniqueStrings } from "../helpers";
+import { toAbsoluteUrl } from "../helpers";
 import { BaseDmmCrawler } from "./BaseDmmCrawler";
 import { normalizeContentIds } from "./contentId";
 import { parseDigitalDetail } from "./parsers";

@@ -1,8 +1,8 @@
+import { uniqueStrings } from "@main/utils/strings";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
 
 import { extractAttr, extractList, extractText, parseDate } from "../../base/parser";
-import { uniqueStrings } from "../helpers";
 import { readFirstJsonLdRecord } from "../jsonLd";
 
 export enum DmmCategory {

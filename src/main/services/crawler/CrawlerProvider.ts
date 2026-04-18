@@ -1,6 +1,6 @@
 import { type CooldownFailurePolicy, PersistentCooldownStore } from "@main/services/cooldown/PersistentCooldownStore";
 import { loggerService } from "@main/services/LoggerService";
-import type { BrowserChallengeResolver, SiteRequestConfigRegistrar } from "@main/services/network";
+import type { SiteRequestConfigRegistrar } from "@main/services/network";
 import { toErrorMessage } from "@main/utils/common";
 import { Website } from "@shared/enums";
 
@@ -10,7 +10,6 @@ import { getCrawlerConstructor, listRegisteredCrawlerRequestConfigs, listRegiste
 
 export interface CrawlerProviderOptions {
   fetchGateway: FetchGateway;
-  browserChallengeResolver?: BrowserChallengeResolver;
   siteCooldownStore?: PersistentCooldownStore;
   siteRequestConfigRegistrar?: SiteRequestConfigRegistrar;
 }
@@ -21,13 +20,7 @@ const TRANSIENT_SITE_FAILURE_POLICY: CooldownFailurePolicy = {
   windowMs: SITE_COOLDOWN_MS,
   cooldownMs: SITE_COOLDOWN_MS,
 };
-const DETERMINISTIC_FAILURE_PATTERNS = [
-  /http 403\b/iu,
-  /\bforbidden\b/iu,
-  /region blocked/iu,
-  /login wall/iu,
-  /cloudflare challenge/iu,
-];
+const DETERMINISTIC_FAILURE_PATTERNS = [/http 403\b/iu, /\bforbidden\b/iu, /region blocked/iu, /login wall/iu];
 const TRANSIENT_FAILURE_PATTERNS = [
   /timeout/iu,
   /timed out/iu,
@@ -56,7 +49,6 @@ export class CrawlerProvider {
   constructor(options: CrawlerProviderOptions) {
     this.dependencies = {
       gateway: options.fetchGateway,
-      browserChallengeResolver: options.browserChallengeResolver,
     };
     this.siteCooldownStore =
       options.siteCooldownStore ??
@@ -170,15 +162,17 @@ export class CrawlerProvider {
   }
 
   private classifyCooldownFailure(failureReason: string, errorMessage?: string): CooldownFailureKind {
+    const message = errorMessage ?? "";
+
     if (
       failureReason === "region_blocked" ||
       failureReason === "login_wall" ||
-      DETERMINISTIC_FAILURE_PATTERNS.some((pattern) => pattern.test(errorMessage ?? ""))
+      DETERMINISTIC_FAILURE_PATTERNS.some((pattern) => pattern.test(message))
     ) {
       return "deterministic";
     }
 
-    if (failureReason === "timeout" || TRANSIENT_FAILURE_PATTERNS.some((pattern) => pattern.test(errorMessage ?? ""))) {
+    if (failureReason === "timeout" || TRANSIENT_FAILURE_PATTERNS.some((pattern) => pattern.test(message))) {
       return "transient";
     }
 

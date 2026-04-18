@@ -1,4 +1,5 @@
 import { normalizeText } from "@main/utils/normalization";
+import { uniqueStrings } from "@main/utils/strings";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
@@ -7,7 +8,7 @@ import { parseDate } from "../base/parser";
 import type { Context, SearchPageResolution } from "../base/types";
 import type { CrawlerRegistration } from "../registration";
 import { BaseFc2Crawler } from "./BaseFc2Crawler";
-import { parseClockDurationToSeconds, toAbsoluteUrl, uniqueStrings } from "./helpers";
+import { parseClockDurationToSeconds, toAbsoluteUrl } from "./helpers";
 
 const FC2_WATERMARK_PATTERNS = [
   /\s*\*{2,}[a-z]+(?:\*+[a-z]+)+\*{0,}\s*/g,

@@ -1,38 +1,8 @@
 import { Fc2HubCrawler } from "@main/services/crawler/sites/fc2hub";
-import { type BrowserChallengeResolver, NetworkClient } from "@main/services/network";
 import { Website } from "@shared/enums";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { FixtureNetworkClient, withGateway } from "./fixtures";
-
-type GetTextInit = Parameters<NetworkClient["getText"]>[1];
-
-class CloudflareFixtureNetworkClient extends NetworkClient {
-  readonly requests: Array<{ url: string; headers: Headers }> = [];
-
-  constructor(
-    private readonly fixtures: Map<string, string>,
-    private readonly challengeUrl: string,
-  ) {
-    super({});
-  }
-
-  override async getText(url: string, init: GetTextInit = {}): Promise<string> {
-    const headers = new Headers(init.headers);
-    this.requests.push({ url, headers });
-
-    if (url === this.challengeUrl && !headers.get("cookie")?.includes("cf_clearance=resolved")) {
-      return "<html><body>Access denied by Cloudflare</body></html>";
-    }
-
-    const fixture = this.fixtures.get(url) ?? this.fixtures.get(url.split("?", 1)[0] ?? url);
-    if (!fixture) {
-      throw new Error(`Missing fixture for ${url}`);
-    }
-
-    return fixture;
-  }
-}
 
 describe("Fc2HubCrawler", () => {
   it("parses a direct-hit detail page from canonical metadata", async () => {
@@ -257,87 +227,5 @@ describe("Fc2HubCrawler", () => {
 
     expect(response.result.data.number).toBe("FC2-4327962");
     expect(response.result.data.title).toBe("White Peach/白咲ももな");
-  });
-
-  it("resolves Cloudflare challenge pages through the shared BaseCrawler retry path", async () => {
-    const searchUrl = "https://javten.com/search?kw=4327962";
-    const detailUrl = "https://javten.com/video/1822734/id4327962/white-peach";
-    const abortController = new AbortController();
-    const networkClient = new CloudflareFixtureNetworkClient(
-      new Map<string, string>([
-        [
-          searchUrl,
-          `
-            <html><body>
-              <a href="/video/1822734/id4327962/white-peach">FC2-PPV-4327962</a>
-            </body></html>
-          `,
-        ],
-        [
-          detailUrl,
-          `
-            <html><body>
-              <script type="application/ld+json">
-                {
-                  "@context": "https://schema.org",
-                  "@type": "Movie",
-                  "name": "White Peach/白咲ももな",
-                  "identifier": ["4327962"],
-                  "datePublished": "2024/03/01"
-                }
-              </script>
-              <h1 class="card-text fc2-title">White Peach/白咲ももな</h1>
-            </body></html>
-          `,
-        ],
-      ]),
-      searchUrl,
-    );
-    const browserChallengeResolver: BrowserChallengeResolver = {
-      resolve: vi.fn(async (request) => {
-        expect(request).toMatchObject({
-          url: searchUrl,
-          expectedCookieNames: ["cf_clearance"],
-          timeoutMs: 15_000,
-          interactive: true,
-        });
-        expect(request.signal).toBe(abortController.signal);
-
-        return {
-          cookies: [{ name: "cf_clearance", value: "resolved", domain: "javten.com", path: "/" }],
-          headers: {
-            "accept-language": "ja,en-US;q=0.9,en;q=0.8",
-            "user-agent": "Mozilla/5.0 Browser Challenge",
-          },
-        };
-      }),
-    };
-    const crawler = new Fc2HubCrawler({
-      ...withGateway(networkClient),
-      browserChallengeResolver,
-    });
-
-    const response = await crawler.crawl({
-      number: "FC2-4327962",
-      site: Website.FC2HUB,
-      options: {
-        cloudflareChallenge: {
-          interactiveFallback: true,
-          timeoutMs: 15_000,
-        },
-        signal: abortController.signal,
-      },
-    });
-
-    expect(response.result.success).toBe(true);
-    expect(browserChallengeResolver.resolve).toHaveBeenCalledTimes(1);
-
-    const retriedSearchRequest = networkClient.requests.filter((request) => request.url === searchUrl)[1];
-    expect(retriedSearchRequest?.headers.get("cookie")).toContain("cf_clearance=resolved");
-    expect(retriedSearchRequest?.headers.get("user-agent")).toBe("Mozilla/5.0 Browser Challenge");
-
-    const detailRequest = networkClient.requests.find((request) => request.url === detailUrl);
-    expect(detailRequest?.headers.get("cookie")).toContain("cf_clearance=resolved");
-    expect(detailRequest?.headers.get("accept-language")).toBe("ja,en-US;q=0.9,en;q=0.8");
   });
 });

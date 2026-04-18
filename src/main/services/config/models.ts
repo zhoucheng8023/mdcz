@@ -25,12 +25,6 @@ const PART_STYLE_OPTIONS = ["RAW", "CD", "PART", "DISC"] as const;
 const NFO_NAMING_OPTIONS = ["both", "movie", "filename"] as const;
 const OPTIONAL_GROUP_WITH_PATH_SEPARATOR = /\[[^[\]]*[\\/][^[\]]*\]/u;
 
-const cloudflareChallengeSchema = z.object({
-  enabled: z.boolean().default(false),
-  interactiveFallback: z.boolean().default(true),
-  timeout: z.number().int().min(5).max(180).default(60),
-});
-
 const networkSchema = z.object({
   proxyType: z.enum(ProxyType).default(ProxyType.NONE),
   proxy: z.string().default(""),
@@ -39,7 +33,6 @@ const networkSchema = z.object({
   retryCount: z.number().int().min(0).max(10).default(3),
   javdbCookie: z.string().default(""),
   javbusCookie: z.string().default(""),
-  cloudflareChallenge: cloudflareChallengeSchema.default(() => cloudflareChallengeSchema.parse({})),
 });
 
 const siteConfigSchema = z.object({

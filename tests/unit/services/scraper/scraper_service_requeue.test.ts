@@ -39,6 +39,7 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 1000): Promise<void
 };
 
 const waitForIdle = async (service: ScraperService): Promise<void> => {
+  await service.waitForIdle();
   await waitFor(() => !service.getStatus().running, 2000);
 };
 

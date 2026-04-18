@@ -135,9 +135,6 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "network.retryCount", label: "重试次数", section: "network" },
   { key: "network.javdbCookie", label: "JavDB 凭证", section: "network" },
   { key: "network.javbusCookie", label: "JavBus 凭证", section: "network" },
-  { key: "network.cloudflareChallenge.enabled", label: "Cloudflare 验证辅助", section: "network" },
-  { key: "network.cloudflareChallenge.interactiveFallback", label: "显示 Cloudflare 验证窗口", section: "network" },
-  { key: "network.cloudflareChallenge.timeout", label: "Cloudflare 验证超时", section: "network" },
   // download
   { key: "download.downloadThumb", label: "下载横版缩略图", section: "download" },
   { key: "download.downloadPoster", label: "下载海报", section: "download" },
@@ -361,9 +358,6 @@ function ScrapeSection({ siteOptions }: SectionRenderProps) {
 }
 
 function NetworkSection(_props: SectionRenderProps) {
-  const form = useFormContext<FieldValues>();
-  const cloudflareChallengeEnabled = Boolean(form.watch("network.cloudflareChallenge.enabled"));
-
   return (
     <>
       <EnumField name="network.proxyType" label="代理类型" options={PROXY_TYPE_OPTIONS} />
@@ -373,21 +367,6 @@ function NetworkSection(_props: SectionRenderProps) {
       <NumberField name="network.retryCount" label="重试次数" min={0} max={10} />
       <CookieFieldWrapper name="network.javdbCookie" label="JavDB 凭证" />
       <CookieFieldWrapper name="network.javbusCookie" label="JavBus 凭证" />
-      <BoolField
-        name="network.cloudflareChallenge.enabled"
-        label="启用 Cloudflare 验证辅助"
-        description="遇到 Cloudflare 拦截时，使用独立浏览器会话获取验证 Cookie 与稳定请求头；默认关闭。"
-      />
-      {cloudflareChallengeEnabled && (
-        <>
-          <BoolField
-            name="network.cloudflareChallenge.interactiveFallback"
-            label="显示 Cloudflare 验证窗口"
-            description="允许在需要人工验证时显示浏览器窗口。关闭后只尝试后台浏览器会话。"
-          />
-          <NumberField name="network.cloudflareChallenge.timeout" label="Cloudflare 验证超时(秒)" min={5} max={180} />
-        </>
-      )}
     </>
   );
 }

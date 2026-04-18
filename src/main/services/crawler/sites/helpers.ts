@@ -1,4 +1,5 @@
 import { normalizeCode, normalizeText } from "@main/utils/normalization";
+import { uniqueStrings } from "@main/utils/strings";
 import type { CheerioAPI } from "cheerio";
 
 import { extractList, extractText } from "../base/parser";
@@ -189,16 +190,4 @@ export const normalizeCsv = (value: string | undefined): string[] => {
         .filter((item) => item.length > 0),
     ),
   );
-};
-
-/**
- * 去重字符串数组。对每个元素 trim，过滤空字符串，然后 Set 去重。
- * 接受 string | undefined 元素（兼容 dmm/parsers.ts normalizeList 签名）。
- *
- * 行为决策：统一丢弃空字符串。原 airav.ts 的 unique() 理论上保留空字符串，
- * 但其调用处传入的数组均已预过滤，不存在空字符串元素，因此无行为差异。
- */
-export const uniqueStrings = (values: Array<string | undefined>): string[] => {
-  const cleaned = values.map((v) => v?.trim() ?? "").filter((v) => v.length > 0);
-  return Array.from(new Set(cleaned));
 };

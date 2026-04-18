@@ -1,11 +1,8 @@
 import { loggerService } from "@main/services/LoggerService";
-import type { BrowserChallengeResolver } from "@main/services/network";
 import { toErrorMessage } from "@main/utils/common";
 import type { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { type CheerioAPI, load } from "cheerio";
-import { CloudflareChallengeSupport } from "../challenge/CloudflareChallengeSupport";
-import { supportsCloudflareChallengeSite } from "../challenge/supportedSites";
 import type { FetchGateway, FetchOptions } from "../FetchGateway";
 
 import type {
@@ -38,10 +35,6 @@ const toFailureReason = (message: string): FailureReason => {
     return "login_wall";
   }
 
-  if (lowered.includes("cloudflare challenge")) {
-    return "region_blocked";
-  }
-
   if (
     lowered.includes("timeout") ||
     lowered.includes("timed out") ||
@@ -67,13 +60,8 @@ export abstract class BaseCrawler implements SiteAdapter {
 
   protected readonly gateway: FetchGateway;
 
-  private readonly browserChallengeResolver?: BrowserChallengeResolver;
-
-  private cloudflareChallengeSupport: CloudflareChallengeSupport | null = null;
-
   constructor(dependencies: AdapterDependencies) {
     this.gateway = dependencies.gateway;
-    this.browserChallengeResolver = dependencies.browserChallengeResolver;
   }
 
   abstract site(): Website;
@@ -119,10 +107,6 @@ export abstract class BaseCrawler implements SiteAdapter {
     _detailUrl: string,
   ): string | null {
     return null;
-  }
-
-  protected supportsCloudflareChallenge(_context: Context): boolean {
-    return supportsCloudflareChallengeSite(this.site());
   }
 
   protected reuseSearchDocument(detailUrl: string): SearchPageResolution {
@@ -211,17 +195,7 @@ export abstract class BaseCrawler implements SiteAdapter {
   }
 
   protected async fetch(url: string, context: Context): Promise<string> {
-    if (!this.shouldUseCloudflareChallenge(context)) {
-      return this.gateway.fetchHtml(url, this.createFetchOptions(context));
-    }
-
-    const cloudflareChallenge = this.getCloudflareChallengeSupport();
-    return cloudflareChallenge.withHtmlRetry({
-      input: context,
-      url,
-      operation: () =>
-        this.gateway.fetchHtml(url, cloudflareChallenge.createFetchOptions(this.createFetchOptions(context))),
-    });
+    return this.gateway.fetchHtml(url, this.createFetchOptions(context));
   }
 
   protected buildHeaders(context: Context): Record<string, string> {
@@ -249,22 +223,6 @@ export abstract class BaseCrawler implements SiteAdapter {
       signal: context.options.signal,
       cookies: context.options.cookies,
     };
-  }
-
-  private shouldUseCloudflareChallenge(context: Context): boolean {
-    return Boolean(
-      context.options.cloudflareChallenge && this.browserChallengeResolver && this.supportsCloudflareChallenge(context),
-    );
-  }
-
-  private getCloudflareChallengeSupport(): CloudflareChallengeSupport {
-    if (!this.cloudflareChallengeSupport) {
-      this.cloudflareChallengeSupport = new CloudflareChallengeSupport({
-        resolver: this.browserChallengeResolver,
-      });
-    }
-
-    return this.cloudflareChallengeSupport;
   }
 
   private normalizeCrawlerData(context: Context, data: CrawlerData): CrawlerData {

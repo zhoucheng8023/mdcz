@@ -1,4 +1,5 @@
 import { normalizeCode, normalizeText } from "@main/utils/normalization";
+import { uniqueStrings } from "@main/utils/strings";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
@@ -7,7 +8,6 @@ import { BaseCrawler } from "../base/BaseCrawler";
 import { parseDate } from "../base/parser";
 import type { Context } from "../base/types";
 import type { CrawlerRegistration } from "../registration";
-import { uniqueStrings } from "./helpers";
 
 const AVBASE_BASE_URL = "https://www.avbase.net";
 

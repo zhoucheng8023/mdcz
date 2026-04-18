@@ -1,22 +1,39 @@
 import { loggerService } from "@main/services/LoggerService";
 import type { SiteRequestConfig } from "@main/services/network";
 import { toErrorMessage } from "@main/utils/common";
+import { uniqueStrings } from "@main/utils/strings";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import { load } from "cheerio";
 import type { AdapterDependencies, CrawlerInput, CrawlerResponse, FailureReason, SiteAdapter } from "../base/types";
-import { CloudflareChallengeSupport } from "../challenge/CloudflareChallengeSupport";
 import type { FetchOptions } from "../FetchGateway";
 import type { CrawlerRegistration } from "../registration";
 
 const AVWIKIDB_BASE_URL = "https://avwikidb.com";
+const AVWIKIDB_ACCEPT_LANGUAGE = "ja,en-US;q=0.9,en;q=0.8";
 const AVWIKIDB_SITE_REQUEST_CONFIGS: readonly SiteRequestConfig[] = [
   {
     id: "avwikidb",
     matches: (url) => url.hostname === "avwikidb.com" || url.hostname.endsWith(".avwikidb.com"),
-    headers: {
-      accept: "application/json, text/plain, */*",
-      "accept-language": "ja,en-US;q=0.9,en;q=0.8",
+    headers: (url): Record<string, string> => {
+      const isNextDataRequest = url.pathname.startsWith("/_next/data/") && url.pathname.endsWith(".json");
+      return isNextDataRequest
+        ? {
+            accept: "application/json, text/plain, */*",
+            "accept-language": AVWIKIDB_ACCEPT_LANGUAGE,
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+          }
+        : {
+            accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "accept-language": AVWIKIDB_ACCEPT_LANGUAGE,
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "none",
+            "sec-fetch-user": "?1",
+            "upgrade-insecure-requests": "1",
+          };
     },
   },
 ];
@@ -36,19 +53,6 @@ const asString = (value: unknown): string | undefined => {
 };
 
 const first = (...values: Array<string | undefined>): string | undefined => values.find((value) => value);
-
-const uniqueStrings = (values: Array<string | undefined>): string[] => {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    if (!value || seen.has(value)) {
-      continue;
-    }
-    seen.add(value);
-    output.push(value);
-  }
-  return output;
-};
 
 const readRecord = (record: JsonRecord | undefined, key: string): JsonRecord | undefined => {
   const value = record?.[key];
@@ -244,7 +248,7 @@ const normalizeNumber = (value: string): string => value.trim().toUpperCase();
 const isNotFoundError = (message: string): boolean => /\bHTTP 404\b|Detail URL not found/iu.test(message);
 
 const classifyFailure = (message: string): FailureReason => {
-  if (/cloudflare challenge|region blocked|forbidden|HTTP 403/iu.test(message)) {
+  if (/region blocked|forbidden|HTTP 403/iu.test(message)) {
     return "region_blocked";
   }
   if (/timeout|timed out|abort/iu.test(message)) {
@@ -264,15 +268,10 @@ export class AvwikidbCrawler implements SiteAdapter {
 
   private readonly logger = loggerService.getLogger("AvwikidbCrawler");
   private readonly gateway: AdapterDependencies["gateway"];
-  private readonly cloudflareChallenge: CloudflareChallengeSupport;
   private buildId: string | null = null;
 
   constructor(dependencies: AdapterDependencies) {
     this.gateway = dependencies.gateway;
-    this.cloudflareChallenge = new CloudflareChallengeSupport({
-      resolver: dependencies.browserChallengeResolver,
-      challengeUrl: (input) => `${this.resolveBaseUrl(input)}/`,
-    });
   }
 
   site(): Website {
@@ -321,18 +320,13 @@ export class AvwikidbCrawler implements SiteAdapter {
   }
 
   private async fetchMetadata(input: CrawlerInput): Promise<CrawlerData | null> {
-    return this.cloudflareChallenge.withRetry({
-      input,
-      operation: () => this.fetchMetadataWithCurrentSession(input),
-      onResolved: () => {
-        this.buildId = null;
-      },
-    });
+    return this.fetchMetadataWithCurrentSession(input);
   }
 
   private async fetchMetadataWithCurrentSession(input: CrawlerInput): Promise<CrawlerData | null> {
     const number = normalizeNumber(input.number);
     const cachedBuildId = this.buildId;
+
     const direct = await this.fetchWorkData(number, input);
     if (direct) {
       return direct;
@@ -468,11 +462,11 @@ export class AvwikidbCrawler implements SiteAdapter {
   }
 
   private createFetchOptions(input: CrawlerInput): FetchOptions {
-    return this.cloudflareChallenge.createFetchOptions({
+    return {
       timeout: input.options?.timeoutMs,
       signal: input.options?.signal,
       cookies: input.options?.cookies,
-    });
+    };
   }
 
   private resolveBaseUrl(input: CrawlerInput): string {

@@ -1,4 +1,3 @@
-export * from "./BrowserChallengeResolver";
 export * from "./CookieResolver";
 export * from "./cookieUtils";
 export * from "./InMemoryCookieJar";

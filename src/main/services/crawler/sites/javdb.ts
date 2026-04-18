@@ -81,10 +81,6 @@ export class JavdbCrawler extends BaseCrawler {
 
   protected async parseSearchPage(context: Context, $: CheerioAPI, searchUrl: string): Promise<string | null> {
     const pageText = $.root().text();
-    if (pageText.includes("ray-id")) {
-      throw new Error("JavDB blocked by Cloudflare challenge");
-    }
-
     if (pageText.includes("banned your access")) {
       throw new Error("JavDB temporarily banned current IP");
     }

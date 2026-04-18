@@ -58,7 +58,6 @@ const ensureMainWindow = async (): Promise<void> => {
       windowService: currentWindowService,
       signalService,
       networkClient: sharedNetworkClient,
-      getProxyUrl: () => configManager.getComputed().proxyUrl,
     });
 
     registerIpcHandlers(container);

@@ -1,38 +1,8 @@
 import { JavdbCrawler } from "@main/services/crawler/sites/javdb";
-import { type BrowserChallengeResolver, NetworkClient } from "@main/services/network";
 import { Website } from "@shared/enums";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { FixtureNetworkClient, withGateway } from "./fixtures";
-
-type GetTextInit = Parameters<NetworkClient["getText"]>[1];
-
-class CloudflareFixtureNetworkClient extends NetworkClient {
-  readonly requests: Array<{ url: string; headers: Headers }> = [];
-
-  constructor(
-    private readonly fixtures: Map<string, string>,
-    private readonly challengeUrl: string,
-  ) {
-    super({});
-  }
-
-  override async getText(url: string, init: GetTextInit = {}): Promise<string> {
-    const headers = new Headers(init.headers);
-    this.requests.push({ url, headers });
-
-    if (url === this.challengeUrl && !headers.get("cookie")?.includes("cf_clearance=resolved")) {
-      return "<html><body>Cloudflare ray-id challenge</body></html>";
-    }
-
-    const fixture = this.fixtures.get(url) ?? this.fixtures.get(url.split("?", 1)[0] ?? url);
-    if (!fixture) {
-      throw new Error(`Missing fixture for ${url}`);
-    }
-
-    return fixture;
-  }
-}
 
 describe("JavdbCrawler", () => {
   it("parses detail pages and keeps only explicitly marked female actors", async () => {
@@ -231,82 +201,5 @@ describe("JavdbCrawler", () => {
       expect(response.result.success).toBe(true);
       assert(response as Awaited<ReturnType<JavdbCrawler["crawl"]>>);
     }
-  });
-
-  it("resolves Cloudflare challenge pages through the shared BaseCrawler retry path", async () => {
-    const searchUrl = "https://javdb.com/search?q=SSIS-243&locale=zh";
-    const detailUrl = "https://javdb.com/v/abcd1";
-    const abortController = new AbortController();
-    const networkClient = new CloudflareFixtureNetworkClient(
-      new Map<string, string>([
-        [
-          searchUrl,
-          `
-            <html><body>
-              <a class="box" href="/v/abcd1">
-                <div class="video-title"><strong>SSIS-243 Something</strong></div>
-                <div class="meta">meta text</div>
-              </a>
-            </body></html>
-          `,
-        ],
-        [
-          detailUrl,
-          `
-            <html><body>
-              <h2 class="title is-4"><strong class="current-title">The JavDB Title</strong></h2>
-              <a class="button is-white copy-to-clipboard" data-clipboard-text="SSIS-243">copy</a>
-            </body></html>
-          `,
-        ],
-      ]),
-      searchUrl,
-    );
-    const browserChallengeResolver: BrowserChallengeResolver = {
-      resolve: vi.fn(async (request) => {
-        expect(request).toMatchObject({
-          url: searchUrl,
-          expectedCookieNames: ["cf_clearance"],
-          timeoutMs: 10_000,
-          interactive: false,
-        });
-        expect(request.signal).toBe(abortController.signal);
-
-        return {
-          cookies: [{ name: "cf_clearance", value: "resolved", domain: "javdb.com", path: "/" }],
-          headers: {
-            "sec-ch-ua": '"Chromium";v="146"',
-            "user-agent": "Mozilla/5.0 Browser Challenge",
-          },
-        };
-      }),
-    };
-    const crawler = new JavdbCrawler({
-      ...withGateway(networkClient),
-      browserChallengeResolver,
-    });
-
-    const response = await crawler.crawl({
-      number: "SSIS-243",
-      site: Website.JAVDB,
-      options: {
-        cloudflareChallenge: {
-          interactiveFallback: false,
-          timeoutMs: 10_000,
-        },
-        signal: abortController.signal,
-      },
-    });
-
-    expect(response.result.success).toBe(true);
-    expect(browserChallengeResolver.resolve).toHaveBeenCalledTimes(1);
-
-    const retriedSearchRequest = networkClient.requests.filter((request) => request.url === searchUrl)[1];
-    expect(retriedSearchRequest?.headers.get("cookie")).toContain("cf_clearance=resolved");
-    expect(retriedSearchRequest?.headers.get("user-agent")).toBe("Mozilla/5.0 Browser Challenge");
-
-    const detailRequest = networkClient.requests.find((request) => request.url === detailUrl);
-    expect(detailRequest?.headers.get("cookie")).toContain("cf_clearance=resolved");
-    expect(detailRequest?.headers.get("sec-ch-ua")).toBe('"Chromium";v="146"');
   });
 });

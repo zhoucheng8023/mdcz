@@ -1,4 +1,5 @@
 import { normalizeText } from "@main/utils/normalization";
+import { uniqueStrings } from "@main/utils/strings";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
@@ -6,7 +7,7 @@ import { BaseCrawler } from "../base/BaseCrawler";
 import { parseDate } from "../base/parser";
 import type { Context, SearchPageResolution } from "../base/types";
 import type { CrawlerRegistration } from "../registration";
-import { toAbsoluteUrl, uniqueStrings } from "./helpers";
+import { toAbsoluteUrl } from "./helpers";
 
 const SOKMIL_BASE_URL = "https://www.sokmil.com";
 

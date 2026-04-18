@@ -56,16 +56,6 @@ describe("buildComputedConfiguration", () => {
     expect(computed.networkRetryCount).toBe(4);
   });
 
-  it("keeps Cloudflare challenge support disabled by default", () => {
-    const configuration = configurationSchema.parse({});
-
-    expect(configuration.network.cloudflareChallenge).toEqual({
-      enabled: false,
-      interactiveFallback: true,
-      timeout: 60,
-    });
-  });
-
   it("enforces shared-directory rules, overview sources, and Jellyfin userId", () => {
     const cases = [
       {

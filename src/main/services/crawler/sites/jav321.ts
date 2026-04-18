@@ -1,3 +1,4 @@
+import { uniqueStrings } from "@main/utils/strings";
 import { Website } from "@shared/enums";
 import type { CrawlerData } from "@shared/types";
 import type { CheerioAPI } from "cheerio";
@@ -6,7 +7,7 @@ import { BaseCrawler } from "../base/BaseCrawler";
 import { extractText, parseDate } from "../base/parser";
 import type { Context, CrawlerInput, SearchPageResolution } from "../base/types";
 import type { CrawlerRegistration } from "../registration";
-import { pickSearchResultDetailUrl, toAbsoluteUrl, uniqueStrings } from "./helpers";
+import { pickSearchResultDetailUrl, toAbsoluteUrl } from "./helpers";
 
 const JAV321_BASE_URL = "https://www.jav321.com";
 
