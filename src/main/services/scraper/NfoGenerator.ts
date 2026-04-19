@@ -84,9 +84,6 @@ const buildVideoNode = (videoMeta: VideoMeta | undefined): Record<string, unknow
   }
 
   const video: Record<string, unknown> = {};
-  if (videoMeta.codec) {
-    video.codec = videoMeta.codec;
-  }
   if (Number.isFinite(videoMeta.width)) {
     video.width = videoMeta.width;
   }

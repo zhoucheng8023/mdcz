@@ -74,7 +74,6 @@ describe("FileScraper subtitle sidecars", () => {
       durationSeconds: 120,
       width: 1920,
       height: 1080,
-      codec: "h264",
       bitrate: 1_000_000,
     });
     return createFileScraper({

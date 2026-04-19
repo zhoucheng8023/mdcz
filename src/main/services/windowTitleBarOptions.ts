@@ -10,12 +10,14 @@ export interface CustomTitleBarWindowOptions {
 }
 
 const TITLE_BAR_OVERLAY_HEIGHT = 36;
+// Colors mirror `--background` in index.css so native Win/Linux window controls
+// blend with the custom AppTitleBar surface above the main content sheet.
 const TITLE_BAR_OVERLAY_DARK = {
-  color: "#0f1419",
+  color: "#171e26",
   symbolColor: "#e2e2e2",
 } as const;
 const TITLE_BAR_OVERLAY_LIGHT = {
-  color: "#f9f9f9",
+  color: "#f4f4f5",
   symbolColor: "#1a1c1c",
 } as const;
 

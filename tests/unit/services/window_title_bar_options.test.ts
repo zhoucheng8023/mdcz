@@ -36,7 +36,7 @@ describe("window title bar options", () => {
     ).toEqual({
       titleBarStyle: "hidden",
       titleBarOverlay: {
-        color: "#0f1419",
+        color: "#171e26",
         symbolColor: "#e2e2e2",
         height: 36,
       },
@@ -51,7 +51,7 @@ describe("window title bar options", () => {
     ).toEqual({
       titleBarStyle: "hidden",
       titleBarOverlay: {
-        color: "#f9f9f9",
+        color: "#f4f4f5",
         symbolColor: "#1a1c1c",
         height: 36,
       },
@@ -77,12 +77,12 @@ describe("window title bar options", () => {
 
   it("builds dark and light overlay palettes", () => {
     expect(buildTitleBarOverlay(true)).toEqual({
-      color: "#0f1419",
+      color: "#171e26",
       symbolColor: "#e2e2e2",
       height: 36,
     });
     expect(buildTitleBarOverlay(false)).toEqual({
-      color: "#f9f9f9",
+      color: "#f4f4f5",
       symbolColor: "#1a1c1c",
       height: 36,
     });

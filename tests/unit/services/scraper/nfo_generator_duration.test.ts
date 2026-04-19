@@ -255,7 +255,6 @@ describe("NfoGenerator", () => {
           durationSeconds: 3600.9,
           width: 1920,
           height: 1080,
-          codec: "h264",
           bitrate: 8_000_000,
         },
       },
@@ -264,7 +263,6 @@ describe("NfoGenerator", () => {
     expect(xml).toContain("<fileinfo>");
     expect(xml).toContain("<streamdetails>");
     expect(xml).toContain("<video>");
-    expect(xml).toContain("<codec>h264</codec>");
     expect(xml).toContain("<width>1920</width>");
     expect(xml).toContain("<height>1080</height>");
     expect(xml).toContain("<durationinseconds>3600</durationinseconds>");

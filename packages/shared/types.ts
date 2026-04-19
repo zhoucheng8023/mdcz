@@ -23,7 +23,6 @@ export interface VideoMeta {
   durationSeconds: number;
   width: number;
   height: number;
-  codec?: string;
   bitrate?: number;
 }
 

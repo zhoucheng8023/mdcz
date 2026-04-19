@@ -72,7 +72,6 @@ describe("toDetailViewItemFromScrapeResult", () => {
         durationSeconds: 3661,
         width: 1920,
         height: 1080,
-        codec: "h264",
         bitrate: 12_500_000,
       },
       assets: {
@@ -96,18 +95,17 @@ describe("toDetailViewItemFromScrapeResult", () => {
       number: "ABC-123",
       path: "/library/ABC-123/ABC-123.mp4",
       title: "中文标题",
-      outline: "中文简介",
-      duration: "01:01:01",
+      plot: "中文简介",
+      durationSeconds: 3661,
       resolution: "1920x1080",
-      codec: "h264",
-      bitrate: "12.5 Mbps",
+      bitrate: 12_500_000,
       posterUrl: "/art/poster.jpg",
       thumbUrl: "/art/thumb.jpg",
       fanartUrl: "/art/fanart.jpg",
       sceneImages: ["/art/scene-1.jpg"],
       outputPath: "/output/ABC-123",
       nfoPath: "/output/ABC-123/ABC-123.nfo",
-      score: "4.6",
+      rating: 4.6,
     });
   });
 

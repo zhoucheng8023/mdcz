@@ -23,15 +23,6 @@ export const toNumber = (value: unknown): number => {
   return 0;
 };
 
-const toOptionalString = (value: unknown): string | undefined => {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : undefined;
-};
-
 const toPositiveNumber = (value: unknown): number | undefined => {
   const parsed = toNumber(value);
   return parsed > 0 ? parsed : undefined;
@@ -42,18 +33,12 @@ const toVideoMetadata = (result: MediaInfoResult): VideoMeta => {
   const generalTrack = tracks.find((track) => isTrackType(track, "General"));
   const videoTrack = tracks.find((track) => isTrackType(track, "Video"));
 
-  const codec =
-    toOptionalString(videoTrack?.Format) ??
-    toOptionalString(videoTrack?.CodecID_String) ??
-    toOptionalString(videoTrack?.CodecID);
-
   const bitrate = toPositiveNumber(videoTrack?.BitRate) ?? toPositiveNumber(generalTrack?.OverallBitRate);
 
   return {
     durationSeconds: toNumber(generalTrack?.Duration),
     width: Math.max(0, Math.round(toNumber(videoTrack?.Width))),
     height: Math.max(0, Math.round(toNumber(videoTrack?.Height))),
-    codec,
     bitrate,
   };
 };

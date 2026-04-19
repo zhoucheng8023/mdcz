@@ -11,7 +11,11 @@ import {
   XCircle,
 } from "lucide-react";
 import { useMemo } from "react";
-import { toDetailViewItemFromScrapeResult } from "@/components/detail/detailViewAdapters";
+import {
+  formatBitrate,
+  formatDuration,
+  toDetailViewItemFromScrapeResult,
+} from "@/components/detail/detailViewAdapters";
 import type { DetailViewItem } from "@/components/detail/types";
 import { useDetailViewController } from "@/components/detail/useDetailViewController";
 import ChangeDiffView from "@/components/maintenance/ChangeDiffView";
@@ -180,6 +184,10 @@ export function DetailPanel({
     );
   }
 
+  const durationLabel = formatDuration(item.durationSeconds);
+  const bitrateLabel = formatBitrate(item.bitrate);
+  const ratingLabel = typeof item.rating === "number" ? String(item.rating) : undefined;
+
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
@@ -246,14 +254,14 @@ export function DetailPanel({
                         {item.actors.join(", ")}
                       </Row>
                     )}
-                    {item.release && (
+                    {item.releaseDate && (
                       <Row label="发行" variant="metadata">
-                        {item.release}
+                        {item.releaseDate}
                       </Row>
                     )}
-                    {item.duration && (
+                    {durationLabel && (
                       <Row label="时长" variant="metadata">
-                        {item.duration}
+                        {durationLabel}
                       </Row>
                     )}
                     {item.resolution && (
@@ -261,14 +269,9 @@ export function DetailPanel({
                         {item.resolution}
                       </Row>
                     )}
-                    {item.codec && (
-                      <Row label="编码" variant="metadata">
-                        {item.codec}
-                      </Row>
-                    )}
-                    {item.bitrate && (
+                    {bitrateLabel && (
                       <Row label="码率" variant="metadata">
-                        {item.bitrate}
+                        {bitrateLabel}
                       </Row>
                     )}
                     {item.studio && (
@@ -286,24 +289,24 @@ export function DetailPanel({
                         {item.publisher}
                       </Row>
                     )}
-                    {item.score && (
+                    {ratingLabel && (
                       <Row label="评分" variant="metadata">
-                        {item.score}
+                        {ratingLabel}
                       </Row>
                     )}
-                    {item.directors && item.directors.length > 0 && (
+                    {item.director && (
                       <Row label="导演" variant="metadata">
-                        {item.directors.join(", ")}
+                        {item.director}
                       </Row>
                     )}
                   </div>
                 </div>
 
-                {item.tags && item.tags.length > 0 && (
+                {item.genres && item.genres.length > 0 && (
                   <div>
                     <div className="mb-2 text-xs text-muted-foreground">标签</div>
                     <div className="flex flex-wrap gap-1.5">
-                      {item.tags.map((tag) => (
+                      {item.genres.map((tag) => (
                         <Badge key={tag} variant="secondary" className="h-5 px-2 py-0.5 text-[10px]">
                           {tag}
                         </Badge>
@@ -339,11 +342,11 @@ export function DetailPanel({
 
                 <Separator />
 
-                {item.outline && (
+                {item.plot && (
                   <div>
                     <div className="mb-2 text-xs text-muted-foreground">内容简介</div>
                     <p className="wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                      {item.outline}
+                      {item.plot}
                     </p>
                   </div>
                 )}

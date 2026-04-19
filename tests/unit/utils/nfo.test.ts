@@ -104,7 +104,6 @@ describe("parseNfo", () => {
           durationSeconds: 5400,
           width: 1920,
           height: 1080,
-          codec: "h264",
           bitrate: 8_000_000,
         },
       },
