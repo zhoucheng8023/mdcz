@@ -1,5 +1,4 @@
 import { ipc } from "./ipc";
-import { ensureMediaPathConfigured } from "./mediaPath";
 import type { ConfigOutput, CreateSoftlinksBody, FileItem, ScrapeFileBody, UpdateConfigData } from "./types";
 
 type ThrowOption = {
@@ -14,13 +13,6 @@ export const getCurrentConfig = async (_options?: ThrowOption) => {
 export const updateConfig = async (options: UpdateConfigData & ThrowOption) => {
   const payload = (options.body ?? {}) as Record<string, unknown>;
   const data = await ipc.config.save(payload);
-  return { data };
-};
-
-export const startScrape = async (_options?: ThrowOption) => {
-  const currentConfig = (await ipc.config.get()) as ConfigOutput;
-  const mediaPath = await ensureMediaPathConfigured(currentConfig);
-  const data = await ipc.scraper.start("batch", [mediaPath]);
   return { data };
 };
 

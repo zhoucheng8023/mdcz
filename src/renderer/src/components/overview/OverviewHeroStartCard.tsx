@@ -1,9 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowRight, FolderCog, Image, Play } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useCurrentConfig } from "@/hooks/useCurrentConfig";
 import { useOutputSummary } from "@/hooks/useOverview";
 import { cn } from "@/lib/utils";
-import { formatBytes } from "./format";
+import { formatBytes } from "@/utils/format";
 
 interface OverviewHeroStartCardProps {
   className?: string;
@@ -11,10 +12,18 @@ interface OverviewHeroStartCardProps {
 
 export function OverviewHeroStartCard({ className }: OverviewHeroStartCardProps) {
   const navigate = useNavigate();
+  const configQ = useCurrentConfig();
   const summaryQ = useOutputSummary();
   const summary = summaryQ.data;
+  const loading = configQ.isLoading || summaryQ.isLoading;
+  const currentPaths = configQ.data?.paths;
+  const hasConfiguredOutput = Boolean(
+    currentPaths?.outputSummaryPath?.trim() ||
+      (currentPaths?.mediaPath?.trim() && currentPaths?.successOutputFolder?.trim()),
+  );
   const hasOutputRoot = Boolean(summary?.rootPath);
   const hasError = summaryQ.isError;
+  const canOpenWorkbench = loading || hasError || hasOutputRoot || hasConfiguredOutput;
 
   return (
     <section
@@ -39,7 +48,7 @@ export function OverviewHeroStartCard({ className }: OverviewHeroStartCardProps)
 
       <div className="relative z-10 mt-10 flex flex-col gap-7 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex gap-7">
-          {summaryQ.isLoading ? (
+          {loading ? (
             <>
               <MetricBlock label="Files" value="..." />
               <MetricBlock label="Size" value="..." />
@@ -54,6 +63,11 @@ export function OverviewHeroStartCard({ className }: OverviewHeroStartCardProps)
               <MetricBlock label="Files" value={summary?.fileCount ?? 0} />
               <MetricBlock label="Size" value={formatBytes(summary?.totalBytes ?? 0)} />
             </>
+          ) : hasConfiguredOutput ? (
+            <>
+              <MetricBlock label="Files" value={0} />
+              <MetricBlock label="Size" value="等待首次刮削" />
+            </>
           ) : (
             <>
               <MetricBlock label="Files" value="-" />
@@ -65,10 +79,10 @@ export function OverviewHeroStartCard({ className }: OverviewHeroStartCardProps)
         <Button
           type="button"
           className="h-14 rounded-quiet-capsule bg-primary-foreground px-8 font-bold text-primary hover:bg-primary-foreground/90 dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
-          onClick={() => navigate({ to: hasOutputRoot || hasError ? "/" : "/settings" })}
+          onClick={() => navigate({ to: canOpenWorkbench ? "/" : "/settings" })}
         >
-          {hasOutputRoot || hasError ? <Play className="h-4 w-4 fill-current" /> : <FolderCog className="h-4 w-4" />}
-          {hasOutputRoot || hasError ? "去工作台" : "去设置"}
+          {canOpenWorkbench ? <Play className="h-4 w-4 fill-current" /> : <FolderCog className="h-4 w-4" />}
+          {canOpenWorkbench ? "去工作台" : "去设置"}
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>

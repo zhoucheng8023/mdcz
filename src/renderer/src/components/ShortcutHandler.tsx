@@ -1,13 +1,18 @@
 import { toErrorMessage } from "@shared/error";
 import type { RendererShortcutAction } from "@shared/ipcEvents";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { deleteFile, deleteFileAndFolder, retryScrapeSelection, startBatchScrape, stopScrape } from "@/api/manual";
+import { deleteFile, deleteFileAndFolder, retryScrapeSelection, startSelectedScrape, stopScrape } from "@/api/manual";
 import { ipc } from "@/client/ipc";
+import type { ConfigOutput } from "@/client/types";
+import { CURRENT_CONFIG_QUERY_KEY } from "@/hooks/useCurrentConfig";
 import { buildScrapeResultGroupActionContext, findScrapeResultGroup } from "@/lib/scrapeResultGrouping";
+import { useMaintenanceExecutionStore } from "@/store/maintenanceExecutionStore";
 import { useScrapeStore } from "@/store/scrapeStore";
 import { useUIStore } from "@/store/uiStore";
+import { useWorkbenchSetupStore } from "@/store/workbenchSetupStore";
 import { playMediaPath } from "@/utils/playback";
 
 const WORKBENCH_ONLY_SHORTCUTS = new Set<RendererShortcutAction>([
@@ -34,6 +39,7 @@ const isEditingText = () => {
 export function ShortcutHandler() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const pathname = location.pathname;
 
   useEffect(() => {
@@ -103,16 +109,59 @@ export function ShortcutHandler() {
               return;
             }
 
-            scrapeState.clearResults();
-            uiState.setSelectedResultId(null);
-            scrapeState.updateProgress(0, 0);
-            scrapeState.setScraping(true);
             try {
-              const response = await startBatchScrape();
+              const maintenanceBusy = useMaintenanceExecutionStore.getState().executionStatus !== "idle";
+              if (maintenanceBusy) {
+                toast.warning("维护模式正在运行中，无法启动正常刮削。请先停止当前维护任务。");
+                return;
+              }
+
+              const workbenchSetupState = useWorkbenchSetupStore.getState();
+              if (workbenchSetupState.scanStatus === "scanning") {
+                toast.info("目录仍在扫描中，请稍候再试");
+                return;
+              }
+
+              if (workbenchSetupState.scanStatus === "error") {
+                toast.info("当前目录扫描失败，请先重新扫描");
+                return;
+              }
+
+              if (!workbenchSetupState.scanDir.trim()) {
+                toast.info("请先选择扫描目录");
+                return;
+              }
+
+              if (workbenchSetupState.selectedPaths.length === 0) {
+                toast.info("请先选择至少一个文件");
+                return;
+              }
+
+              const currentConfig = (await ipc.config.get()) as ConfigOutput;
+              await ipc.config.save({
+                paths: {
+                  ...currentConfig.paths,
+                  mediaPath: workbenchSetupState.scanDir,
+                  successOutputFolder: workbenchSetupState.targetDir || currentConfig.paths.successOutputFolder,
+                },
+              });
+
+              scrapeState.clearResults();
+              uiState.setSelectedResultId(null);
+              scrapeState.updateProgress(0, 0);
+              const response = await startSelectedScrape(workbenchSetupState.selectedPaths);
+              scrapeState.setScraping(true);
+              scrapeState.setScrapeStatus("running");
+              await queryClient.invalidateQueries({ queryKey: CURRENT_CONFIG_QUERY_KEY });
               toast.success(response.data.message);
             } catch (error) {
-              scrapeState.setScraping(false);
-              toast.error(`启动失败: ${toErrorMessage(error)}`);
+              const errorMessage = toErrorMessage(error);
+              if (errorMessage.includes("NO_FILES")) {
+                toast.info("当前目录中没有需要刮削的媒体文件");
+                return;
+              }
+
+              toast.error(`启动失败: ${errorMessage}`);
             }
             return;
           }
@@ -207,7 +256,7 @@ export function ShortcutHandler() {
     });
 
     return unsubscribe;
-  }, [navigate, pathname]);
+  }, [navigate, pathname, queryClient]);
 
   return null;
 }

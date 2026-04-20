@@ -93,4 +93,30 @@ describe("OutputLibraryScanner", () => {
       rootPath: null,
     });
   });
+
+  it("resolves an absolute success output folder without prefixing the media root", async () => {
+    const root = await createTempDir();
+    const mediaRoot = join(root, "media");
+    const absoluteOutputDir = join(root, "absolute-output");
+    await mkdir(absoluteOutputDir, { recursive: true });
+    await writeFile(join(absoluteOutputDir, "ABS-001.mp4"), Buffer.alloc(3));
+
+    const scanner = new OutputLibraryScanner({
+      configProvider: async () =>
+        createConfiguration({
+          mediaPath: mediaRoot,
+          successOutputFolder: absoluteOutputDir,
+          outputSummaryPath: "",
+        }),
+      now: () => 789,
+      logger: { warn: vi.fn() },
+    });
+
+    await expect(scanner.getSummary()).resolves.toEqual({
+      fileCount: 1,
+      totalBytes: 3,
+      scannedAt: 789,
+      rootPath: absoluteOutputDir,
+    });
+  });
 });

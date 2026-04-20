@@ -1,5 +1,5 @@
-import { realpath, stat } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { stat } from "node:fs/promises";
+import { extname } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
 import { type Configuration, configManager } from "@main/services/config";
@@ -13,7 +13,7 @@ import { loggerService } from "@main/services/LoggerService";
 import { OutputLibraryScanner } from "@main/services/library";
 import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
-import { didPromiseTimeout, mapWithConcurrency } from "@main/utils/async";
+import { didPromiseTimeout } from "@main/utils/async";
 import { toErrorMessage } from "@main/utils/common";
 import { DEFAULT_VIDEO_EXTENSIONS, listVideoFiles } from "@main/utils/file";
 import type { ScraperStatus } from "@shared/types";
@@ -26,8 +26,6 @@ import { isGeneratedSidecarVideo } from "./media";
 import { NfoGenerator } from "./NfoGenerator";
 import { ScrapeSession } from "./session/ScrapeSession";
 import { TranslateService } from "./TranslateService";
-
-export type ScraperMode = ScrapeExecutionMode;
 
 export interface StartScrapeResult {
   taskId: string;
@@ -51,8 +49,6 @@ export class ScraperServiceError extends Error {
 
 const DEFAULT_DOMAIN_RPS = 5;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
-const BATCH_PATH_RESOLUTION_CONCURRENCY = 16;
-
 const sleepWithAbort = (durationMs: number, signal?: AbortSignal): Promise<void> => {
   if (durationMs <= 0) {
     return Promise.resolve();
@@ -143,27 +139,6 @@ const uniquePaths = (paths: string[]): string[] => {
   return outputs;
 };
 
-const toComparablePath = (filePath: string): string =>
-  process.platform === "win32" ? filePath.toLowerCase() : filePath;
-
-const isPathWithinDirectory = (filePath: string, directoryPath: string): boolean =>
-  filePath === directoryPath || filePath.startsWith(`${directoryPath}${sep}`);
-
-const collectComparablePaths = async (filePath: string, includeRealPath: boolean): Promise<string[]> => {
-  const comparablePaths = new Set<string>([toComparablePath(resolve(filePath))]);
-  if (!includeRealPath) {
-    return [...comparablePaths];
-  }
-
-  try {
-    comparablePaths.add(toComparablePath(await realpath(filePath)));
-  } catch {
-    // Ignore missing/broken realpath targets and fall back to the resolved path.
-  }
-
-  return [...comparablePaths];
-};
-
 export class ScraperService {
   private readonly logger = loggerService.getLogger("ScraperService");
 
@@ -243,21 +218,20 @@ export class ScraperService {
     await this.session.discardRecoverableSession();
   }
 
-  async start(mode: ScraperMode, paths: string[]): Promise<StartScrapeResult> {
+  async startSingle(paths: string[]): Promise<StartScrapeResult> {
     if (this.session.getStatus().running) {
       throw new ScraperServiceError("ALREADY_RUNNING", "Scraper is already running");
     }
 
     const configuration = await configManager.getValidated();
-    const filePaths = await this.resolveFilePaths(mode, uniquePaths(paths), configuration);
+    const filePaths = await this.resolveSingleFilePaths(uniquePaths(paths));
 
     if (filePaths.length === 0) {
       throw new ScraperServiceError("NO_FILES", "No files selected");
     }
 
     this.configureRuntimeSettings(configuration);
-    const concurrency = mode === "single" ? 1 : Math.max(1, configuration.scrape.threadNumber);
-    return this.beginSession(filePaths, concurrency, configuration, mode);
+    return this.beginSession(filePaths, 1, configuration, "single");
   }
 
   async startSelectedFiles(paths: string[]): Promise<StartScrapeResult> {
@@ -272,9 +246,7 @@ export class ScraperService {
       throw new ScraperServiceError("NO_FILES", "No files selected");
     }
 
-    this.configureRuntimeSettings(configuration);
-    const concurrency = Math.max(1, configuration.scrape.threadNumber);
-    return this.beginSession(filePaths, concurrency, configuration, "batch");
+    return this.startBatchExecution(filePaths, configuration);
   }
 
   stop(): { pendingCount: number } {
@@ -369,10 +341,7 @@ export class ScraperService {
     }
 
     const configuration = await configManager.getValidated();
-
-    this.configureRuntimeSettings(configuration);
-    const concurrency = Math.max(1, configuration.scrape.threadNumber);
-    return this.beginSession(pending, concurrency, configuration, "batch");
+    return this.startBatchExecution(pending, configuration);
   }
 
   private async finish(taskId: string): Promise<void> {
@@ -392,29 +361,6 @@ export class ScraperService {
 
     this.signalService.setButtonStatus(true, false);
     this.logger.info(`Scrape task finished: ${taskId}`);
-  }
-
-  private async resolveFilePaths(mode: ScraperMode, paths: string[], configuration: Configuration): Promise<string[]> {
-    if (mode === "single") {
-      return await this.resolveSingleFilePaths(paths);
-    }
-
-    const includeRealPathComparisons = configuration.behavior.scrapeSoftlinkPath;
-    const excludePaths = await this.buildExcludedOutputPaths(paths, configuration, includeRealPathComparisons);
-    const candidatePaths = await this.collectBatchCandidateFiles(paths, configuration);
-    const filteredOutputPaths = await this.filterExcludedBatchFiles(
-      candidatePaths,
-      excludePaths,
-      includeRealPathComparisons,
-    );
-    const skippedCount = candidatePaths.length - filteredOutputPaths.length;
-    if (skippedCount > 0) {
-      this.logger.info(
-        `Skipped ${skippedCount} file(s) in output directories or generated sidecars from batch scrape queue`,
-      );
-    }
-
-    return filteredOutputPaths;
   }
 
   private async resolveSingleFilePaths(paths: string[]): Promise<string[]> {
@@ -477,102 +423,10 @@ export class ScraperService {
     return outputs;
   }
 
-  private async buildExcludedOutputPaths(
-    scanRoots: string[],
-    configuration: Configuration,
-    includeRealPathComparisons: boolean,
-  ): Promise<string[]> {
-    const successFolder = configuration.paths.successOutputFolder.trim();
-    const failedFolder = configuration.paths.failedOutputFolder.trim();
-    const mediaRoot = configuration.paths.mediaPath.trim();
-    const outputFolders = [successFolder, failedFolder].filter((outputFolder) => outputFolder.length > 0);
-
-    const outputDirectories = uniquePaths(
-      scanRoots.flatMap((dirPath) => {
-        const base = mediaRoot.length > 0 ? mediaRoot : dirPath;
-        return outputFolders.map((outputFolder) => resolve(base, outputFolder));
-      }),
-    );
-
-    const comparableScanRootGroups = await mapWithConcurrency(scanRoots, BATCH_PATH_RESOLUTION_CONCURRENCY, (dirPath) =>
-      collectComparablePaths(dirPath, includeRealPathComparisons),
-    );
-    const comparableScanRootPaths = new Set(comparableScanRootGroups.flat());
-    const distinctOutputDirectories = await mapWithConcurrency(
-      outputDirectories,
-      BATCH_PATH_RESOLUTION_CONCURRENCY,
-      async (dirPath) => {
-        const comparablePaths = await collectComparablePaths(dirPath, includeRealPathComparisons);
-        return comparablePaths.some((candidatePath) => comparableScanRootPaths.has(candidatePath)) ? null : dirPath;
-      },
-    );
-    const filteredOutputDirectories = distinctOutputDirectories.filter(
-      (dirPath): dirPath is string => typeof dirPath === "string",
-    );
-    const comparablePathGroups = await mapWithConcurrency(
-      filteredOutputDirectories,
-      BATCH_PATH_RESOLUTION_CONCURRENCY,
-      (dirPath) => collectComparablePaths(dirPath, includeRealPathComparisons),
-    );
-    return [...new Set(comparablePathGroups.flat())];
-  }
-
-  private async collectBatchCandidateFiles(paths: string[], configuration: Configuration): Promise<string[]> {
-    const outputs: string[] = [];
-
-    for (const dirPath of paths) {
-      try {
-        outputs.push(...(await listVideoFiles(dirPath, true)));
-      } catch (error) {
-        const message = toErrorMessage(error);
-        throw new ScraperServiceError("DIR_NOT_FOUND", message);
-      }
-    }
-
-    outputs.push(...(await this.collectSoftlinkFiles(configuration)));
-    return uniquePaths(outputs);
-  }
-
-  private async filterExcludedBatchFiles(
-    filePaths: string[],
-    excludeDirectoryPaths: readonly string[],
-    includeRealPathComparisons: boolean,
-  ): Promise<string[]> {
-    const filteredPaths = await mapWithConcurrency(filePaths, BATCH_PATH_RESOLUTION_CONCURRENCY, async (filePath) => {
-      if (isGeneratedSidecarVideo(filePath)) {
-        return null;
-      }
-
-      const comparablePaths = await collectComparablePaths(filePath, includeRealPathComparisons);
-      const isExcluded = comparablePaths.some((candidatePath) =>
-        excludeDirectoryPaths.some((excludePath) => isPathWithinDirectory(candidatePath, excludePath)),
-      );
-
-      return isExcluded ? null : filePath;
-    });
-
-    return filteredPaths.filter((filePath): filePath is string => typeof filePath === "string");
-  }
-
-  private async collectSoftlinkFiles(configuration: Configuration): Promise<string[]> {
-    if (!configuration.behavior.scrapeSoftlinkPath) {
-      return [];
-    }
-
-    const softlinkDir = configuration.paths.softlinkPath.trim();
-    if (!softlinkDir) {
-      return [];
-    }
-
-    try {
-      const softlinkFiles = await listVideoFiles(softlinkDir, true);
-      this.logger.info(`Scanned softlink path "${softlinkDir}": found ${softlinkFiles.length} files`);
-      return softlinkFiles;
-    } catch (error) {
-      const message = toErrorMessage(error);
-      this.logger.warn(`Failed to scan softlink path "${softlinkDir}": ${message}`);
-      return [];
-    }
+  private startBatchExecution(filePaths: string[], configuration: Configuration): StartScrapeResult {
+    this.configureRuntimeSettings(configuration);
+    const concurrency = Math.max(1, configuration.scrape.threadNumber);
+    return this.beginSession(filePaths, concurrency, configuration, "batch");
   }
 
   private createFileScraperDependencies() {
@@ -616,7 +470,7 @@ export class ScraperService {
     filePaths: string[],
     concurrency: number,
     configuration: Configuration,
-    mode: ScraperMode,
+    mode: ScrapeExecutionMode,
   ): StartScrapeResult {
     const taskId = this.session.begin(filePaths, concurrency);
     this.restGate = this.createRestGate(configuration);

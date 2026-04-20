@@ -130,7 +130,7 @@ describe("ScraperService requeue flow", () => {
       throw new Error(`Unexpected file path: ${filePath}`);
     });
 
-    await service.start("batch", [dirPath]);
+    await service.retryFiles([firstFilePath, secondFilePath]);
     await waitFor(() => service.getFailedFiles().includes(firstFilePath) && service.getStatus().running);
 
     await expect(service.requeue([firstFilePath])).resolves.toEqual({ requeuedCount: 1 });
@@ -297,7 +297,7 @@ describe("ScraperService requeue flow", () => {
       throw new Error(`Unexpected file path: ${filePath}`);
     });
 
-    await service.start("batch", [dirPath]);
+    await service.retryFiles([firstFilePath, secondFilePath, thirdFilePath, fourthFilePath]);
     await waitFor(
       () =>
         service.getFailedFiles().includes(firstFilePath) &&

@@ -1,15 +1,5 @@
-import type { CrawlerData } from "@shared/types";
+import type { CrawlerData, ScraperStatus } from "@shared/types";
 import { ipc } from "@/client/ipc";
-import { ensureMediaPathConfigured } from "@/client/mediaPath";
-import type { ConfigOutput } from "@/client/types";
-
-export interface ScrapeStatusResponse {
-  status: "idle" | "running" | "stopping" | "paused";
-  progress: number;
-  total: number;
-  current: number;
-  current_path?: string;
-}
 
 export interface NfoResponse {
   path: string;
@@ -24,7 +14,7 @@ export interface RequeueResponse {
 }
 
 export interface RetryScrapeSelectionOptions {
-  scrapeStatus: ScrapeStatusResponse["status"];
+  scrapeStatus: ScraperStatus["state"];
   canRequeueCurrentRun?: boolean;
 }
 
@@ -80,13 +70,6 @@ const shouldRetryWithAlternateNfo = (error: unknown): boolean => {
   return code === "ENOENT" || code === "ENOTDIR";
 };
 
-const toProgress = (completedFiles: number, totalFiles: number): number => {
-  if (totalFiles <= 0) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, (completedFiles / totalFiles) * 100));
-};
-
 const parseCrawlerData = (content: string): CrawlerData => {
   return JSON.parse(content) as CrawlerData;
 };
@@ -103,24 +86,6 @@ export const pauseScrape = async () => {
 
 export const resumeScrape = async () => {
   const data = await ipc.scraper.resume();
-  return { data };
-};
-
-export const getScrapeStatus = async () => {
-  const status = await ipc.scraper.getStatus();
-  const data: ScrapeStatusResponse = {
-    status: status.state,
-    progress: toProgress(status.completedFiles, status.totalFiles),
-    total: status.totalFiles,
-    current: status.completedFiles,
-  };
-  return { data };
-};
-
-export const startBatchScrape = async () => {
-  const currentConfig = (await ipc.config.get()) as ConfigOutput;
-  const mediaPath = await ensureMediaPathConfigured(currentConfig);
-  const data = await ipc.scraper.start("batch", [mediaPath]);
   return { data };
 };
 

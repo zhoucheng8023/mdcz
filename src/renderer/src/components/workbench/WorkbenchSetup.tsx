@@ -10,11 +10,17 @@ import { getMaintenancePresetMeta, MAINTENANCE_PRESET_OPTIONS } from "@/componen
 import { FloatingWorkbenchBar } from "@/components/shared/FloatingWorkbenchBar";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { resolveMediaCandidateExcludeDir, type WorkbenchSetupMode } from "@/components/workbench/mediaCandidateScan";
+import {
+  filterMediaCandidates,
+  mergeMediaCandidates,
+  resolveMediaCandidateScanPlan,
+  type WorkbenchSetupMode,
+} from "@/components/workbench/mediaCandidateScan";
 import { cn } from "@/lib/utils";
 import { useMaintenanceEntryStore } from "@/store/maintenanceEntryStore";
 import { changeMaintenancePreset } from "@/store/maintenanceSession";
 import { useWorkbenchSetupStore } from "@/store/workbenchSetupStore";
+import { formatBytes } from "@/utils/format";
 
 interface WorkbenchSetupProps {
   mode: WorkbenchSetupMode;
@@ -28,23 +34,6 @@ interface WorkbenchSetupProps {
     presetId: MaintenancePresetId,
   ) => Promise<void>;
 }
-
-const formatBytes = (value: number): string => {
-  if (!Number.isFinite(value) || value <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = value;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
-};
 
 const isAbsolutePath = (path: string): boolean => path.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(path);
 
@@ -133,7 +122,7 @@ function MediaRow({
           </div>
         </div>
         <div className={cn(MEDIA_ROW_META_CLASS, "font-bold uppercase")}>{candidate.extension}</div>
-        <div className={MEDIA_ROW_META_CLASS}>{formatBytes(candidate.size)}</div>
+        <div className={MEDIA_ROW_META_CLASS}>{formatBytes(candidate.size, { trimTrailingZeros: true })}</div>
       </label>
     </div>
   );
@@ -209,7 +198,7 @@ export default function WorkbenchSetup({
     startPending || scanning || scanStatus === "error" || candidates.length === 0 || selectedPaths.length === 0;
   const runSummary =
     candidates.length > 0
-      ? `${candidates.length} 个文件 · ${formatBytes(totalSize)} · ${extensionCount} 种类型 · ${
+      ? `${candidates.length} 个文件 · ${formatBytes(totalSize, { trimTrailingZeros: true })} · ${extensionCount} 种类型 · ${
           config?.translate?.enableTranslation ? "翻译已开启" : "翻译关闭"
         }`
       : "";
@@ -222,36 +211,48 @@ export default function WorkbenchSetup({
       }
 
       const targetDirForScan = nextTargetDir ?? targetDir;
-      const excludeDirPath = resolveMediaCandidateExcludeDir(mode, targetDirForScan);
+      const scanPlan = resolveMediaCandidateScanPlan(mode, trimmedDir, targetDirForScan, config);
 
       const requestId = scanRequestRef.current + 1;
       scanRequestRef.current = requestId;
-      beginScan(trimmedDir, excludeDirPath);
+      beginScan(trimmedDir, scanPlan.scanKey);
 
       try {
-        const result = await ipc.file.listMediaCandidates(trimmedDir, excludeDirPath);
+        const [primaryResult, ...extraResults] = await Promise.all([
+          ipc.file.listMediaCandidates(trimmedDir, scanPlan.excludeDirPath),
+          ...scanPlan.extraScanDirs.map((dirPath) => ipc.file.listMediaCandidates(dirPath)),
+        ]);
+        const candidates = mergeMediaCandidates(
+          filterMediaCandidates(primaryResult.candidates, scanPlan.filterDirPaths),
+          ...extraResults.map((result) => filterMediaCandidates(result.candidates, scanPlan.filterDirPaths)),
+        );
+        const supportedExtensions = [
+          ...new Set(
+            [primaryResult.supportedExtensions, ...extraResults.map((result) => result.supportedExtensions)].flat(),
+          ),
+        ];
         const liveState = useWorkbenchSetupStore.getState();
         if (
           scanRequestRef.current !== requestId ||
           liveState.scanDir !== trimmedDir ||
-          liveState.lastScannedExcludeDir !== (excludeDirPath ?? "")
+          liveState.lastScannedExcludeDir !== scanPlan.scanKey
         ) {
           return;
         }
-        applyScanResult(trimmedDir, excludeDirPath, result.candidates, result.supportedExtensions);
+        applyScanResult(trimmedDir, scanPlan.scanKey, candidates, supportedExtensions);
       } catch (error) {
         const liveState = useWorkbenchSetupStore.getState();
         if (
           scanRequestRef.current !== requestId ||
           liveState.scanDir !== trimmedDir ||
-          liveState.lastScannedExcludeDir !== (excludeDirPath ?? "")
+          liveState.lastScannedExcludeDir !== scanPlan.scanKey
         ) {
           return;
         }
-        failScan(trimmedDir, excludeDirPath, toErrorMessage(error));
+        failScan(trimmedDir, scanPlan.scanKey, toErrorMessage(error));
       }
     },
-    [applyScanResult, beginScan, failScan, mode, targetDir],
+    [applyScanResult, beginScan, config, failScan, mode, targetDir],
   );
 
   useEffect(() => {
@@ -271,14 +272,14 @@ export default function WorkbenchSetup({
   }, [config, scanDir, setScanDir, setTargetDir, targetDir]);
 
   useEffect(() => {
-    const expectedExcludeDir = resolveMediaCandidateExcludeDir(mode, targetDir) ?? "";
+    const expectedExcludeDir = resolveMediaCandidateScanPlan(mode, scanDir, targetDir, config).scanKey;
 
     if (!scanDir || (lastScannedDir === scanDir && lastScannedExcludeDir === expectedExcludeDir)) {
       return;
     }
 
     void runScan(scanDir, targetDir);
-  }, [lastScannedDir, lastScannedExcludeDir, mode, runScan, scanDir, targetDir]);
+  }, [config, lastScannedDir, lastScannedExcludeDir, mode, runScan, scanDir, targetDir]);
 
   const chooseDirectory = async (onChoose: (path: string) => void) => {
     const selection = await ipc.file.browse("directory");
@@ -491,7 +492,9 @@ export default function WorkbenchSetup({
           <div className="min-w-0 font-numeric text-sm font-extrabold tracking-tight">
             {selectedPaths.length} / {candidates.length} 个文件
             {selectedSize > 0 && (
-              <span className="ml-2 text-xs font-bold text-muted-foreground">{formatBytes(selectedSize)}</span>
+              <span className="ml-2 text-xs font-bold text-muted-foreground">
+                {formatBytes(selectedSize, { trimTrailingZeros: true })}
+              </span>
             )}
           </div>
           <Button

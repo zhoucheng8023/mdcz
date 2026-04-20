@@ -83,7 +83,7 @@ describe("ScraperService stop flow", () => {
     vi.spyOn(configManager, "get").mockResolvedValue(config);
     vi.spyOn(FileScraper.prototype, "scrapeFile").mockImplementation(() => runningTask.promise);
 
-    await service.start("single", [mediaFilePath]);
+    await service.startSingle([mediaFilePath]);
     const stopResult = service.stop();
 
     expect(stopResult.pendingCount).toBe(0);
@@ -180,7 +180,7 @@ describe("ScraperService stop flow", () => {
       },
     });
 
-    await service.start("single", [mediaFilePath]);
+    await service.startSingle([mediaFilePath]);
     await waitForIdle(service, signalService);
 
     expect(recentAcquisitionsStore.recordBatch).toHaveBeenCalledWith([
@@ -212,7 +212,7 @@ describe("ScraperService stop flow", () => {
     vi.spyOn(configManager, "get").mockResolvedValue(config);
     vi.spyOn(FileScraper.prototype, "scrapeFile").mockImplementation(() => runningTask.promise);
 
-    await service.start("single", [mediaFilePath]);
+    await service.startSingle([mediaFilePath]);
     expect(service.getStatus().state).toBe("running");
 
     service.pause();
@@ -342,7 +342,7 @@ describe("ScraperService stop flow", () => {
         }),
     );
 
-    await service.start("single", [mediaFilePath]);
+    await service.startSingle([mediaFilePath]);
     await service.shutdown({ timeoutMs: 500 });
 
     expect(service.getStatus().running).toBe(false);

@@ -1,4 +1,4 @@
-import { formatBytes } from "@renderer/components/overview/format";
+import { formatBytes } from "@renderer/utils/format";
 import { describe, expect, it } from "vitest";
 
 describe("overview format helpers", () => {
@@ -7,5 +7,10 @@ describe("overview format helpers", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(2 * 1024 * 1024)).toBe("2.0 MB");
+  });
+
+  it("supports compact and fixed precision variants", () => {
+    expect(formatBytes(10 * 1024, { trimTrailingZeros: true })).toBe("10 KB");
+    expect(formatBytes(1536, { fractionDigits: 2 })).toBe("1.50 KB");
   });
 });

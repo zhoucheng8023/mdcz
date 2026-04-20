@@ -65,8 +65,7 @@ export const ipc = {
     deleteProfile: (name: string) => client[IpcChannel.Config_DeleteProfile]({ name }),
   },
   scraper: {
-    start: (mode: "single" | "batch" | "selection", paths: string[]) =>
-      client[IpcChannel.Scraper_Start]({ mode, paths }),
+    start: (mode: "single" | "selection", paths: string[]) => client[IpcChannel.Scraper_Start]({ mode, paths }),
     stop: () => client[IpcChannel.Scraper_Stop](undefined),
     pause: () => client[IpcChannel.Scraper_Pause](undefined),
     resume: () => client[IpcChannel.Scraper_Resume](undefined),

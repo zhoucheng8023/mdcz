@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { resolve } from "node:path";
 import { type Configuration, configManager } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { toErrorMessage } from "@main/utils/common";
@@ -98,11 +98,7 @@ export class OutputLibraryScanner {
   }
 
   private async resolveRootPath(configuration: Configuration): Promise<string | null> {
-    const explicitPath = configuration.paths.outputSummaryPath.trim();
-    const rootPath =
-      explicitPath.length > 0
-        ? explicitPath
-        : this.resolveDefaultOutputPath(configuration.paths.mediaPath, configuration.paths.successOutputFolder);
+    const rootPath = this.resolveConfiguredRootPath(configuration);
     if (!rootPath) {
       return null;
     }
@@ -115,6 +111,13 @@ export class OutputLibraryScanner {
     }
   }
 
+  private resolveConfiguredRootPath(configuration: Configuration): string | null {
+    const explicitPath = configuration.paths.outputSummaryPath.trim();
+    return explicitPath.length > 0
+      ? explicitPath
+      : this.resolveDefaultOutputPath(configuration.paths.mediaPath, configuration.paths.successOutputFolder);
+  }
+
   private resolveDefaultOutputPath(mediaPath: string, successOutputFolder: string): string | null {
     const mediaRoot = mediaPath.trim();
     const successFolder = successOutputFolder.trim();
@@ -122,7 +125,7 @@ export class OutputLibraryScanner {
       return null;
     }
 
-    return join(mediaRoot, successFolder);
+    return resolve(mediaRoot, successFolder);
   }
 
   private async getFileSize(filePath: string): Promise<number> {

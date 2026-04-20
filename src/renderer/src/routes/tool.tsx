@@ -55,6 +55,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/contexts/ToastProvider";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/store/uiStore";
+import { formatBytes } from "@/utils/format";
 
 export const Route = createFileRoute("/tool")({
   component: ToolComponent,
@@ -154,18 +155,6 @@ function getDiagnosticHeadline(result: ConnectionCheckResult) {
 
 function getEmptyPersonLibraryMessage(serverName: "Jellyfin" | "Emby", targetLabel: "人物信息" | "人物头像") {
   return `${serverName} 人物库为空。已确认连接与权限状态正常，当前无法执行${targetLabel}同步。请先在 ${serverName} 中生成人物条目后重试。`;
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
-    index += 1;
-  }
-  return `${value.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
 }
 
 function formatSyncResult(label: string, result: PersonSyncResult) {
@@ -1675,7 +1664,9 @@ function ToolComponent() {
                               <td className="px-4 py-3 font-mono truncate max-w-md" title={item.path}>
                                 {item.path}
                               </td>
-                              <td className="px-4 py-3 text-muted-foreground">{formatBytes(item.size)}</td>
+                              <td className="px-4 py-3 text-muted-foreground">
+                                {formatBytes(item.size, { fractionDigits: 2 })}
+                              </td>
                               <td className="px-4 py-3 text-muted-foreground text-[10px]">
                                 {item.lastModified ?? "-"}
                               </td>
@@ -1693,7 +1684,9 @@ function ToolComponent() {
                     <span className="font-bold">{cleanupCandidates.length}</span>
                     <span className="mx-2 opacity-30">|</span>
                     <span className="text-muted-foreground">总大小: </span>
-                    <span className="font-bold text-destructive">{formatBytes(cleanupTotalSize)}</span>
+                    <span className="font-bold text-destructive">
+                      {formatBytes(cleanupTotalSize, { fractionDigits: 2 })}
+                    </span>
                   </div>
                   <Button
                     variant="destructive"
@@ -2028,7 +2021,8 @@ function ToolComponent() {
             <DialogTitle>确认清理文件</DialogTitle>
             <DialogDescription>
               将永久删除 <span className="font-bold text-foreground">{cleanupCandidates.length}</span> 个文件 (约{" "}
-              <span className="font-bold text-destructive">{formatBytes(cleanupTotalSize)}</span>)。此操作无法撤销。
+              <span className="font-bold text-destructive">{formatBytes(cleanupTotalSize, { fractionDigits: 2 })}</span>
+              )。此操作无法撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
