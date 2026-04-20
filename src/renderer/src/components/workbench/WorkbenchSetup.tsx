@@ -10,12 +10,11 @@ import { getMaintenancePresetMeta, MAINTENANCE_PRESET_OPTIONS } from "@/componen
 import { FloatingWorkbenchBar } from "@/components/shared/FloatingWorkbenchBar";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { resolveMediaCandidateExcludeDir, type WorkbenchSetupMode } from "@/components/workbench/mediaCandidateScan";
 import { cn } from "@/lib/utils";
 import { useMaintenanceEntryStore } from "@/store/maintenanceEntryStore";
 import { changeMaintenancePreset } from "@/store/maintenanceSession";
 import { useWorkbenchSetupStore } from "@/store/workbenchSetupStore";
-
-type WorkbenchSetupMode = "scrape" | "maintenance";
 
 interface WorkbenchSetupProps {
   mode: WorkbenchSetupMode;
@@ -155,6 +154,7 @@ export default function WorkbenchSetup({
     scanStatus,
     scanError,
     lastScannedDir,
+    lastScannedExcludeDir,
     supportedExtensions,
     setScanDir,
     setTargetDir,
@@ -172,6 +172,7 @@ export default function WorkbenchSetup({
       scanStatus: state.scanStatus,
       scanError: state.scanError,
       lastScannedDir: state.lastScannedDir,
+      lastScannedExcludeDir: state.lastScannedExcludeDir,
       supportedExtensions: state.supportedExtensions,
       setScanDir: state.setScanDir,
       setTargetDir: state.setTargetDir,
@@ -220,28 +221,37 @@ export default function WorkbenchSetup({
         return;
       }
 
-      const trimmedTargetDir = nextTargetDir?.trim() || undefined;
+      const targetDirForScan = nextTargetDir ?? targetDir;
+      const excludeDirPath = resolveMediaCandidateExcludeDir(mode, targetDirForScan);
 
       const requestId = scanRequestRef.current + 1;
       scanRequestRef.current = requestId;
-      beginScan(trimmedDir);
+      beginScan(trimmedDir, excludeDirPath);
 
       try {
-        const result = await ipc.file.listMediaCandidates(trimmedDir, trimmedTargetDir);
-        const liveScanDir = useWorkbenchSetupStore.getState().scanDir;
-        if (scanRequestRef.current !== requestId || liveScanDir !== trimmedDir) {
+        const result = await ipc.file.listMediaCandidates(trimmedDir, excludeDirPath);
+        const liveState = useWorkbenchSetupStore.getState();
+        if (
+          scanRequestRef.current !== requestId ||
+          liveState.scanDir !== trimmedDir ||
+          liveState.lastScannedExcludeDir !== (excludeDirPath ?? "")
+        ) {
           return;
         }
-        applyScanResult(trimmedDir, result.candidates, result.supportedExtensions);
+        applyScanResult(trimmedDir, excludeDirPath, result.candidates, result.supportedExtensions);
       } catch (error) {
-        const liveScanDir = useWorkbenchSetupStore.getState().scanDir;
-        if (scanRequestRef.current !== requestId || liveScanDir !== trimmedDir) {
+        const liveState = useWorkbenchSetupStore.getState();
+        if (
+          scanRequestRef.current !== requestId ||
+          liveState.scanDir !== trimmedDir ||
+          liveState.lastScannedExcludeDir !== (excludeDirPath ?? "")
+        ) {
           return;
         }
-        failScan(trimmedDir, toErrorMessage(error));
+        failScan(trimmedDir, excludeDirPath, toErrorMessage(error));
       }
     },
-    [applyScanResult, beginScan, failScan],
+    [applyScanResult, beginScan, failScan, mode, targetDir],
   );
 
   useEffect(() => {
@@ -261,12 +271,14 @@ export default function WorkbenchSetup({
   }, [config, scanDir, setScanDir, setTargetDir, targetDir]);
 
   useEffect(() => {
-    if (!scanDir || scanning || lastScannedDir === scanDir || scanStatus === "error") {
+    const expectedExcludeDir = resolveMediaCandidateExcludeDir(mode, targetDir) ?? "";
+
+    if (!scanDir || (lastScannedDir === scanDir && lastScannedExcludeDir === expectedExcludeDir)) {
       return;
     }
 
     void runScan(scanDir, targetDir);
-  }, [lastScannedDir, runScan, scanDir, scanStatus, scanning, targetDir]);
+  }, [lastScannedDir, lastScannedExcludeDir, mode, runScan, scanDir, targetDir]);
 
   const chooseDirectory = async (onChoose: (path: string) => void) => {
     const selection = await ipc.file.browse("directory");

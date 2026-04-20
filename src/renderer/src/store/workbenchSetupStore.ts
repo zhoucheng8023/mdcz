@@ -11,13 +11,19 @@ interface WorkbenchSetupState {
   scanStatus: WorkbenchSetupScanStatus;
   scanError: string;
   lastScannedDir: string;
+  lastScannedExcludeDir: string;
   supportedExtensions: string[];
 
   setScanDir: (scanDir: string) => void;
   setTargetDir: (targetDir: string) => void;
-  beginScan: (scanDir: string) => void;
-  applyScanResult: (scanDir: string, candidates: MediaCandidate[], supportedExtensions: string[]) => void;
-  failScan: (scanDir: string, error: string) => void;
+  beginScan: (scanDir: string, excludeDirPath?: string) => void;
+  applyScanResult: (
+    scanDir: string,
+    excludeDirPath: string | undefined,
+    candidates: MediaCandidate[],
+    supportedExtensions: string[],
+  ) => void;
+  failScan: (scanDir: string, excludeDirPath: string | undefined, error: string) => void;
   toggleSelectedPath: (path: string) => void;
   setAllSelected: (selected: boolean) => void;
 }
@@ -30,6 +36,7 @@ export const useWorkbenchSetupStore = create<WorkbenchSetupState>((set) => ({
   scanStatus: "idle",
   scanError: "",
   lastScannedDir: "",
+  lastScannedExcludeDir: "",
   supportedExtensions: [],
 
   setScanDir: (scanDir) =>
@@ -40,11 +47,12 @@ export const useWorkbenchSetupStore = create<WorkbenchSetupState>((set) => ({
       scanStatus: scanDir ? "idle" : "success",
       scanError: "",
       lastScannedDir: "",
+      lastScannedExcludeDir: "",
     }),
 
   setTargetDir: (targetDir) => set({ targetDir }),
 
-  beginScan: (scanDir) =>
+  beginScan: (scanDir, excludeDirPath) =>
     set({
       scanDir,
       candidates: [],
@@ -52,9 +60,10 @@ export const useWorkbenchSetupStore = create<WorkbenchSetupState>((set) => ({
       scanStatus: "scanning",
       scanError: "",
       lastScannedDir: scanDir,
+      lastScannedExcludeDir: excludeDirPath ?? "",
     }),
 
-  applyScanResult: (scanDir, candidates, supportedExtensions) =>
+  applyScanResult: (scanDir, excludeDirPath, candidates, supportedExtensions) =>
     set({
       scanDir,
       candidates,
@@ -62,10 +71,11 @@ export const useWorkbenchSetupStore = create<WorkbenchSetupState>((set) => ({
       scanStatus: "success",
       scanError: "",
       lastScannedDir: scanDir,
+      lastScannedExcludeDir: excludeDirPath ?? "",
       supportedExtensions,
     }),
 
-  failScan: (scanDir, error) =>
+  failScan: (scanDir, excludeDirPath, error) =>
     set({
       scanDir,
       candidates: [],
@@ -73,6 +83,7 @@ export const useWorkbenchSetupStore = create<WorkbenchSetupState>((set) => ({
       scanStatus: "error",
       scanError: error,
       lastScannedDir: scanDir,
+      lastScannedExcludeDir: excludeDirPath ?? "",
     }),
 
   toggleSelectedPath: (path) =>
