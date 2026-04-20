@@ -63,6 +63,23 @@ describe("LocalScanService", () => {
     expect(entries).toEqual([]);
   });
 
+  it("scans only the selected files in selected-file maintenance scans", async () => {
+    const root = await createTempDir();
+    const selectedPath = join(root, "ABC-123.mp4");
+    const skippedPath = join(root, "DEF-456.mp4");
+    const trailerPath = join(root, "trailer.mp4");
+
+    await writeFile(selectedPath, "video");
+    await writeFile(skippedPath, "video");
+    await writeFile(trailerPath, "trailer");
+
+    const entries = await new LocalScanService().scanFiles([selectedPath, trailerPath], "extrafanart");
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.fileInfo.filePath).toBe(selectedPath);
+    expect(entries.some((entry) => entry.fileInfo.filePath === skippedPath)).toBe(false);
+  });
+
   it("skips FC2 feature sidecars and prefers the multipart base NFO over movie.nfo", async () => {
     const root = await createTempDir();
     const movieDir = join(root, "FC2-123456");

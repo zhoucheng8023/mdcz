@@ -1,22 +1,28 @@
 import { toErrorMessage } from "@shared/error";
+import type { MaintenancePresetId } from "@shared/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { LayoutDashboard, PauseCircle, Play, RotateCcw, StopCircle } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
-import { pauseScrape, resumeScrape, retryScrapeSelection, startBatchScrape, stopScrape } from "@/api/manual";
-import { chooseMediaDirectory, isMediaDirectorySelectionCancelled } from "@/client/mediaPath";
-import MaintenanceBatchBar from "@/components/maintenance/MaintenanceBatchBar";
-import { PageHeader } from "@/components/PageHeader";
+import { pauseScrape, resumeScrape, retryScrapeSelection, startSelectedScrape, stopScrape } from "@/api/manual";
+import { ipc } from "@/client/ipc";
+import { isMediaDirectorySelectionCancelled } from "@/client/mediaPath";
 import { UncensoredConfirmDialog } from "@/components/UncensoredConfirmDialog";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { TabButton } from "@/components/ui/TabButton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
+import WorkbenchSetup from "@/components/workbench/WorkbenchSetup";
 import { CURRENT_CONFIG_QUERY_KEY, useCurrentConfig } from "@/hooks/useCurrentConfig";
+import { buildMaintenanceEntryViewModel, countMaintenanceDisplayItems } from "@/lib/maintenanceGrouping";
 import { buildAmbiguousUncensoredScrapeGroups } from "@/lib/scrapeResultGrouping";
+import { useMaintenanceEntryStore } from "@/store/maintenanceEntryStore";
 import { useMaintenanceExecutionStore } from "@/store/maintenanceExecutionStore";
+import { useMaintenancePreviewStore } from "@/store/maintenancePreviewStore";
+import {
+  applyMaintenancePreviewResult,
+  applyMaintenanceScanResult,
+  beginMaintenancePreviewRequest,
+  changeMaintenancePreset,
+  setMaintenancePreviewPending,
+} from "@/store/maintenanceSession";
 import { useScrapeStore } from "@/store/scrapeStore";
 import { useUIStore } from "@/store/uiStore";
 
@@ -24,27 +30,14 @@ const ScrapeWorkbench = lazy(() => import("@/components/maintenance/ScrapeWorkbe
 const MaintenanceWorkbench = lazy(() => import("@/components/maintenance/MaintenanceWorkbench"));
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search): { intent?: "maintenance" } => ({
+    intent: search.intent === "maintenance" ? "maintenance" : undefined,
+  }),
   component: Index,
 });
 
-function DisabledModeButton({ label, tooltip, active }: { label: string; tooltip: string; active: boolean }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span>
-          <TabButton isActive={active} disabled className="h-9 rounded-lg px-5 text-sm">
-            {label}
-          </TabButton>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={8}>
-        {tooltip}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
 function Index() {
+  const search = Route.useSearch();
   const queryClient = useQueryClient();
   const [uncensoredDialogOpen, setUncensoredDialogOpen] = useState(false);
   const configQ = useCurrentConfig();
@@ -71,6 +64,9 @@ function Index() {
     })),
   );
   const maintenanceStatus = useMaintenanceExecutionStore((state) => state.executionStatus);
+  const maintenanceEntries = useMaintenanceEntryStore((state) => state.entries);
+  const maintenancePreviewResults = useMaintenancePreviewStore((state) => state.previewResults);
+  const maintenanceItemResults = useMaintenanceExecutionStore((state) => state.itemResults);
   const { workbenchMode, setWorkbenchMode, setSelectedResultId } = useUIStore(
     useShallow((state) => ({
       workbenchMode: state.workbenchMode,
@@ -86,6 +82,13 @@ function Index() {
     [results],
   );
   const mediaPath = configQ.data?.paths?.mediaPath?.trim() ?? "";
+  const scrapeHasWork = isScraping || scrapeStatus !== "idle" || results.length > 0;
+  const maintenanceHasWork =
+    maintenanceStatus !== "idle" ||
+    maintenanceEntries.length > 0 ||
+    Object.keys(maintenancePreviewResults).length > 0 ||
+    Object.keys(maintenanceItemResults).length > 0;
+  const showSetup = workbenchMode === "maintenance" ? !maintenanceHasWork : !scrapeHasWork;
 
   // Detect scrape completion and check for ambiguous uncensored items
   const prevScrapeStatusRef = useRef(scrapeStatus);
@@ -98,35 +101,57 @@ function Index() {
     }
   }, [ambiguousItems, scrapeStatus]);
 
+  useEffect(() => {
+    if (search.intent === "maintenance") {
+      if (!isScraping) {
+        setWorkbenchMode("maintenance");
+      }
+      return;
+    }
+
+    if (maintenanceHasWork && !scrapeHasWork) {
+      setWorkbenchMode("maintenance");
+      return;
+    }
+
+    if (!maintenanceHasWork && (!scrapeHasWork || workbenchMode === "maintenance")) {
+      setWorkbenchMode("scrape");
+    }
+  }, [isScraping, maintenanceHasWork, scrapeHasWork, search.intent, setWorkbenchMode, workbenchMode]);
+
   const refreshCurrentConfig = async () => {
     await queryClient.invalidateQueries({ queryKey: CURRENT_CONFIG_QUERY_KEY });
   };
 
-  const handleChooseMediaDirectory = async () => {
-    try {
-      await chooseMediaDirectory(configQ.data);
-      await refreshCurrentConfig();
-      toast.success("媒体目录已更新");
-    } catch (error) {
-      if (isMediaDirectorySelectionCancelled(error)) {
-        return;
-      }
-      toast.error(`目录设置失败: ${toErrorMessage(error)}`);
+  const persistWorkbenchPaths = async (scanDir: string, targetDir: string) => {
+    const currentPaths = configQ.data?.paths;
+    if (!currentPaths) {
+      throw new Error("配置尚未加载完成");
     }
+
+    await ipc.config.save({
+      paths: {
+        ...currentPaths,
+        mediaPath: scanDir,
+        successOutputFolder: targetDir || currentPaths.successOutputFolder,
+      },
+    });
   };
 
-  const handleStartScrape = async () => {
+  const handleStartSelectedScrape = async (filePaths: string[], scanDir: string, targetDir: string) => {
     if (maintenanceBusy) {
       toast.warning("维护模式正在运行中，无法启动正常刮削。请先停止当前维护任务。");
       return;
     }
 
     try {
+      await persistWorkbenchPaths(scanDir, targetDir);
       updateProgress(0, 0);
       clearResults();
       setSelectedResultId(null);
-      const response = await startBatchScrape();
+      const response = await startSelectedScrape(filePaths);
       setScraping(true);
+      setScrapeStatus("running");
       await refreshCurrentConfig();
       toast.success(response.data.message);
     } catch (error) {
@@ -142,6 +167,68 @@ function Index() {
       }
 
       toast.error(`启动失败: ${errorMessage}`);
+    }
+  };
+
+  const handleStartSelectedMaintenance = async (
+    filePaths: string[],
+    scanDir: string,
+    targetDir: string,
+    presetId: MaintenancePresetId,
+  ) => {
+    if (isScraping) {
+      toast.warning("正常刮削正在运行中，无法启动维护模式。请先停止当前刮削任务。");
+      return;
+    }
+
+    const executionStore = useMaintenanceExecutionStore.getState();
+
+    try {
+      setWorkbenchMode("maintenance");
+      changeMaintenancePreset(presetId);
+      await persistWorkbenchPaths(scanDir, targetDir);
+      executionStore.setExecutionStatus("scanning");
+      executionStore.setStatusText("正在读取选中文件...");
+
+      const scan = await ipc.maintenance.scanFiles(filePaths);
+      applyMaintenanceScanResult(scan.entries, scanDir);
+
+      if (scan.entries.length === 0) {
+        executionStore.setStatusText("未发现可维护项目");
+        toast.info("未发现可维护项目");
+        await refreshCurrentConfig();
+        return;
+      }
+
+      if (presetId === "read_local") {
+        executionStore.setStatusText(`本地读取完成 · ${countMaintenanceDisplayItems(scan.entries)} 项`);
+        toast.success(`本地读取完成，共 ${countMaintenanceDisplayItems(scan.entries)} 项`);
+        await refreshCurrentConfig();
+        return;
+      }
+
+      executionStore.setExecutionStatus("previewing");
+      beginMaintenancePreviewRequest();
+      executionStore.setStatusText("正在生成维护预览...");
+      const preview = await ipc.maintenance.preview(scan.entries, presetId);
+      applyMaintenancePreviewResult(preview);
+
+      const previewMap = Object.fromEntries(preview.items.map((item) => [item.fileId, item]));
+      const previewSummary = buildMaintenanceEntryViewModel(scan.entries, {
+        previewResults: previewMap,
+      }).previewSummary;
+      executionStore.setStatusText(
+        previewSummary.blockedCount > 0
+          ? `预览完成 · 可执行 ${previewSummary.readyCount} · 阻塞 ${previewSummary.blockedCount}`
+          : `预览完成 · 可执行 ${previewSummary.readyCount} 项`,
+      );
+      await refreshCurrentConfig();
+      toast.success("维护预览已生成");
+    } catch (error) {
+      setMaintenancePreviewPending(false);
+      executionStore.setExecutionStatus("idle");
+      executionStore.setStatusText("启动失败");
+      toast.error(`启动失败: ${toErrorMessage(error)}`);
     }
   };
 
@@ -210,131 +297,33 @@ function Index() {
     }
   };
 
-  const pageExtra =
-    workbenchMode === "scrape" ? (
-      <>
-        {isScraping && scrapeStatus !== "stopping" && (
-          <Button
-            variant="outline"
-            onClick={scrapeStatus === "paused" ? handleResumeScrape : handlePauseScrape}
-            className="h-9 rounded-lg px-5"
-          >
-            {scrapeStatus === "paused" ? (
-              <>
-                <Play className="mr-2 h-4 w-4" /> 恢复任务
-              </>
-            ) : (
-              <>
-                <PauseCircle className="mr-2 h-4 w-4" /> 暂停任务
-              </>
-            )}
-          </Button>
-        )}
-        <Button
-          variant={isScraping ? "destructive" : "default"}
-          onClick={isScraping ? handleStopScrape : handleStartScrape}
-          className="h-9 rounded-lg px-6 font-semibold shadow-sm"
-        >
-          {isScraping ? (
-            <>
-              <StopCircle className="mr-2 h-4 w-4" /> 停止任务
-            </>
-          ) : (
-            <>
-              <Play className="mr-2 h-4 w-4" /> 开始刮削
-            </>
-          )}
-        </Button>
-      </>
-    ) : (
-      <MaintenanceBatchBar mediaPath={mediaPath} />
-    );
-
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <PageHeader
-        title="工作台"
-        icon={LayoutDashboard}
-        subtitle={
-          mediaPath ? (
-            <span className="flex items-baseline gap-1">
-              当前目录:
-              <code className="bg-muted px-1.5 py-0.5 rounded text-[10px] font-mono">{mediaPath}</code>
-            </span>
-          ) : (
-            "尚未配置媒体目录"
-          )
-        }
-        extra={pageExtra}
-      />
-
-      <div className="px-8 pb-2 border-b bg-background/60 backdrop-blur-md">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            {maintenanceBusy ? (
-              <DisabledModeButton
-                label="正常刮削"
-                tooltip="维护模式执行中，暂时不能切换到正常刮削。"
-                active={workbenchMode === "scrape"}
-              />
-            ) : (
-              <TabButton
-                isActive={workbenchMode === "scrape"}
-                className="h-9 rounded-lg px-5 text-sm"
-                onClick={() => setWorkbenchMode("scrape")}
-              >
-                正常刮削
-              </TabButton>
-            )}
-
-            {isScraping ? (
-              <DisabledModeButton
-                label="维护模式"
-                tooltip="正常刮削执行中，暂时不能切换到维护模式。"
-                active={workbenchMode === "maintenance"}
-              />
-            ) : (
-              <TabButton
-                isActive={workbenchMode === "maintenance"}
-                className="h-9 rounded-lg px-5 text-sm"
-                onClick={() => setWorkbenchMode("maintenance")}
-              >
-                维护模式
-              </TabButton>
-            )}
-          </div>
-
-          {failedPaths.length > 0 && !isScraping && workbenchMode === "scrape" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-lg h-9 px-4 gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 whitespace-nowrap"
-              onClick={handleRetryFailed}
-            >
-              <RotateCcw className="h-4 w-4" />
-              重试失败
-              <Badge variant="destructive" className="h-4 px-1 text-[10px]">
-                {failedPaths.length}
-              </Badge>
-            </Button>
-          )}
-        </div>
-      </div>
-
       <div className="flex-1 min-h-0">
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载中...</div>
           }
         >
-          {workbenchMode === "scrape" ? (
+          {showSetup ? (
+            <WorkbenchSetup
+              mode={workbenchMode}
+              config={configQ.data}
+              configLoading={configQ.isLoading}
+              onStartScrape={handleStartSelectedScrape}
+              onStartMaintenance={handleStartSelectedMaintenance}
+            />
+          ) : workbenchMode === "scrape" ? (
             <ScrapeWorkbench
               mediaPath={mediaPath}
-              onChooseMediaDirectory={handleChooseMediaDirectory}
-              onStartScrape={handleStartScrape}
+              onPauseScrape={handlePauseScrape}
+              onResumeScrape={handleResumeScrape}
+              onStopScrape={handleStopScrape}
+              onRetryFailed={handleRetryFailed}
+              failedCount={failedPaths.length}
             />
           ) : (
-            <MaintenanceWorkbench />
+            <MaintenanceWorkbench mediaPath={mediaPath} />
           )}
         </Suspense>
       </div>

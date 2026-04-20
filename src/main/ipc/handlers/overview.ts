@@ -6,7 +6,7 @@ import { IpcChannel } from "@shared/IpcChannel";
 import type { IpcRouterContract } from "@shared/ipcContract";
 import { asSerializableIpcError, t } from "../shared";
 
-const logger = loggerService.getLogger("IpcRouter:dashboard");
+const logger = loggerService.getLogger("IpcRouter:overview");
 
 const resolveExistingThumbnailPath = async (thumbnailPath: string): Promise<string | null> => {
   try {
@@ -17,16 +17,16 @@ const resolveExistingThumbnailPath = async (thumbnailPath: string): Promise<stri
   }
 };
 
-export const createDashboardHandlers = (
+export const createOverviewHandlers = (
   context: ServiceContainer,
 ): Pick<
   IpcRouterContract,
-  typeof IpcChannel.Dashboard_GetRecentAcquisitions | typeof IpcChannel.Dashboard_GetOutputSummary
+  typeof IpcChannel.Overview_GetRecentAcquisitions | typeof IpcChannel.Overview_GetOutputSummary
 > => {
   const { outputLibraryScanner, recentAcquisitionsStore } = context;
 
   return {
-    [IpcChannel.Dashboard_GetRecentAcquisitions]: t.procedure.action(async () => {
+    [IpcChannel.Overview_GetRecentAcquisitions]: t.procedure.action(async () => {
       try {
         const records = await recentAcquisitionsStore.list();
         const items = await Promise.all(
@@ -42,15 +42,15 @@ export const createDashboardHandlers = (
 
         return { items };
       } catch (error) {
-        logger.error(`Dashboard recent acquisitions failed: ${toErrorMessage(error)}`);
+        logger.error(`Overview recent acquisitions failed: ${toErrorMessage(error)}`);
         throw asSerializableIpcError(error);
       }
     }),
-    [IpcChannel.Dashboard_GetOutputSummary]: t.procedure.action(async () => {
+    [IpcChannel.Overview_GetOutputSummary]: t.procedure.action(async () => {
       try {
         return await outputLibraryScanner.getSummary();
       } catch (error) {
-        logger.error(`Dashboard output summary failed: ${toErrorMessage(error)}`);
+        logger.error(`Overview output summary failed: ${toErrorMessage(error)}`);
         throw asSerializableIpcError(error);
       }
     }),

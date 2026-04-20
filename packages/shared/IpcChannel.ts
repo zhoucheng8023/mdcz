@@ -28,6 +28,7 @@ export enum IpcChannel {
 
   Translate_TestLlm = "translate:test-llm",
   File_ListEntries = "file:list-entries",
+  File_ListMediaCandidates = "file:list-media-candidates",
   File_Exists = "file:exists",
   File_Browse = "file:browse",
   File_Delete = "file:delete",
@@ -48,8 +49,8 @@ export enum IpcChannel {
   App_Relaunch = "app:relaunch",
   App_SyncTitleBarTheme = "app:sync-titlebar-theme",
 
-  Dashboard_GetRecentAcquisitions = "dashboard:get-recent-acquisitions",
-  Dashboard_GetOutputSummary = "dashboard:get-output-summary",
+  Overview_GetRecentAcquisitions = "overview:get-recent-acquisitions",
+  Overview_GetOutputSummary = "overview:get-output-summary",
 
   Tool_JellyfinActorPhotoSync = "tool:jellyfin-actor-photo-sync",
   Tool_JellyfinActorInfoSync = "tool:jellyfin-actor-info-sync",

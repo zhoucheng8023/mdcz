@@ -112,7 +112,9 @@ export default function MaintenanceBatchBar({ mediaPath, className }: Maintenanc
       ? hasPreviewResults
         ? "刷新对比"
         : "生成对比"
-      : "开始执行";
+      : hasPreviewResults
+        ? "执行整理"
+        : "生成整理预览";
 
   const resolveScanDirectory = async (): Promise<string | null> => {
     const preferred = lastScannedDir || mediaPath?.trim() || "";
@@ -330,10 +332,14 @@ export default function MaintenanceBatchBar({ mediaPath, className }: Maintenanc
             {supportsExecution && (
               <Button
                 onClick={async () => {
+                  if (!usesDiffView && hasPreviewResults) {
+                    await handleExecute();
+                    return;
+                  }
+
                   const preview = await handlePreview();
                   if (preview && !usesDiffView) {
-                    const previewMap = Object.fromEntries(preview.items.map((item) => [item.fileId, item]));
-                    void handleExecute(previewMap);
+                    toast.info("预览完成，请在右侧路径计划中确认后执行。");
                   }
                 }}
                 disabled={isScraping || scanning || previewInProgress || entriesCount === 0 || selectedCount === 0}

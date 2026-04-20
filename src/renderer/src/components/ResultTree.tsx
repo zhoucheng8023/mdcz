@@ -36,14 +36,14 @@ function buildMenuContent(
 
   const handleCopyNumber = async () => {
     if (!resultNumber) {
-      toast.error("Number is empty");
+      toast.error("番号为空");
       return;
     }
     try {
       await navigator.clipboard.writeText(resultNumber);
-      toast.success("Number copied");
+      toast.success("已复制番号");
     } catch {
-      toast.error("Failed to copy number");
+      toast.error("复制番号失败");
     }
   };
 
@@ -79,9 +79,9 @@ function buildMenuContent(
     }
     try {
       await deleteFile(groupedVideoPaths);
-      toast.success(groupedVideoPaths.length > 1 ? `Deleted ${groupedVideoPaths.length} files` : "File deleted");
+      toast.success(groupedVideoPaths.length > 1 ? `已删除 ${groupedVideoPaths.length} 个文件` : "已删除文件");
     } catch {
-      toast.error("Failed to delete file");
+      toast.error("删除文件失败");
     }
   };
 
@@ -89,9 +89,9 @@ function buildMenuContent(
     if (!window.confirm(`确定删除文件和所在文件夹吗？\n${resultPath}`)) return;
     try {
       await deleteFileAndFolder(resultPath);
-      toast.success("Folder deleted");
+      toast.success("已删除文件夹");
     } catch {
-      toast.error("Failed to delete folder");
+      toast.error("删除文件夹失败");
     }
   };
 
@@ -99,11 +99,11 @@ function buildMenuContent(
     if (window.electron?.openPath) {
       window.electron.openPath(getDirFromPath(resultPath));
     } else {
-      toast.info("Open folder is only available in desktop mode");
+      toast.info("打开目录功能仅在桌面客户端可用");
     }
   };
 
-  const handlePlay = () => void playMediaPath(resultPath, "Play is only available in desktop mode", "Play failed");
+  const handlePlay = () => void playMediaPath(resultPath, "播放功能仅在桌面客户端可用", "播放失败");
 
   const handleOpenNfo = () => {
     window.dispatchEvent(new CustomEvent("app:open-nfo", { detail: { path: nfoPath } }));
@@ -112,35 +112,35 @@ function buildMenuContent(
   return (
     <>
       <ContextMenuItem onClick={handleCopyNumber}>
-        Copy number
+        复制番号
         <ContextMenuShortcut>
           <Copy className="h-3.5 w-3.5" />
         </ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={handleRetryScrape}>Re-scrape</ContextMenuItem>
+      <ContextMenuItem onClick={handleRetryScrape}>重新刮削</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={handleDeleteFile} className="text-destructive focus:text-destructive">
-        Delete file
+        删除文件
         <ContextMenuShortcut>D</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem onClick={handleDeleteFolder} className="text-destructive focus:text-destructive">
-        Delete file and folder
+        删除文件及所在文件夹
         <ContextMenuShortcut>A</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onClick={handleOpenFolder}>
-        Open folder
+        打开目录
         <ContextMenuShortcut>F</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem onClick={handleOpenNfo}>
-        Edit NFO
+        编辑 NFO
         <ContextMenuShortcut>
           <FileText className="h-3.5 w-3.5" />
         </ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem onClick={handlePlay}>
-        Play
+        播放
         <ContextMenuShortcut>P</ContextMenuShortcut>
       </ContextMenuItem>
     </>
@@ -152,13 +152,15 @@ export function ResultTree() {
   const { selectedResultId, setSelectedResultId } = useUIStore();
   const [filter, setFilter] = useState<MediaBrowserFilter>("all");
   const resultGroups = useMemo(() => buildScrapeResultGroups(results), [results]);
+  const successCount = useMemo(() => resultGroups.filter((group) => group.status === "success").length, [resultGroups]);
+  const failedCount = useMemo(() => resultGroups.filter((group) => group.status === "failed").length, [resultGroups]);
 
   const items = useMemo(
     () =>
       resultGroups.map((group) => ({
         id: group.id,
         active: group.items.some((item) => item.fileId === selectedResultId),
-        title: group.display.fileInfo.number || "Unknown",
+        title: group.display.fileInfo.number || "未识别番号",
         subtitle: getScrapeResultTitle(group.display) || getFileNameFromPath(group.display.fileInfo.filePath),
         errorText: group.errorText ?? group.display.error,
         status: group.status,
@@ -176,6 +178,12 @@ export function ResultTree() {
       items={items}
       filter={filter}
       onFilterChange={setFilter}
+      title="处理队列"
+      stats={[
+        { label: "总计", value: String(resultGroups.length) },
+        { label: "成功", value: String(successCount), tone: "positive" },
+        { label: "失败", value: String(failedCount), tone: "negative" },
+      ]}
       emptyContent={
         <div className="flex flex-col items-center justify-center gap-3 py-16 select-none animate-in fade-in duration-500">
           <Search className="h-12 w-12 text-muted-foreground/20" strokeWidth={1} />

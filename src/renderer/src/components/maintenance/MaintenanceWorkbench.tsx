@@ -2,8 +2,9 @@ import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { DetailPanel } from "@/components/DetailPanel";
 import { toDetailViewItemFromMaintenanceEntry } from "@/components/detail/detailViewAdapters";
+import MaintenanceBatchBar from "@/components/maintenance/MaintenanceBatchBar";
 import MaintenanceEntryList from "@/components/maintenance/MaintenanceEntryList";
-import { WorkbenchFooter } from "@/components/shared/WorkbenchFooter";
+import { FloatingWorkbenchBar } from "@/components/shared/FloatingWorkbenchBar";
 import { Progress } from "@/components/ui/Progress";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/Resizable";
 import { findMaintenanceEntryGroup } from "@/lib/maintenanceGrouping";
@@ -11,7 +12,11 @@ import { useMaintenanceEntryStore } from "@/store/maintenanceEntryStore";
 import { useMaintenanceExecutionStore } from "@/store/maintenanceExecutionStore";
 import { useMaintenancePreviewStore } from "@/store/maintenancePreviewStore";
 
-export default function MaintenanceWorkbench() {
+interface MaintenanceWorkbenchProps {
+  mediaPath?: string;
+}
+
+export default function MaintenanceWorkbench({ mediaPath }: MaintenanceWorkbenchProps) {
   const { currentPath, entries, activeId, presetId } = useMaintenanceEntryStore(
     useShallow((state) => ({
       currentPath: state.currentPath,
@@ -96,34 +101,34 @@ export default function MaintenanceWorkbench() {
             : "正在维护";
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden bg-surface-canvas">
       {showProgress && (
-        <div className="px-8 pt-4 pb-0">
-          <div className="flex items-center gap-4 rounded-lg border bg-card p-1">
+        <div className="px-4 pt-4 pb-0 md:px-6 lg:px-8">
+          <div className="flex items-center gap-4 rounded-quiet-sm bg-surface-floating p-1.5">
             <Progress value={progressValue} className="ml-3 h-2 flex-1" />
             <span className="w-12 text-[10px] font-bold tabular-nums text-primary">{Math.round(progressValue)}%</span>
           </div>
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0 p-4">
-        <ResizablePanelGroup orientation="horizontal" className="flex-1">
+      <div className="flex flex-1 min-h-0 p-4 md:p-6 lg:p-8">
+        <ResizablePanelGroup orientation="horizontal" className="flex-1 gap-3">
           <ResizablePanel
             id="maintenance-entry-list"
             defaultSize={36}
             minSize={24}
-            className="flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm"
+            className="flex flex-col overflow-hidden rounded-quiet-lg bg-surface-low/80"
           >
             <MaintenanceEntryList />
           </ResizablePanel>
 
-          <ResizableHandle className="w-1 rounded-full bg-transparent hover:bg-primary/10" />
+          <ResizableHandle className="w-1 rounded-full bg-transparent hover:bg-foreground/10" />
 
           <ResizablePanel
             id="maintenance-detail-view"
             defaultSize={64}
             minSize={30}
-            className="flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm"
+            className="flex flex-col overflow-hidden rounded-quiet-lg bg-surface-floating/94"
           >
             <DetailPanel
               item={detailItem}
@@ -144,7 +149,13 @@ export default function MaintenanceWorkbench() {
         </ResizablePanelGroup>
       </div>
 
-      <WorkbenchFooter activeLabel={activeLabel} currentPath={currentPath} statusText={statusText} />
+      <FloatingWorkbenchBar contentClassName="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3 md:px-5">
+        <div className="min-w-0 text-xs text-muted-foreground">
+          <div className="font-medium text-foreground">{activeLabel ?? "维护就绪"}</div>
+          <div className="mt-1 max-w-xl truncate font-mono">{currentPath || statusText}</div>
+        </div>
+        <MaintenanceBatchBar mediaPath={mediaPath} />
+      </FloatingWorkbenchBar>
     </div>
   );
 }

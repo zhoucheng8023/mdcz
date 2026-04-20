@@ -10,15 +10,15 @@
 
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as AboutRouteImport } from "./routes/about";
-import { Route as DashboardRouteImport } from "./routes/dashboard";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as LogsRouteImport } from "./routes/logs";
+import { Route as OverviewRouteImport } from "./routes/overview";
 import { Route as SettingsRouteImport } from "./routes/settings";
 import { Route as ToolRouteImport } from "./routes/tool";
 
-const DashboardRoute = DashboardRouteImport.update({
-  id: "/dashboard",
-  path: "/dashboard",
+const OverviewRoute = OverviewRouteImport.update({
+  id: "/overview",
+  path: "/overview",
   getParentRoute: () => rootRouteImport,
 } as any);
 const ToolRoute = ToolRouteImport.update({
@@ -50,16 +50,16 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
   "/about": typeof AboutRoute;
-  "/dashboard": typeof DashboardRoute;
   "/logs": typeof LogsRoute;
+  "/overview": typeof OverviewRoute;
   "/settings": typeof SettingsRoute;
   "/tool": typeof ToolRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
   "/about": typeof AboutRoute;
-  "/dashboard": typeof DashboardRoute;
   "/logs": typeof LogsRoute;
+  "/overview": typeof OverviewRoute;
   "/settings": typeof SettingsRoute;
   "/tool": typeof ToolRoute;
 }
@@ -67,24 +67,24 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
   "/about": typeof AboutRoute;
-  "/dashboard": typeof DashboardRoute;
   "/logs": typeof LogsRoute;
+  "/overview": typeof OverviewRoute;
   "/settings": typeof SettingsRoute;
   "/tool": typeof ToolRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/about" | "/dashboard" | "/logs" | "/settings" | "/tool";
+  fullPaths: "/" | "/about" | "/logs" | "/overview" | "/settings" | "/tool";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/about" | "/dashboard" | "/logs" | "/settings" | "/tool";
-  id: "__root__" | "/" | "/about" | "/dashboard" | "/logs" | "/settings" | "/tool";
+  to: "/" | "/about" | "/logs" | "/overview" | "/settings" | "/tool";
+  id: "__root__" | "/" | "/about" | "/logs" | "/overview" | "/settings" | "/tool";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   AboutRoute: typeof AboutRoute;
-  DashboardRoute: typeof DashboardRoute;
   LogsRoute: typeof LogsRoute;
+  OverviewRoute: typeof OverviewRoute;
   SettingsRoute: typeof SettingsRoute;
   ToolRoute: typeof ToolRoute;
 }
@@ -119,11 +119,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AboutRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/dashboard": {
-      id: "/dashboard";
-      path: "/dashboard";
-      fullPath: "/dashboard";
-      preLoaderRoute: typeof DashboardRouteImport;
+    "/overview": {
+      id: "/overview";
+      path: "/overview";
+      fullPath: "/overview";
+      preLoaderRoute: typeof OverviewRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/": {
@@ -139,8 +139,8 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  DashboardRoute: DashboardRoute,
   LogsRoute: LogsRoute,
+  OverviewRoute: OverviewRoute,
   SettingsRoute: SettingsRoute,
   ToolRoute: ToolRoute,
 };

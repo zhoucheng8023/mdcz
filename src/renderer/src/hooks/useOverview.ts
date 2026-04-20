@@ -1,16 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { dashboardKeys, fetchOutputSummary, fetchRecentAcquisitions } from "@/api/dashboard";
+import { fetchOutputSummary, fetchRecentAcquisitions, overviewKeys } from "@/api/overview";
 
 export const useRecentAcquisitions = () =>
   useQuery({
-    queryKey: dashboardKeys.recent,
+    queryKey: overviewKeys.recent,
     queryFn: fetchRecentAcquisitions,
     staleTime: 5 * 60_000,
   });
 
 export const useOutputSummary = () =>
   useQuery({
-    queryKey: dashboardKeys.output,
+    queryKey: overviewKeys.output,
     queryFn: fetchOutputSummary,
     staleTime: 60_000,
   });

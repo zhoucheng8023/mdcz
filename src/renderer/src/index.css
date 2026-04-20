@@ -62,8 +62,8 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-quiet-sm: 0.75rem;
   --radius-quiet: 1rem;
-  --radius-quiet-lg: 2rem;
-  --radius-quiet-xl: 3rem;
+  --radius-quiet-lg: 1.5rem;
+  --radius-quiet-xl: 2rem;
   --radius-quiet-capsule: 9999px;
 
   @keyframes accordion-down {
@@ -93,7 +93,7 @@
   --card-foreground: hsl(240 10% 4%);
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(240 10% 4%);
-  --primary: hsl(232 100% 65%);
+  --primary: hsl(240 10% 4%);
   --primary-foreground: hsl(0 0% 98%);
   --secondary: hsl(240 5% 93%);
   --secondary-foreground: hsl(240 6% 10%);
@@ -105,7 +105,7 @@
   --destructive-foreground: hsl(0 0% 98%);
   --border: hsl(240 6% 90%);
   --input: hsl(240 6% 90%);
-  --ring: hsl(232 100% 65%);
+  --ring: hsl(240 10% 4%);
   --radius: 0.5rem;
   --sidebar: hsl(240 5% 96%);
   --sidebar-foreground: hsl(240 6% 10%);
@@ -124,8 +124,8 @@
   --card-foreground: hsl(0 0% 98%);
   --popover: hsl(212 25% 12%);
   --popover-foreground: hsl(0 0% 98%);
-  --primary: hsl(213 94% 55%);
-  --primary-foreground: hsl(0 0% 98%);
+  --primary: hsl(0 0% 96%);
+  --primary-foreground: hsl(180 2% 9%);
   --secondary: hsl(212 25% 18%);
   --secondary-foreground: hsl(0 0% 98%);
   --muted: hsl(212 25% 18%);
@@ -136,7 +136,7 @@
   --destructive-foreground: hsl(0 0% 98%);
   --border: hsl(212 20% 20%);
   --input: hsl(212 20% 20%);
-  --ring: hsl(213 94% 55%);
+  --ring: hsl(0 0% 96%);
   --sidebar: hsl(180 2% 12%);
   --sidebar-foreground: hsl(0 0% 98%);
   --surface: hsl(212 25% 16%);

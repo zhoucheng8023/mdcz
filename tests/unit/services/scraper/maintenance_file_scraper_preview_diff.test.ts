@@ -110,5 +110,10 @@ describe("MaintenanceFileScraper preview diffs", () => {
       newValue: "https://example.com/trailer.mp4",
       changed: true,
     });
+    expect(result.pathDiff).toBeUndefined();
+    expect(getPreset("refresh_data").configOverrides.behavior).toMatchObject({
+      successFileMove: false,
+      successFileRename: false,
+    });
   });
 });

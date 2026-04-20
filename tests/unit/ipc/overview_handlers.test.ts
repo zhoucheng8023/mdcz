@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServiceContainer } from "@main/container";
-import { createDashboardHandlers } from "@main/ipc/handlers/dashboard";
+import { createOverviewHandlers } from "@main/ipc/handlers/overview";
 import { IpcChannel } from "@shared/IpcChannel";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -45,7 +45,7 @@ const createContext = (overrides: {
     },
   }) as unknown as ServiceContainer;
 
-describe("createDashboardHandlers", () => {
+describe("createOverviewHandlers", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
@@ -54,12 +54,12 @@ describe("createDashboardHandlers", () => {
   });
 
   it("returns thumbnail absolute paths only when the thumbnail file exists", async () => {
-    const thumbnailDir = await mkdtemp(join(tmpdir(), "mdcz-dashboard-ipc-"));
+    const thumbnailDir = await mkdtemp(join(tmpdir(), "mdcz-overview-ipc-"));
     tempDirs.push(thumbnailDir);
     const existingThumbnailPath = join(thumbnailDir, "ABC-123.webp");
     await writeFile(existingThumbnailPath, "thumbnail");
 
-    const handlers = createDashboardHandlers(
+    const handlers = createOverviewHandlers(
       createContext({
         list: vi.fn(async () => [
           {
@@ -81,7 +81,7 @@ describe("createDashboardHandlers", () => {
       }),
     );
 
-    await expect(handlers[IpcChannel.Dashboard_GetRecentAcquisitions].action(actionArgs)).resolves.toEqual({
+    await expect(handlers[IpcChannel.Overview_GetRecentAcquisitions].action(actionArgs)).resolves.toEqual({
       items: [
         {
           number: "ABC-123",
@@ -111,14 +111,14 @@ describe("createDashboardHandlers", () => {
       rootPath: "/output",
     };
     const getSummary = vi.fn(async () => summary);
-    const handlers = createDashboardHandlers(createContext({ getSummary }));
+    const handlers = createOverviewHandlers(createContext({ getSummary }));
 
-    await expect(handlers[IpcChannel.Dashboard_GetOutputSummary].action(actionArgs)).resolves.toEqual(summary);
+    await expect(handlers[IpcChannel.Overview_GetOutputSummary].action(actionArgs)).resolves.toEqual(summary);
     expect(getSummary).toHaveBeenCalledOnce();
   });
 
-  it("wraps dashboard handler failures as serializable IPC errors", async () => {
-    const handlers = createDashboardHandlers(
+  it("wraps overview handler failures as serializable IPC errors", async () => {
+    const handlers = createOverviewHandlers(
       createContext({
         list: vi.fn(async () => {
           throw new Error("boom");
@@ -126,7 +126,7 @@ describe("createDashboardHandlers", () => {
       }),
     );
 
-    await expect(handlers[IpcChannel.Dashboard_GetRecentAcquisitions].action(actionArgs)).rejects.toMatchObject({
+    await expect(handlers[IpcChannel.Overview_GetRecentAcquisitions].action(actionArgs)).rejects.toMatchObject({
       code: "Error",
       message: "boom",
     });

@@ -135,6 +135,16 @@ export interface NamingPreviewItem {
   file: string;
 }
 
+export interface MediaCandidate {
+  path: string;
+  name: string;
+  size: number;
+  lastModified: string | null;
+  extension: string;
+  relativePath: string;
+  relativeDirectory: string;
+}
+
 export interface ScraperStatus {
   state: "idle" | "running" | "stopping" | "paused";
   running: boolean;

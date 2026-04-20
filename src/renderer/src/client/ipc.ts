@@ -2,7 +2,7 @@ import { createClient } from "@egoist/tipc/renderer";
 import type { Configuration } from "@shared/config";
 import type { Website } from "@shared/enums";
 import { IpcChannel } from "@shared/IpcChannel";
-import type { DashboardOutputSummary, DashboardRecentAcquisitionItem } from "@shared/ipc-contracts/dashboardContract";
+import type { OverviewOutputSummary, OverviewRecentAcquisitionItem } from "@shared/ipc-contracts/overviewContract";
 import type { IpcRouterContract } from "@shared/ipcContract";
 import type {
   ButtonStatusPayload,
@@ -26,6 +26,7 @@ import type {
   MaintenancePresetId,
   MaintenancePreviewResult,
   MaintenanceStatus,
+  MediaCandidate,
   ScrapeResult,
   UncensoredConfirmItem,
   UncensoredConfirmResponse,
@@ -45,12 +46,12 @@ export const ipc = {
     relaunch: () => client[IpcChannel.App_Relaunch](undefined),
     syncTitleBarTheme: (isDark: boolean) => client[IpcChannel.App_SyncTitleBarTheme]({ isDark }),
   },
-  dashboard: {
+  overview: {
     getRecentAcquisitions: () =>
-      client[IpcChannel.Dashboard_GetRecentAcquisitions](undefined) as Promise<{
-        items: DashboardRecentAcquisitionItem[];
+      client[IpcChannel.Overview_GetRecentAcquisitions](undefined) as Promise<{
+        items: OverviewRecentAcquisitionItem[];
       }>,
-    getOutputSummary: () => client[IpcChannel.Dashboard_GetOutputSummary](undefined) as Promise<DashboardOutputSummary>,
+    getOutputSummary: () => client[IpcChannel.Overview_GetOutputSummary](undefined) as Promise<OverviewOutputSummary>,
   },
   config: {
     get: (path?: string) => client[IpcChannel.Config_Get]({ path }),
@@ -64,7 +65,8 @@ export const ipc = {
     deleteProfile: (name: string) => client[IpcChannel.Config_DeleteProfile]({ name }),
   },
   scraper: {
-    start: (mode: "single" | "batch", paths: string[]) => client[IpcChannel.Scraper_Start]({ mode, paths }),
+    start: (mode: "single" | "batch" | "selection", paths: string[]) =>
+      client[IpcChannel.Scraper_Start]({ mode, paths }),
     stop: () => client[IpcChannel.Scraper_Stop](undefined),
     pause: () => client[IpcChannel.Scraper_Pause](undefined),
     resume: () => client[IpcChannel.Scraper_Resume](undefined),
@@ -91,6 +93,11 @@ export const ipc = {
   },
   file: {
     listEntries: (dirPath: string) => client[IpcChannel.File_ListEntries]({ dirPath }),
+    listMediaCandidates: (dirPath: string, excludeDirPath?: string) =>
+      client[IpcChannel.File_ListMediaCandidates]({ dirPath, excludeDirPath }) as Promise<{
+        candidates: MediaCandidate[];
+        supportedExtensions: string[];
+      }>,
     exists: (path: string) => client[IpcChannel.File_Exists]({ path }) as Promise<{ exists: boolean }>,
     browse: (type: "file" | "directory", filters?: Array<{ name: string; extensions: string[] }>) =>
       client[IpcChannel.File_Browse]({ type, filters }),
@@ -127,6 +134,8 @@ export const ipc = {
   maintenance: {
     scan: (dirPath: string) =>
       client[IpcChannel.Maintenance_Scan]({ dirPath }) as Promise<{ entries: LocalScanEntry[] }>,
+    scanFiles: (filePaths: string[]) =>
+      client[IpcChannel.Maintenance_Scan]({ filePaths }) as Promise<{ entries: LocalScanEntry[] }>,
     preview: (entries: LocalScanEntry[], presetId: MaintenancePresetId) =>
       client[IpcChannel.Maintenance_Preview]({ entries, presetId }) as Promise<MaintenancePreviewResult>,
     execute: (items: MaintenanceCommitItem[], presetId: MaintenancePresetId) =>

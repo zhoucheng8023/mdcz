@@ -61,7 +61,7 @@ export const MAINTENANCE_PRESETS: Record<MaintenancePresetId, MaintenancePreset>
       },
       behavior: {
         successFileMove: false,
-        successFileRename: true,
+        successFileRename: false,
       },
     },
   },

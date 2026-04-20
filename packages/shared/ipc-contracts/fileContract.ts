@@ -1,6 +1,6 @@
 import { IpcChannel } from "../IpcChannel";
 import type { IpcProcedure } from "../ipcTypes";
-import type { CrawlerData } from "../types";
+import type { CrawlerData, MediaCandidate } from "../types";
 
 export type FileIpcContract = {
   [IpcChannel.File_ListEntries]: IpcProcedure<
@@ -13,6 +13,13 @@ export type FileIpcContract = {
         size?: number;
         lastModified?: string | null;
       }>;
+    }
+  >;
+  [IpcChannel.File_ListMediaCandidates]: IpcProcedure<
+    { dirPath?: string; excludeDirPath?: string },
+    {
+      candidates: MediaCandidate[];
+      supportedExtensions: string[];
     }
   >;
   [IpcChannel.File_Exists]: IpcProcedure<{ path?: string }, { exists: boolean }>;

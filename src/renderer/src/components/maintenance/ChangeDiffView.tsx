@@ -1,7 +1,6 @@
 import type { ActorProfile, CrawlerData, FieldDiff, LocalScanEntry, MaintenancePreviewItem } from "@shared/types";
 import { ImageOptionCard } from "@/components/ImageOptionCard";
 import { SceneImageGallery } from "@/components/SceneImageGallery";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import {
   getDefaultMaintenanceFieldSelection,
   hasMaintenanceDiffSideValue,
@@ -100,8 +99,8 @@ function DiffOption({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-32 rounded-xl border-2 p-4 text-left transition-all",
-        selected ? "border-primary ring-2 ring-primary/20" : "border-transparent hover:border-muted-foreground/20",
+        "min-h-32 rounded-quiet bg-surface-floating p-4 text-left transition-all",
+        selected ? "ring-2 ring-primary/20" : "hover:bg-surface-raised/60",
         disabled && "cursor-not-allowed opacity-50 hover:border-transparent",
       )}
     >
@@ -134,8 +133,8 @@ function SceneImageOption({
   return (
     <div
       className={cn(
-        "min-h-32 rounded-xl border-2 p-4 text-left transition-all",
-        selected ? "border-primary ring-2 ring-primary/20" : "border-transparent hover:border-muted-foreground/20",
+        "min-h-32 rounded-quiet bg-surface-floating p-4 text-left transition-all",
+        selected ? "ring-2 ring-primary/20" : "hover:bg-surface-raised/60",
         disabled && "cursor-not-allowed opacity-50 hover:border-transparent",
       )}
     >
@@ -304,12 +303,10 @@ export default function ChangeDiffView({
 
   const renderDiffCard = (diff: FieldDiff, mode: "changed" | "unchanged") => {
     return (
-      <Card key={`${fileId}-${mode}-${diff.field}`} className="rounded-xl border shadow-sm">
-        <CardHeader className="pb-0">
-          <CardTitle className="text-sm font-semibold">{diff.label}</CardTitle>
-        </CardHeader>
-        <CardContent>{mode === "changed" ? renderChangedOptions(diff) : renderUnchangedValue(diff)}</CardContent>
-      </Card>
+      <section key={`${fileId}-${mode}-${diff.field}`} className="rounded-quiet-lg bg-surface-low/75 p-4 md:p-5">
+        <div className="mb-4 text-sm font-semibold tracking-tight text-foreground">{diff.label}</div>
+        {mode === "changed" ? renderChangedOptions(diff) : renderUnchangedValue(diff)}
+      </section>
     );
   };
 

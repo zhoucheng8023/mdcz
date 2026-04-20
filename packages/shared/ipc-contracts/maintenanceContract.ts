@@ -9,7 +9,10 @@ import type {
 } from "../types";
 
 export type MaintenanceIpcContract = {
-  [IpcChannel.Maintenance_Scan]: IpcProcedure<{ dirPath?: string }, { entries: LocalScanEntry[] }>;
+  [IpcChannel.Maintenance_Scan]: IpcProcedure<
+    { dirPath?: string; filePaths?: string[] },
+    { entries: LocalScanEntry[] }
+  >;
   [IpcChannel.Maintenance_Preview]: IpcProcedure<
     { entries?: LocalScanEntry[]; presetId?: MaintenancePresetId },
     MaintenancePreviewResult

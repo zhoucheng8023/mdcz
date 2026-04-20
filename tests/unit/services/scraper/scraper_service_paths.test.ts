@@ -108,4 +108,23 @@ describe("ScraperService path filtering", () => {
 
     expect(filePaths).toEqual([keepVideoPath]);
   });
+
+  it("resolves selected files directly without treating paths as directories", async () => {
+    const root = await createTempDir();
+    const firstFilePath = join(root, "ABC-123.mp4");
+    const secondFilePath = join(root, "nested", "DEF-456.mkv");
+
+    await mkdir(join(root, "nested"), { recursive: true });
+    await writeFile(firstFilePath, "", "utf8");
+    await writeFile(secondFilePath, "", "utf8");
+    await writeFile(join(root, "ignore.txt"), "", "utf8");
+
+    const filePaths = await (
+      createService() as unknown as {
+        resolveSelectedFilePaths: (paths: string[]) => Promise<string[]>;
+      }
+    ).resolveSelectedFilePaths([firstFilePath, secondFilePath, firstFilePath, join(root, "ignore.txt")]);
+
+    expect(filePaths).toEqual([firstFilePath, secondFilePath]);
+  });
 });

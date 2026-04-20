@@ -1,7 +1,7 @@
 import { IpcChannel } from "../IpcChannel";
 import type { IpcProcedure } from "../ipcTypes";
 
-export interface DashboardRecentAcquisitionItem {
+export interface OverviewRecentAcquisitionItem {
   number: string;
   title: string | null;
   actors: string[];
@@ -10,14 +10,14 @@ export interface DashboardRecentAcquisitionItem {
   completedAt: number;
 }
 
-export interface DashboardOutputSummary {
+export interface OverviewOutputSummary {
   fileCount: number;
   totalBytes: number;
   scannedAt: number;
   rootPath: string | null;
 }
 
-export type DashboardIpcContract = {
-  [IpcChannel.Dashboard_GetRecentAcquisitions]: IpcProcedure<void, { items: DashboardRecentAcquisitionItem[] }>;
-  [IpcChannel.Dashboard_GetOutputSummary]: IpcProcedure<void, DashboardOutputSummary>;
+export type OverviewIpcContract = {
+  [IpcChannel.Overview_GetRecentAcquisitions]: IpcProcedure<void, { items: OverviewRecentAcquisitionItem[] }>;
+  [IpcChannel.Overview_GetOutputSummary]: IpcProcedure<void, OverviewOutputSummary>;
 };

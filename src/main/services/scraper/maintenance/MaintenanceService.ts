@@ -104,6 +104,32 @@ export class MaintenanceService {
     );
   }
 
+  async scanFiles(filePaths: string[]): Promise<LocalScanEntry[]> {
+    if (this.status.state !== "idle") {
+      throw new Error("Maintenance is already running");
+    }
+
+    const selectedPaths = filePaths.map((filePath) => filePath.trim()).filter(Boolean);
+    if (selectedPaths.length === 0) {
+      throw new Error("No files selected");
+    }
+
+    this.status = { ...createIdleMaintenanceStatus(), state: "scanning" };
+    this.signalService.showLogText("Scanning selected maintenance files");
+    return await this.trackOperation(
+      async (signal) => {
+        const config = await configManager.getValidated();
+        const entries = await this.localScanService.scanFiles(selectedPaths, config.paths.sceneImagesFolder, signal);
+        this.signalService.showLogText(`Maintenance scan completed. Found ${entries.length} item(s).`);
+        return entries;
+      },
+      new AbortController(),
+      () => {
+        this.status = createIdleMaintenanceStatus();
+      },
+    );
+  }
+
   async preview(entries: LocalScanEntry[], presetId: MaintenancePresetId): Promise<MaintenancePreviewResult> {
     if (this.status.state !== "idle") {
       throw new Error("Maintenance is already running");

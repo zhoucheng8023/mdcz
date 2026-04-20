@@ -2,7 +2,7 @@ import { toErrorMessage } from "@shared/error";
 import type { MaintenanceStatus, ScraperStatus } from "@shared/types";
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { dashboardKeys } from "@/api/dashboard";
+import { overviewKeys } from "@/api/overview";
 import { ipc } from "@/client/ipc";
 import { createRuntimeLog, useLogStore } from "@/store/logStore";
 import { useMaintenanceExecutionStore } from "@/store/maintenanceExecutionStore";
@@ -69,7 +69,7 @@ const applyScrapeStatusSnapshot = (status: ScraperStatus) => {
   );
 };
 
-export const createDashboardInvalidationTracker = () => {
+export const createOverviewInvalidationTracker = () => {
   let lastButtonStatusActive = false;
 
   return (nextActive: boolean): boolean => {
@@ -87,7 +87,7 @@ export const useIpcSync = (queryClient: QueryClient) => {
     let disposed = false;
     let pollTimeout: number | undefined;
     let syncPromise: Promise<void> | null = null;
-    const shouldInvalidateDashboard = createDashboardInvalidationTracker();
+    const shouldInvalidateOverview = createOverviewInvalidationTracker();
     const unsubscribers: Array<() => void> = [];
 
     const reportAsyncError = (context: string, error: unknown) => {
@@ -225,8 +225,8 @@ export const useIpcSync = (queryClient: QueryClient) => {
 
             scrapeStore.setScraping(active);
             scrapeStore.setScrapeStatus(nextStatus);
-            if (shouldInvalidateDashboard(active)) {
-              void queryClient.invalidateQueries({ queryKey: dashboardKeys.all });
+            if (shouldInvalidateOverview(active)) {
+              void queryClient.invalidateQueries({ queryKey: overviewKeys.all });
             }
             safeSync("button status", "scrape");
           }),

@@ -38,7 +38,7 @@ interface NavItem {
 
 // Primary workflow pages
 const PRIMARY_NAV: NavItem[] = [
-  { label: "仪表盘", to: "/dashboard", icon: LayoutDashboard },
+  { label: "概览", to: "/overview", icon: LayoutDashboard },
   { label: "工作台", to: "/", icon: PlaySquare },
   { label: "工具", to: "/tool", icon: Wrench },
 ];
@@ -202,7 +202,7 @@ export default function Layout({ children }: LayoutProps) {
         <aside
           className={cn(
             "hidden md:flex md:flex-col bg-sidebar text-sidebar-foreground border-r-0 shrink-0 transition-[width] duration-300 ease-in-out",
-            isCollapsed ? "w-[60px]" : "w-[220px]",
+            isCollapsed ? "w-[60px]" : "w-[160px]",
           )}
         >
           <NavContent
@@ -230,7 +230,7 @@ export default function Layout({ children }: LayoutProps) {
               <Menu className="h-5 w-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[220px] p-0 bg-sidebar">
+          <SheetContent side="left" className="w-[160px] p-0 bg-sidebar">
             <NavContent
               pathname={pathname}
               onThemeToggle={cycleTheme}

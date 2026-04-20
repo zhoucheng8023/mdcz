@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ArrowRight, BrushCleaning } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
-export function DashboardMaintenanceCard() {
+export function OverviewMaintenanceCard() {
   const navigate = useNavigate();
 
   return (
@@ -19,8 +19,8 @@ export function DashboardMaintenanceCard() {
 
       <Button
         type="button"
-        className="h-12 w-full rounded-quiet-capsule bg-black font-bold text-white hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
-        onClick={() => navigate({ to: "/" })}
+        className="h-12 w-full rounded-quiet-capsule font-bold"
+        onClick={() => navigate({ to: "/", search: { intent: "maintenance" } })}
       >
         去工作台
         <ArrowRight className="h-4 w-4" />

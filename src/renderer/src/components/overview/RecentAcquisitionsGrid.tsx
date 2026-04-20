@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, Film, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useRecentAcquisitions } from "@/hooks/useDashboard";
+import { useRecentAcquisitions } from "@/hooks/useOverview";
 import { AcquisitionCard } from "./AcquisitionCard";
 
 const SKELETON_KEYS = ["slot-1", "slot-2", "slot-3", "slot-4", "slot-5", "slot-6", "slot-7", "slot-8"];
@@ -15,7 +15,7 @@ export function RecentAcquisitionsGrid() {
     return (
       <div className="grid grid-cols-2 gap-5 md:grid-cols-3 lg:grid-cols-4 lg:gap-6">
         {SKELETON_KEYS.map((key) => (
-          <div key={key} className="aspect-[2/3] animate-pulse rounded-quiet-xl bg-surface-raised" />
+          <div key={key} className="aspect-[2/3] animate-pulse rounded-quiet-lg bg-surface-raised" />
         ))}
       </div>
     );
@@ -46,11 +46,7 @@ export function RecentAcquisitionsGrid() {
         <Film className="h-9 w-9 text-muted-foreground" />
         <h3 className="mt-4 text-lg font-semibold">暂无刮削记录</h3>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">完成一次刮削后，最近入库的影片会出现在这里。</p>
-        <Button
-          type="button"
-          className="mt-5 rounded-quiet-capsule bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
-          onClick={() => navigate({ to: "/" })}
-        >
+        <Button type="button" className="mt-5 rounded-quiet-capsule" onClick={() => navigate({ to: "/" })}>
           去工作台
         </Button>
       </div>

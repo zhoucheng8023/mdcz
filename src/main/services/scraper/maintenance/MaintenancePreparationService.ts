@@ -213,6 +213,13 @@ export class MaintenancePreparationService {
     }
 
     const rawPlan = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState);
+    if (this.preset.id === "refresh_data") {
+      return {
+        plan: rawPlan,
+        pathDiff: undefined,
+      };
+    }
+
     const plan = await this.deps.fileOrganizer.resolveOutputPlan(rawPlan, entry.fileInfo.filePath, {
       createDirectories: options.createDirectories,
     });

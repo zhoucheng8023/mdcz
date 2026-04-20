@@ -124,6 +124,16 @@ export const startBatchScrape = async () => {
   return { data };
 };
 
+export const startSelectedScrape = async (filePaths: string[]) => {
+  const selectedPaths = filePaths.map((filePath) => filePath.trim()).filter(Boolean);
+  if (selectedPaths.length === 0) {
+    throw new Error("No files selected");
+  }
+
+  const data = await ipc.scraper.start("selection", selectedPaths);
+  return { data };
+};
+
 export const deleteFile = async (path: string | string[]) => {
   const filePaths = Array.isArray(path) ? path : [path];
   const data = await ipc.file.delete(filePaths);

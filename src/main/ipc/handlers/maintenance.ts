@@ -20,19 +20,27 @@ export const createMaintenanceHandlers = (
   const { maintenanceService } = context;
 
   return {
-    [IpcChannel.Maintenance_Scan]: t.procedure.input<{ dirPath?: string }>().action(async ({ input }) => {
-      try {
-        const dirPath = input?.dirPath?.trim();
-        if (!dirPath) {
-          throw new Error("dirPath is required");
+    [IpcChannel.Maintenance_Scan]: t.procedure
+      .input<{ dirPath?: string; filePaths?: string[] }>()
+      .action(async ({ input }) => {
+        try {
+          const filePaths = input?.filePaths?.map((filePath) => filePath.trim()).filter(Boolean) ?? [];
+          if (filePaths.length > 0) {
+            const entries = await maintenanceService.scanFiles(filePaths);
+            return { entries };
+          }
+
+          const dirPath = input?.dirPath?.trim();
+          if (!dirPath) {
+            throw new Error("dirPath or filePaths is required");
+          }
+          const entries = await maintenanceService.scan(dirPath);
+          return { entries };
+        } catch (error) {
+          logger.error("Maintenance scan failed");
+          throw asSerializableIpcError(error);
         }
-        const entries = await maintenanceService.scan(dirPath);
-        return { entries };
-      } catch (error) {
-        logger.error("Maintenance scan failed");
-        throw asSerializableIpcError(error);
-      }
-    }),
+      }),
 
     [IpcChannel.Maintenance_Preview]: t.procedure
       .input<{ entries?: LocalScanEntry[]; presetId?: MaintenancePresetId }>()

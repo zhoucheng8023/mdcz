@@ -1,15 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowRight, FolderCog, Image, Play } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useOutputSummary } from "@/hooks/useDashboard";
+import { useOutputSummary } from "@/hooks/useOverview";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "./format";
 
-interface DashboardHeroStartCardProps {
+interface OverviewHeroStartCardProps {
   className?: string;
 }
 
-export function DashboardHeroStartCard({ className }: DashboardHeroStartCardProps) {
+export function OverviewHeroStartCard({ className }: OverviewHeroStartCardProps) {
   const navigate = useNavigate();
   const summaryQ = useOutputSummary();
   const summary = summaryQ.data;
@@ -64,7 +64,7 @@ export function DashboardHeroStartCard({ className }: DashboardHeroStartCardProp
 
         <Button
           type="button"
-          className="h-14 rounded-quiet-capsule bg-white px-8 font-bold text-black hover:bg-surface-raised"
+          className="h-14 rounded-quiet-capsule bg-primary-foreground px-8 font-bold text-primary hover:bg-primary-foreground/90 dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
           onClick={() => navigate({ to: hasOutputRoot || hasError ? "/" : "/settings" })}
         >
           {hasOutputRoot || hasError ? <Play className="h-4 w-4 fill-current" /> : <FolderCog className="h-4 w-4" />}

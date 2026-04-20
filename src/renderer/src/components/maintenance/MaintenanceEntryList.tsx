@@ -120,7 +120,12 @@ export default function MaintenanceEntryList() {
   const someVisibleSelected = visibleEntries.some(
     (group) => isGroupPartiallySelected(group) || isGroupFullySelected(group),
   );
+  const selectedCount = groupedEntries.filter((group) =>
+    group.items.some((entry) => selectedIds.includes(entry.fileId)),
+  ).length;
   const selectedVisibleCount = visibleEntries.filter((group) => isGroupFullySelected(group)).length;
+  const blockedCount = groupedEntries.filter((group) => group.status === "failed").length;
+  const processingCount = groupedEntries.filter((group) => group.status === "processing").length;
 
   const items: MediaBrowserItem[] = sortedEntries.map((group) => {
     const representative = group.representative;
@@ -154,6 +159,13 @@ export default function MaintenanceEntryList() {
       items={items}
       filter={filter}
       onFilterChange={(nextFilter) => setFilter(nextFilter)}
+      title="维护队列"
+      stats={[
+        { label: "总计", value: String(groupedEntries.length) },
+        { label: "已选", value: String(selectedCount) },
+        { label: "处理中", value: String(processingCount) },
+        { label: "异常", value: String(blockedCount), tone: "negative" },
+      ]}
       emptyContent={
         <div className="flex flex-col items-center justify-center gap-3 py-16 select-none animate-in fade-in duration-500">
           <FolderSearch className="h-12 w-12 text-muted-foreground/20" strokeWidth={1} />

@@ -4,7 +4,7 @@ import type { ScraperStatus, UncensoredConfirmItem, UncensoredConfirmResponse } 
 
 export type ScraperIpcContract = {
   [IpcChannel.Scraper_Start]: IpcProcedure<
-    { mode?: "single" | "batch"; paths?: string[] },
+    { mode?: "single" | "batch" | "selection"; paths?: string[] },
     { taskId: string; totalFiles: number; message: string }
   >;
   [IpcChannel.Scraper_Stop]: IpcProcedure<void, { success: true; pendingCount: number }>;

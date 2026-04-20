@@ -1,21 +1,9 @@
 import { mkdir, readdir, realpath, rename, stat, statfs } from "node:fs/promises";
 import { dirname, extname, join, parse, resolve } from "node:path";
+import { SUPPORTED_MEDIA_EXTENSIONS_WITH_DOT } from "@shared/mediaExtensions";
 import { throwIfAborted } from "./abort";
 
-const DEFAULT_VIDEO_EXTENSIONS = new Set([
-  ".mp4",
-  ".avi",
-  ".rmvb",
-  ".wmv",
-  ".mov",
-  ".mkv",
-  ".flv",
-  ".ts",
-  ".webm",
-  ".iso",
-  ".mpg",
-  ".strm",
-]);
+export const DEFAULT_VIDEO_EXTENSIONS = new Set(SUPPORTED_MEDIA_EXTENSIONS_WITH_DOT);
 
 export const pathExists = async (path: string): Promise<boolean> => {
   try {
@@ -49,11 +37,12 @@ const walkDirectory = async (
   dirPath: string,
   recursive: boolean,
   visitedDirs: Set<string>,
+  excludedDirs: ReadonlySet<string>,
   signal?: AbortSignal,
 ): Promise<string[]> => {
   throwIfAborted(signal);
   const dirKey = await resolveDirectoryKey(dirPath);
-  if (visitedDirs.has(dirKey)) {
+  if (visitedDirs.has(dirKey) || excludedDirs.has(dirKey)) {
     return [];
   }
   visitedDirs.add(dirKey);
@@ -67,7 +56,7 @@ const walkDirectory = async (
 
     if (entry.isDirectory()) {
       if (recursive) {
-        files.push(...(await walkDirectory(absolutePath, true, visitedDirs, signal)));
+        files.push(...(await walkDirectory(absolutePath, true, visitedDirs, excludedDirs, signal)));
       }
       continue;
     }
@@ -82,7 +71,7 @@ const walkDirectory = async (
         const targetStats = await stat(absolutePath);
         if (targetStats.isDirectory()) {
           if (recursive) {
-            files.push(...(await walkDirectory(absolutePath, true, visitedDirs, signal)));
+            files.push(...(await walkDirectory(absolutePath, true, visitedDirs, excludedDirs, signal)));
           }
           continue;
         }
@@ -99,8 +88,30 @@ const walkDirectory = async (
   return files;
 };
 
-export const listFiles = async (dirPath: string, recursive = false, signal?: AbortSignal): Promise<string[]> => {
-  return walkDirectory(dirPath, recursive, new Set<string>(), signal);
+export const listFiles = async (
+  dirPath: string,
+  recursive = false,
+  signal?: AbortSignal,
+  excludeDirectoryPaths: readonly string[] = [],
+): Promise<string[]> => {
+  const rootKey = await resolveDirectoryKey(dirPath);
+  const excludedKeys = new Set<string>();
+
+  for (const excludedPath of excludeDirectoryPaths) {
+    const trimmedPath = excludedPath.trim();
+    if (!trimmedPath) {
+      continue;
+    }
+
+    const excludedKey = await resolveDirectoryKey(trimmedPath);
+    if (excludedKey === rootKey) {
+      continue;
+    }
+
+    excludedKeys.add(excludedKey);
+  }
+
+  return walkDirectory(dirPath, recursive, new Set<string>(), excludedKeys, signal);
 };
 
 export const listVideoFiles = async (
@@ -108,8 +119,9 @@ export const listVideoFiles = async (
   recursive = false,
   extensions: Set<string> = DEFAULT_VIDEO_EXTENSIONS,
   signal?: AbortSignal,
+  excludeDirectoryPaths: readonly string[] = [],
 ): Promise<string[]> => {
-  const files = await listFiles(dirPath, recursive, signal);
+  const files = await listFiles(dirPath, recursive, signal, excludeDirectoryPaths);
   return files.filter((filePath) => extensions.has(extname(filePath).toLowerCase()));
 };
 

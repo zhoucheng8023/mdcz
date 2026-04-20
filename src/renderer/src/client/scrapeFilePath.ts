@@ -1,9 +1,10 @@
+import { SUPPORTED_MEDIA_EXTENSIONS } from "@shared/mediaExtensions";
 import { ipc } from "@/client/ipc";
 
 export const SCRAPE_FILE_FILTERS = [
   {
     name: "媒体文件",
-    extensions: ["mp4", "avi", "rmvb", "wmv", "mov", "mkv", "flv", "ts", "webm", "iso", "mpg", "strm"],
+    extensions: [...SUPPORTED_MEDIA_EXTENSIONS],
   },
 ];
 

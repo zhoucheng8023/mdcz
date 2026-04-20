@@ -23,7 +23,7 @@ export const MAINTENANCE_PRESET_META: Record<MaintenancePresetId, MaintenancePre
     executeSummary: [
       "联网刷新选中项目的元数据",
       "对比现有 NFO 并展示字段差异",
-      "重新生成 NFO，并按当前命名规则重命名文件",
+      "在原文件所在目录重新生成 NFO 与选定资源，不移动或重命名视频文件",
     ],
     supportsExecution: true,
   },

@@ -119,7 +119,7 @@ const FIELD_REGISTRY: FieldEntry[] = [
   { key: "paths.softlinkPath", label: "软链接目录", section: "paths" },
   { key: "paths.successOutputFolder", label: "成功输出目录", section: "paths" },
   { key: "paths.failedOutputFolder", label: "失败输出目录", section: "paths" },
-  { key: "paths.outputSummaryPath", label: "仪表盘统计目录", section: "paths" },
+  { key: "paths.outputSummaryPath", label: "概览统计目录", section: "paths" },
   { key: "paths.sceneImagesFolder", label: "剧照目录名", section: "paths" },
   { key: "paths.configDirectory", label: "配置文件目录", section: "paths" },
   // scrape
@@ -373,7 +373,7 @@ function PathsSection(_props: SectionRenderProps) {
       <PathFieldWrapper name="paths.failedOutputFolder" label="失败输出目录" isDirectory />
       <PathFieldWrapper
         name="paths.outputSummaryPath"
-        label="仪表盘统计目录"
+        label="概览统计目录"
         description="留空则使用成功输出目录"
         isDirectory
       />

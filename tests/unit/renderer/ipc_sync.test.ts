@@ -1,9 +1,9 @@
-import { createDashboardInvalidationTracker } from "@renderer/hooks/useIpcSync";
+import { createOverviewInvalidationTracker } from "@renderer/hooks/useIpcSync";
 import { describe, expect, it } from "vitest";
 
-describe("useIpcSync dashboard invalidation tracking", () => {
+describe("useIpcSync overview invalidation tracking", () => {
   it("invalidates only on buttonStatus-derived active to idle transitions", () => {
-    const shouldInvalidate = createDashboardInvalidationTracker();
+    const shouldInvalidate = createOverviewInvalidationTracker();
 
     expect(shouldInvalidate(false)).toBe(false);
     expect(shouldInvalidate(true)).toBe(false);

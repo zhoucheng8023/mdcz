@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, extname, join, parse } from "node:path";
 import { loggerService } from "@main/services/LoggerService";
 import { toErrorMessage } from "@main/utils/common";
-import { listVideoFiles } from "@main/utils/file";
+import { DEFAULT_VIDEO_EXTENSIONS, listVideoFiles } from "@main/utils/file";
 import { resolveLocalAssetReference, uniqueDefinedPaths } from "@main/utils/localAssetReferences";
 import { parseNfoSnapshot } from "@main/utils/nfo";
 import { parseFileInfo } from "@main/utils/number";
@@ -154,6 +154,42 @@ export class LocalScanService {
     }
 
     this.logger.info(`Scan complete: ${entries.length} entries`);
+    return entries;
+  }
+
+  async scanFiles(filePaths: string[], sceneImagesFolder: string, signal?: AbortSignal): Promise<LocalScanEntry[]> {
+    throwIfAborted(signal);
+    const uniqueFilePaths = [...new Set(filePaths.map((filePath) => filePath.trim()).filter(Boolean))];
+    const entries: LocalScanEntry[] = [];
+
+    for (const videoPath of uniqueFilePaths) {
+      throwIfAborted(signal);
+      if (!DEFAULT_VIDEO_EXTENSIONS.has(extname(videoPath).toLowerCase())) {
+        continue;
+      }
+
+      if (isGeneratedSidecarVideo(videoPath)) {
+        continue;
+      }
+
+      try {
+        const fileStats = await stat(videoPath);
+        if (!fileStats.isFile()) {
+          continue;
+        }
+
+        const entry = await this.scanVideo(videoPath, sceneImagesFolder, signal);
+        entries.push(entry);
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          throw error;
+        }
+        const message = toErrorMessage(error);
+        this.logger.warn(`Failed to scan selected file ${videoPath}: ${message}`);
+      }
+    }
+
+    this.logger.info(`Selected-file scan complete: ${entries.length} entries`);
     return entries;
   }
 

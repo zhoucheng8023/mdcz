@@ -1,5 +1,5 @@
 import { realpath, stat } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import { ActorImageService } from "@main/services/ActorImageService";
 import type { ActorSourceProvider } from "@main/services/actorSource";
 import { type Configuration, configManager } from "@main/services/config";
@@ -15,7 +15,7 @@ import type { NetworkClient } from "@main/services/network";
 import type { SignalService } from "@main/services/SignalService";
 import { didPromiseTimeout, mapWithConcurrency } from "@main/utils/async";
 import { toErrorMessage } from "@main/utils/common";
-import { listVideoFiles } from "@main/utils/file";
+import { DEFAULT_VIDEO_EXTENSIONS, listVideoFiles } from "@main/utils/file";
 import type { ScraperStatus } from "@shared/types";
 import { createAbortError } from "./abort";
 import { AggregationService } from "./aggregation";
@@ -260,6 +260,23 @@ export class ScraperService {
     return this.beginSession(filePaths, concurrency, configuration, mode);
   }
 
+  async startSelectedFiles(paths: string[]): Promise<StartScrapeResult> {
+    if (this.session.getStatus().running) {
+      throw new ScraperServiceError("ALREADY_RUNNING", "Scraper is already running");
+    }
+
+    const configuration = await configManager.getValidated();
+    const filePaths = await this.resolveSelectedFilePaths(uniquePaths(paths));
+
+    if (filePaths.length === 0) {
+      throw new ScraperServiceError("NO_FILES", "No files selected");
+    }
+
+    this.configureRuntimeSettings(configuration);
+    const concurrency = Math.max(1, configuration.scrape.threadNumber);
+    return this.beginSession(filePaths, concurrency, configuration, "batch");
+  }
+
   stop(): { pendingCount: number } {
     if (!this.session.getStatus().running) {
       return { pendingCount: 0 };
@@ -433,6 +450,31 @@ export class ScraperService {
     }
 
     return candidatePaths;
+  }
+
+  private async resolveSelectedFilePaths(paths: string[]): Promise<string[]> {
+    const outputs: string[] = [];
+
+    for (const filePath of uniquePaths(paths)) {
+      let targetStats: Awaited<ReturnType<typeof stat>>;
+      try {
+        targetStats = await stat(filePath);
+      } catch {
+        throw new ScraperServiceError("FILE_NOT_FOUND", `Selected media file not found: ${filePath}`);
+      }
+
+      if (!targetStats.isFile()) {
+        throw new ScraperServiceError("FILE_NOT_FOUND", `Selected media file not found: ${filePath}`);
+      }
+
+      if (!DEFAULT_VIDEO_EXTENSIONS.has(extname(filePath).toLowerCase()) || isGeneratedSidecarVideo(filePath)) {
+        continue;
+      }
+
+      outputs.push(filePath);
+    }
+
+    return outputs;
   }
 
   private async buildExcludedOutputPaths(
