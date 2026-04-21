@@ -7,8 +7,7 @@ import { toast } from "sonner";
 import { updateConfig } from "@/client/api";
 import { ipc } from "@/client/ipc";
 import type { UpdateConfigData } from "@/client/types";
-import { TabbedConfigForm, type TabbedConfigFormHandle } from "@/components/config-form/TabbedConfigForm";
-import { SectionAnchor } from "@/components/settings/SectionAnchor";
+import { SettingsForm, type SettingsFormHandle } from "@/components/settings/SettingsForm";
 import { SettingsLayout } from "@/components/settings/SettingsLayout";
 import { Button } from "@/components/ui/Button";
 import {
@@ -23,7 +22,6 @@ import {
 import { Input } from "@/components/ui/Input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useCurrentConfig } from "@/hooks/useCurrentConfig";
-import { useUIStore } from "@/store/uiStore";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsComponent,
@@ -67,12 +65,10 @@ const getValidationErrorState = (error: unknown): { fields: string[]; fieldError
 
 function SettingsComponent() {
   const queryClient = useQueryClient();
-  const settingsActiveTab = useUIStore((state) => state.settingsActiveTab);
-  const setSettingsActiveTab = useUIStore((state) => state.setSettingsActiveTab);
   const [serverErrors, setServerErrors] = useState<string[]>([]);
   const [serverFieldErrors, setServerFieldErrors] = useState<Record<string, string>>({});
   const [isDirty, setIsDirty] = useState(false);
-  const settingsFormRef = useRef<TabbedConfigFormHandle>(null);
+  const settingsFormRef = useRef<SettingsFormHandle>(null);
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState("");
@@ -186,7 +182,6 @@ function SettingsComponent() {
 
   const onDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
 
-  // T11: Unsaved changes guard
   const { proceed, reset, status } = useBlocker({
     condition: isDirty,
   });
@@ -273,29 +268,15 @@ function SettingsComponent() {
             onResetConfig={() => setResetDialogOpen(true)}
             configPath={configInfoQ.data?.configPath}
           >
-            <SectionAnchor id="all" label="全部设置">
-              <div className="rounded-[var(--radius-quiet-lg)] bg-surface shadow-sm overflow-hidden">
-                <TabbedConfigForm
-                  ref={settingsFormRef}
-                  key={activeProfile || "default"}
-                  data={configQ.data}
-                  onSubmit={(data) => mutation.mutateAsync(data as NonNullable<UpdateConfigData["body"]>)}
-                  serverErrors={serverErrors}
-                  serverFieldErrors={serverFieldErrors}
-                  onDirtyChange={onDirtyChange}
-                  initialTab={settingsActiveTab}
-                  onTabChange={setSettingsActiveTab}
-                  profiles={profiles}
-                  activeProfile={activeProfile}
-                  onSwitchProfile={handleSwitchProfile}
-                  onCreateProfile={() => setNewProfileDialogOpen(true)}
-                  onDeleteProfile={() => setDeleteProfileDialogOpen(true)}
-                  onResetConfig={() => setResetDialogOpen(true)}
-                  configPath={configInfoQ.data?.configPath}
-                  embedded
-                />
-              </div>
-            </SectionAnchor>
+            <SettingsForm
+              ref={settingsFormRef}
+              key={activeProfile || "default"}
+              data={configQ.data}
+              onSubmit={(data) => mutation.mutateAsync(data as NonNullable<UpdateConfigData["body"]>)}
+              serverErrors={serverErrors}
+              serverFieldErrors={serverFieldErrors}
+              onDirtyChange={onDirtyChange}
+            />
           </SettingsLayout>
         )}
       </div>
@@ -374,7 +355,7 @@ function SettingsComponent() {
         </DialogContent>
       </Dialog>
 
-      {/* T11: Navigation blocker dialog */}
+      {/* Navigation blocker dialog (removed in PR3 with auto-save) */}
       <Dialog
         open={status === "blocked"}
         onOpenChange={(open) => {

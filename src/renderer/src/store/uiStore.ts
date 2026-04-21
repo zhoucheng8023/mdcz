@@ -6,7 +6,6 @@ interface UIState {
   showInfoPanel: boolean;
   showPreviewPanel: boolean;
   workbenchMode: "scrape" | "maintenance";
-  settingsActiveTab: string;
 
   setSelectedResultId: (id: string | null) => void;
   setSidebarOpen: (open: boolean) => void;
@@ -14,7 +13,6 @@ interface UIState {
   setShowInfoPanel: (show: boolean) => void;
   setShowPreviewPanel: (show: boolean) => void;
   setWorkbenchMode: (mode: "scrape" | "maintenance") => void;
-  setSettingsActiveTab: (tab: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -23,7 +21,6 @@ export const useUIStore = create<UIState>((set) => ({
   showInfoPanel: true,
   showPreviewPanel: true,
   workbenchMode: "scrape",
-  settingsActiveTab: "",
 
   setSelectedResultId: (id) => set({ selectedResultId: id }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -31,5 +28,4 @@ export const useUIStore = create<UIState>((set) => ({
   setShowInfoPanel: (show) => set({ showInfoPanel: show }),
   setShowPreviewPanel: (show) => set({ showPreviewPanel: show }),
   setWorkbenchMode: (mode) => set({ workbenchMode: mode }),
-  setSettingsActiveTab: (tab) => set({ settingsActiveTab: tab }),
 }));

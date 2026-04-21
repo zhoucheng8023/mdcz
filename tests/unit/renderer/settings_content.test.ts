@@ -2,7 +2,7 @@ import {
   buildNamingPreviewConfig,
   NAMING_TEMPLATE_DESCRIPTION,
   NamingSection,
-} from "@renderer/components/config-form/TabbedConfigForm";
+} from "@renderer/components/settings/settingsContent";
 import { type ComponentProps, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type FieldValues, FormProvider, useForm } from "react-hook-form";
@@ -18,14 +18,10 @@ function NamingSectionHarness() {
     },
   });
 
-  return createElement(
-    FormProvider,
-    form as ComponentProps<typeof FormProvider>,
-    createElement(NamingSection, { siteOptions: [], initialUseCustomTitleBar: true }),
-  );
+  return createElement(FormProvider, form as ComponentProps<typeof FormProvider>, createElement(NamingSection));
 }
 
-describe("TabbedConfigForm", () => {
+describe("settingsContent", () => {
   it("renders naming template placeholder help for both template fields", () => {
     const html = renderToStaticMarkup(createElement(NamingSectionHarness));
 
