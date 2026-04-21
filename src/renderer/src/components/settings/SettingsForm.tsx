@@ -1,15 +1,13 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { FieldValues } from "react-hook-form";
 import { useForm } from "react-hook-form";
 import { SiteConfigSection } from "@/components/config-form/SiteConfigSection";
-import { Button } from "@/components/ui/Button";
 import { SectionAnchor } from "./SectionAnchor";
 import { Subsection } from "./Subsection";
 import {
   AssetDownloadsSection,
   BehaviorSection,
   EmbySection,
-  FIELD_REGISTRY,
   Form,
   flattenConfig,
   JellyfinSection,
@@ -26,29 +24,16 @@ import {
   ShortcutsSection,
   TranslateSection,
   UiSection,
-  unflattenConfig,
   useCrawlerSiteOptions,
 } from "./settingsContent";
 
 interface SettingsFormProps {
   data: Record<string, unknown>;
-  onSubmit: (data: FieldValues) => Promise<unknown> | unknown;
-  serverErrors?: string[];
-  serverFieldErrors?: Record<string, string>;
-  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export interface SettingsFormHandle {
-  submit: () => Promise<boolean>;
-}
-
-export const SettingsForm = forwardRef<SettingsFormHandle, SettingsFormProps>(function SettingsForm(
-  { data, onSubmit, serverErrors, serverFieldErrors, onDirtyChange },
-  ref,
-) {
+export function SettingsForm({ data }: SettingsFormProps) {
   const flatDefaults = useMemo(() => flattenConfig(data), [data]);
   const initialUseCustomTitleBarRef = useRef<boolean | null>(null);
-  const submitPromiseRef = useRef<Promise<boolean> | null>(null);
 
   if (initialUseCustomTitleBarRef.current === null) {
     initialUseCustomTitleBarRef.current = Boolean(flatDefaults["ui.useCustomTitleBar"] ?? true);
@@ -64,93 +49,16 @@ export const SettingsForm = forwardRef<SettingsFormHandle, SettingsFormProps>(fu
   }, [flatDefaults, form]);
 
   const siteOptions = useCrawlerSiteOptions(flatDefaults);
-
-  const handleFormSubmit = useCallback(
-    async (values: FieldValues) => {
-      await onSubmit(unflattenConfig(values));
-      form.reset(values);
-      onDirtyChange?.(false);
-    },
-    [form, onDirtyChange, onSubmit],
-  );
-
-  const submit = useCallback(async () => {
-    if (submitPromiseRef.current) {
-      return submitPromiseRef.current;
-    }
-
-    const submission = (async () => {
-      let ok = false;
-      await form.handleSubmit(
-        async (values) => {
-          try {
-            await handleFormSubmit(values);
-            ok = true;
-          } catch {
-            ok = false;
-          }
-        },
-        () => {
-          ok = false;
-        },
-      )();
-      return ok;
-    })();
-
-    submitPromiseRef.current = submission.finally(() => {
-      submitPromiseRef.current = null;
-    });
-
-    return submitPromiseRef.current;
-  }, [form, handleFormSubmit]);
-
-  useImperativeHandle(ref, () => ({ submit }), [submit]);
-
-  const isDirty = form.formState.isDirty;
-  useEffect(() => {
-    onDirtyChange?.(isDirty);
-  }, [isDirty, onDirtyChange]);
-
-  useEffect(() => {
-    if (!serverErrors?.length) return;
-    for (const fieldPath of serverErrors) {
-      form.setError(fieldPath, {
-        type: "server",
-        message: serverFieldErrors?.[fieldPath] ?? "校验失败",
-      });
-    }
-    const firstError = serverErrors[0];
-    if (firstError) {
-      const entry = FIELD_REGISTRY.find((f) => f.key === firstError);
-      if (entry) {
-        const el = document.querySelector<HTMLElement>(`[data-toc-id="${entry.anchor}"]`);
-        el?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-  }, [serverErrors, serverFieldErrors, form]);
-
   const initialUseCustomTitleBar = initialUseCustomTitleBarRef.current ?? true;
-  const isSaveDisabled = !isDirty || form.formState.isSubmitting;
 
   return (
     <Form {...form}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
         }}
         className="space-y-16"
       >
-        <div className="flex justify-end">
-          <Button
-            type="submit"
-            className="rounded-[var(--radius-quiet-sm)] h-9 px-6 text-xs font-semibold shadow-sm"
-            disabled={isSaveDisabled}
-          >
-            {form.formState.isSubmitting ? "保存中..." : "保存设置"}
-          </Button>
-        </div>
-
         <SectionAnchor
           id="dataSources"
           label={SECTION_LABELS.dataSources}
@@ -233,4 +141,4 @@ export const SettingsForm = forwardRef<SettingsFormHandle, SettingsFormProps>(fu
       </form>
     </Form>
   );
-});
+}

@@ -10,6 +10,7 @@ interface SettingsLayoutProps {
   subtitle?: string;
   searchValue: string;
   onSearchChange: (value: string) => void;
+  onSearchSubmit?: () => void;
   profiles: string[];
   activeProfile: string;
   onSwitchProfile: (name: string) => void;
@@ -25,6 +26,7 @@ export function SettingsLayout({
   subtitle,
   searchValue,
   onSearchChange,
+  onSearchSubmit,
   profiles,
   activeProfile,
   onSwitchProfile,
@@ -47,6 +49,7 @@ export function SettingsLayout({
                 subtitle={subtitle}
                 searchValue={searchValue}
                 onSearchChange={onSearchChange}
+                onSearchSubmit={onSearchSubmit}
                 profiles={profiles}
                 activeProfile={activeProfile}
                 onSwitchProfile={onSwitchProfile}
@@ -72,6 +75,7 @@ function SettingsHeader({
   subtitle,
   searchValue,
   onSearchChange,
+  onSearchSubmit,
   profiles,
   activeProfile,
   onSwitchProfile,
@@ -92,7 +96,7 @@ function SettingsHeader({
         )}
       </div>
       <div className="flex items-center gap-3">
-        <SettingsSearch value={searchValue} onChange={onSearchChange} />
+        <SettingsSearch value={searchValue} onChange={onSearchChange} onSubmit={onSearchSubmit} />
         <ProfileCapsule
           profiles={profiles}
           activeProfile={activeProfile}

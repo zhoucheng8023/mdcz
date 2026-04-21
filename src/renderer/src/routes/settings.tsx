@@ -1,14 +1,13 @@
 import { toErrorMessage } from "@shared/error";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useBlocker } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { updateConfig } from "@/client/api";
 import { ipc } from "@/client/ipc";
-import type { UpdateConfigData } from "@/client/types";
-import { SettingsForm, type SettingsFormHandle } from "@/components/settings/SettingsForm";
+import { SettingsForm } from "@/components/settings/SettingsForm";
 import { SettingsLayout } from "@/components/settings/SettingsLayout";
+import { SettingsSearchProvider, useSettingsSearch } from "@/components/settings/SettingsSearchContext";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -22,60 +21,19 @@ import {
 import { Input } from "@/components/ui/Input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { useCurrentConfig } from "@/hooks/useCurrentConfig";
+import { useSettingsSavingStore } from "@/store/settingsSavingStore";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsComponent,
 });
 
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
-
-const toStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((item): item is string => typeof item === "string");
-};
-
-const toFieldErrors = (value: unknown): Record<string, string> => {
-  if (!isRecord(value)) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-  );
-};
-
-const getValidationErrorState = (error: unknown): { fields: string[]; fieldErrors: Record<string, string> } => {
-  if (!isRecord(error)) {
-    return { fields: [], fieldErrors: {} };
-  }
-
-  const details = isRecord(error.details) ? error.details : undefined;
-  const rootFields = toStringArray(error.fields);
-  const rootFieldErrors = toFieldErrors(error.fieldErrors);
-
-  return {
-    fields: rootFields.length > 0 ? rootFields : toStringArray(details?.fields),
-    fieldErrors: Object.keys(rootFieldErrors).length > 0 ? rootFieldErrors : toFieldErrors(details?.fieldErrors),
-  };
-};
-
 function SettingsComponent() {
   const queryClient = useQueryClient();
-  const [serverErrors, setServerErrors] = useState<string[]>([]);
-  const [serverFieldErrors, setServerFieldErrors] = useState<Record<string, string>>({});
-  const [isDirty, setIsDirty] = useState(false);
-  const settingsFormRef = useRef<SettingsFormHandle>(null);
-  const [isSavingAndLeaving, setIsSavingAndLeaving] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState("");
   const [newProfileDialogOpen, setNewProfileDialogOpen] = useState(false);
   const [deleteProfileDialogOpen, setDeleteProfileDialogOpen] = useState(false);
   const [deleteProfileName, setDeleteProfileName] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
 
   const configQ = useCurrentConfig({
     refetchOnWindowFocus: false,
@@ -93,41 +51,10 @@ function SettingsComponent() {
     refetchOnWindowFocus: false,
   });
 
-  const mutation = useMutation({
-    mutationFn: async (data: NonNullable<UpdateConfigData["body"]>) => {
-      return updateConfig({ body: data, throwOnError: true });
-    },
-    onSuccess: () => {
-      setServerErrors([]);
-      setServerFieldErrors({});
-      queryClient.invalidateQueries({ queryKey: ["config"] });
-      toast.success("设置已保存");
-    },
-    onError: (error) => {
-      const { fields, fieldErrors } = getValidationErrorState(error);
-      if (fields.length > 0) {
-        setServerErrors(fields);
-        setServerFieldErrors(fieldErrors);
-        const firstMessage =
-          (Object.keys(fieldErrors).length > 0 &&
-            fields.map((field) => fieldErrors[field]).find((item) => Boolean(item))) ??
-          undefined;
-        toast.error(firstMessage ? `校验失败：${firstMessage}` : `校验失败：${fields.length} 个字段有误`);
-      } else {
-        setServerErrors([]);
-        setServerFieldErrors({});
-        const message = toErrorMessage(error);
-        toast.error(message.includes("配置校验失败") ? message : `保存失败: ${message}`);
-      }
-    },
-  });
-
   const handleReset = async () => {
     try {
       await ipc.config.reset();
       queryClient.invalidateQueries({ queryKey: ["config"] });
-      setServerErrors([]);
-      setServerFieldErrors({});
       toast.success("已恢复默认设置");
       setResetDialogOpen(false);
     } catch (error) {
@@ -150,8 +77,9 @@ function SettingsComponent() {
   };
 
   const handleSwitchProfile = async (name: string) => {
-    if (isDirty) {
-      toast.warning("请先保存或放弃当前修改，再切换配置档案");
+    const inFlight = useSettingsSavingStore.getState().inFlight;
+    if (inFlight > 0) {
+      toast.warning("有配置正在自动保存，请稍候再切换档案");
       return;
     }
     try {
@@ -159,8 +87,6 @@ function SettingsComponent() {
       queryClient.invalidateQueries({ queryKey: ["config"] });
       queryClient.invalidateQueries({ queryKey: ["config", "profiles"] });
       queryClient.invalidateQueries({ queryKey: ["config", "info"] });
-      setServerErrors([]);
-      setServerFieldErrors({});
       toast.success(`已切换到配置档案 "${name}"`);
     } catch (error) {
       toast.error(`切换失败: ${toErrorMessage(error)}`);
@@ -179,48 +105,6 @@ function SettingsComponent() {
       toast.error(`删除失败: ${toErrorMessage(error)}`);
     }
   };
-
-  const onDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
-
-  const { proceed, reset, status } = useBlocker({
-    condition: isDirty,
-  });
-
-  const handleContinueEditing = useCallback(() => {
-    if (isSavingAndLeaving) {
-      return;
-    }
-    reset?.();
-  }, [isSavingAndLeaving, reset]);
-
-  const handleDiscardChanges = useCallback(() => {
-    if (isSavingAndLeaving) {
-      return;
-    }
-    proceed?.();
-  }, [isSavingAndLeaving, proceed]);
-
-  const handleSaveAndLeave = useCallback(async () => {
-    if (!settingsFormRef.current || isSavingAndLeaving) {
-      return;
-    }
-
-    setIsSavingAndLeaving(true);
-    let saved = false;
-
-    try {
-      saved = await settingsFormRef.current.submit();
-    } finally {
-      setIsSavingAndLeaving(false);
-    }
-
-    if (saved) {
-      proceed?.();
-      return;
-    }
-
-    reset?.();
-  }, [isSavingAndLeaving, proceed, reset]);
 
   const profiles = profilesQ.data?.profiles ?? [];
   const activeProfile = profilesQ.data?.active ?? "";
@@ -255,29 +139,19 @@ function SettingsComponent() {
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex-1 overflow-hidden">
         {configQ.data && (
-          <SettingsLayout
-            title="刮削设置"
-            subtitle="管理媒体库、刮削策略及系统偏好"
-            searchValue={searchQuery}
-            onSearchChange={setSearchQuery}
-            profiles={profiles}
-            activeProfile={activeProfile}
-            onSwitchProfile={handleSwitchProfile}
-            onCreateProfile={() => setNewProfileDialogOpen(true)}
-            onDeleteProfile={() => setDeleteProfileDialogOpen(true)}
-            onResetConfig={() => setResetDialogOpen(true)}
-            configPath={configInfoQ.data?.configPath}
-          >
-            <SettingsForm
-              ref={settingsFormRef}
-              key={activeProfile || "default"}
-              data={configQ.data}
-              onSubmit={(data) => mutation.mutateAsync(data as NonNullable<UpdateConfigData["body"]>)}
-              serverErrors={serverErrors}
-              serverFieldErrors={serverFieldErrors}
-              onDirtyChange={onDirtyChange}
-            />
-          </SettingsLayout>
+          <SettingsSearchProvider>
+            <SettingsLayoutConnected
+              profiles={profiles}
+              activeProfile={activeProfile}
+              configPath={configInfoQ.data?.configPath}
+              onSwitchProfile={handleSwitchProfile}
+              onCreateProfile={() => setNewProfileDialogOpen(true)}
+              onDeleteProfile={() => setDeleteProfileDialogOpen(true)}
+              onResetConfig={() => setResetDialogOpen(true)}
+            >
+              <SettingsForm key={activeProfile || "default"} data={configQ.data} />
+            </SettingsLayoutConnected>
+          </SettingsSearchProvider>
         )}
       </div>
 
@@ -354,35 +228,54 @@ function SettingsComponent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Navigation blocker dialog (removed in PR3 with auto-save) */}
-      <Dialog
-        open={status === "blocked"}
-        onOpenChange={(open) => {
-          if (isSavingAndLeaving) {
-            return;
-          }
-          if (!open) reset?.();
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>未保存的更改</DialogTitle>
-            <DialogDescription>您有未保存的设置更改。您可以保存后离开，或继续编辑当前表单。</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={handleContinueEditing} disabled={isSavingAndLeaving}>
-              继续编辑
-            </Button>
-            <Button onClick={handleSaveAndLeave} disabled={isSavingAndLeaving}>
-              {isSavingAndLeaving ? "保存中..." : "保存并离开"}
-            </Button>
-            <Button variant="destructive" onClick={handleDiscardChanges} disabled={isSavingAndLeaving}>
-              放弃更改
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
+  );
+}
+
+interface SettingsLayoutConnectedProps {
+  profiles: string[];
+  activeProfile: string;
+  configPath?: string;
+  onSwitchProfile: (name: string) => void;
+  onCreateProfile: () => void;
+  onDeleteProfile: () => void;
+  onResetConfig: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * Thin connector between the settings search context and SettingsLayout so
+ * Enter on the outer search input jumps to the first match and re-renders
+ * only the layout + search provider tree.
+ */
+function SettingsLayoutConnected({
+  profiles,
+  activeProfile,
+  configPath,
+  onSwitchProfile,
+  onCreateProfile,
+  onDeleteProfile,
+  onResetConfig,
+  children,
+}: SettingsLayoutConnectedProps) {
+  const { query, setQuery, focusFirstMatch } = useSettingsSearch();
+
+  return (
+    <SettingsLayout
+      title="刮削设置"
+      subtitle="管理媒体库、刮削策略及系统偏好"
+      searchValue={query}
+      onSearchChange={setQuery}
+      onSearchSubmit={focusFirstMatch}
+      profiles={profiles}
+      activeProfile={activeProfile}
+      onSwitchProfile={onSwitchProfile}
+      onCreateProfile={onCreateProfile}
+      onDeleteProfile={onDeleteProfile}
+      onResetConfig={onResetConfig}
+      configPath={configPath}
+    >
+      {children}
+    </SettingsLayout>
   );
 }

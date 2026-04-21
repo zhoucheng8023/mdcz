@@ -3,16 +3,19 @@ import { useState } from "react";
 import type { ControllerRenderProps, FieldValues } from "react-hook-form";
 import { useFormContext } from "react-hook-form";
 import { ipc } from "@/client/ipc";
-import { Row } from "@/components/shared/Row";
+import { AutoSaveStatusIndicator } from "@/components/settings/AutoSaveStatusIndicator";
+import { SettingRow } from "@/components/settings/SettingRow";
+import { useOptionalSettingsSearch } from "@/components/settings/SettingsSearchContext";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { FormControl, FormField, FormItem, FormMessage } from "@/components/ui/Form";
+import { FormControl, FormField, FormItem } from "@/components/ui/Form";
 import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { ShortcutInput } from "@/components/ui/ShortcutInput";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
+import { useAutoSaveField } from "@/hooks/useAutoSaveField";
 import { ChipArrayField } from "./ChipArrayField";
 import { DurationField } from "./DurationField";
 import { OrderedSiteField } from "./OrderedSiteField";
@@ -20,43 +23,67 @@ import { ServerPathField } from "./ServerPathField";
 
 // ── Centralized Base Field ──
 
+type CommitMode = "debounce" | "immediate";
+
 interface BaseFieldProps {
   name: string;
   label: string;
   description?: string;
   children: (field: ControllerRenderProps<FieldValues, string>) => React.ReactNode;
-  contentClassName?: string;
   fullWidthContent?: boolean;
+  /**
+   * When the user edits this field, should the save fire after a debounce
+   * (free-text) or immediately (discrete controls like Switch/Select/pickers)?
+   * Defaults to "immediate".
+   */
+  commitMode?: CommitMode;
 }
 
 /**
- * BaseField ensures consistent layout using Row and links FormField state.
- * Important: children must wrap the interactive element in <FormControl> to preserve Radix accessibility.
+ * BaseField wires each form field to auto-save and renders it as a
+ * `SettingRow` with the micro-status indicator in the right-aligned status
+ * slot.
  */
-export function BaseField({ name, label, description, children, contentClassName, fullWidthContent }: BaseFieldProps) {
+export function BaseField({
+  name,
+  label,
+  description,
+  children,
+  fullWidthContent,
+  commitMode = "immediate",
+}: BaseFieldProps) {
   const form = useFormContext();
+  const { status, error: autoSaveError } = useAutoSaveField(name, { mode: commitMode });
+  const search = useOptionalSettingsSearch();
+
+  const highlighted = Boolean(search?.isSearching && search.isMatch(label, name));
+  const dimmed = Boolean(search?.isSearching && !search.isMatch(label, name));
+
   return (
-    <div className="hover:bg-muted/5 transition-colors group">
-      <FormField
-        control={form.control}
-        name={name}
-        render={({ field }) => (
-          <FormItem className="space-y-0">
-            {fullWidthContent ? (
-              <div className="flex flex-col">
-                <Row variant="form" label={label} description={description} />
-                <div className="px-4 pb-4">{children(field)}</div>
-              </div>
-            ) : (
-              <Row variant="form" label={label} description={description} contentClassName={contentClassName}>
-                {children(field)}
-              </Row>
-            )}
-            <FormMessage className="px-4 pb-2 -mt-1" />
+    <FormField
+      control={form.control}
+      name={name}
+      render={({ field, fieldState }) => {
+        const fieldStateError =
+          fieldState.error && typeof fieldState.error.message === "string" ? fieldState.error.message : null;
+        const rowError = autoSaveError ?? fieldStateError;
+
+        return (
+          <FormItem className="block space-y-0" data-field-name={name}>
+            <SettingRow
+              label={label}
+              description={description}
+              error={rowError}
+              status={<AutoSaveStatusIndicator status={status} />}
+              control={children(field)}
+              fullWidthContent={fullWidthContent}
+              dimmed={dimmed}
+              highlighted={highlighted}
+            />
           </FormItem>
-        )}
-      />
-    </div>
+        );
+      }}
+    />
   );
 }
 
@@ -64,7 +91,7 @@ export function BaseField({ name, label, description, children, contentClassName
 
 export function BoolField({ name, label, description }: { name: string; label: string; description?: string }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="immediate">
       {(field) => (
         <FormControl>
           <Switch checked={Boolean(field.value)} onCheckedChange={field.onChange} />
@@ -78,7 +105,7 @@ export function BoolField({ name, label, description }: { name: string; label: s
 
 export function TextField({ name, label, description }: { name: string; label: string; description?: string }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
         <FormControl>
           <Input
@@ -94,7 +121,7 @@ export function TextField({ name, label, description }: { name: string; label: s
 
 export function SecretField({ name, label, description }: { name: string; label: string; description?: string }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
         <FormControl>
           <PasswordInput
@@ -113,7 +140,7 @@ export function SecretField({ name, label, description }: { name: string; label:
 
 export function UrlField({ name, label, description }: { name: string; label: string; description?: string }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
         <FormControl>
           <Input
@@ -147,7 +174,7 @@ export function NumberField({
   step?: number;
 }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
         <FormControl>
           <Input
@@ -182,7 +209,7 @@ export function EnumField({
   options: EnumOption[];
 }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="immediate">
       {(field) => (
         <FormControl>
           <Select value={(field.value as string) ?? ""} onValueChange={field.onChange}>
@@ -267,7 +294,7 @@ export function CookieFieldWrapper({
   description?: string;
 }) {
   return (
-    <BaseField name={name} label={label} description={description} fullWidthContent>
+    <BaseField name={name} label={label} description={description} fullWidthContent commitMode="debounce">
       {(field) => (
         <div className="flex flex-col gap-2">
           {COOKIE_VALIDATE_FIELDS.has(name) && (
@@ -301,7 +328,7 @@ export function PromptFieldWrapper({
   description?: string;
 }) {
   return (
-    <BaseField name={name} label={label} description={description} fullWidthContent>
+    <BaseField name={name} label={label} description={description} fullWidthContent commitMode="debounce">
       {(field) => (
         <FormControl>
           <Textarea
@@ -329,7 +356,7 @@ export function PathFieldWrapper({
   isDirectory?: boolean;
 }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="immediate">
       {(field) => (
         <div className="w-[450px]">
           <ServerPathField field={field} isDirectory={isDirectory} />
@@ -351,7 +378,7 @@ export function DurationFieldWrapper({
   description?: string;
 }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => <DurationField field={field} />}
     </BaseField>
   );
@@ -373,7 +400,7 @@ export function ChipArrayFieldWrapper({
   showBulkActions?: boolean;
 }) {
   return (
-    <BaseField name={name} label={label} description={description} fullWidthContent>
+    <BaseField name={name} label={label} description={description} fullWidthContent commitMode="immediate">
       {(field) => <ChipArrayField field={field} options={options} showBulkActions={showBulkActions} />}
     </BaseField>
   );
@@ -391,7 +418,7 @@ export function OrderedSiteFieldWrapper({
   options: string[];
 }) {
   return (
-    <BaseField name={name} label={label} description={description} fullWidthContent>
+    <BaseField name={name} label={label} description={description} fullWidthContent commitMode="immediate">
       {(field) => <OrderedSiteField field={field} options={options} />}
     </BaseField>
   );
@@ -401,7 +428,7 @@ export function OrderedSiteFieldWrapper({
 
 export function ShortcutField({ name, label, description }: { name: string; label: string; description?: string }) {
   return (
-    <BaseField name={name} label={label} description={description}>
+    <BaseField name={name} label={label} description={description} commitMode="immediate">
       {(field) => (
         <FormControl>
           <ShortcutInput value={field.value as string} onChange={field.onChange} className="w-[320px] justify-end" />

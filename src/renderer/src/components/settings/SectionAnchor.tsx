@@ -1,4 +1,7 @@
 import { type ReactNode, useEffect } from "react";
+import { CrossFieldBanner } from "@/components/settings/CrossFieldBanner";
+import { type FieldEntry, SECTION_LABELS } from "@/components/settings/settingsRegistry";
+import { useCrossFieldErrors } from "@/hooks/useCrossFieldErrors";
 import { cn } from "@/lib/utils";
 import { useOptionalToc } from "./TocContext";
 
@@ -9,6 +12,10 @@ interface SectionAnchorProps {
   description?: string;
   className?: string;
   children: ReactNode;
+}
+
+function isKnownAnchor(id: string): id is FieldEntry["anchor"] {
+  return id in SECTION_LABELS;
 }
 
 export function SectionAnchor({ id, label, title, description, className, children }: SectionAnchorProps) {
@@ -29,7 +36,13 @@ export function SectionAnchor({ id, label, title, description, className, childr
           {description && <p className="mt-2 max-w-prose text-sm text-muted-foreground">{description}</p>}
         </header>
       )}
+      {isKnownAnchor(id) && <SectionBanner sectionKey={id} />}
       <div className="space-y-2">{children}</div>
     </section>
   );
+}
+
+function SectionBanner({ sectionKey }: { sectionKey: FieldEntry["anchor"] }) {
+  const errors = useCrossFieldErrors(sectionKey);
+  return <CrossFieldBanner errors={errors} />;
 }
