@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FieldValues } from "react-hook-form";
-import { useFormContext, useWatch } from "react-hook-form";
+import { useFormContext, useFormState, useWatch } from "react-hook-form";
 import { normalizeEnabledSites, OrderedSiteFieldEditor } from "@/components/config-form/OrderedSiteField";
 import { SiteConfigSection } from "@/components/config-form/SiteConfigSection";
 import { AutoSaveStatusIndicator } from "@/components/settings/AutoSaveStatusIndicator";
@@ -64,9 +64,10 @@ export function SitePriorityEditorField({
   const form = useFormContext<FieldValues>();
   const search = useOptionalSettingsSearch();
   const value = (useWatch({ control: form.control, name }) as string[] | undefined) ?? [];
+  const fieldFormState = useFormState({ control: form.control, name });
   const normalizedValue = useMemo(() => normalizeEnabledSites(value), [value]);
   const summary = useMemo(() => buildSitePrioritySummary(normalizedValue, options), [normalizedValue, options]);
-  const { status, error } = useAutoSaveField(name, { mode: "immediate" });
+  const { status } = useAutoSaveField(name, { mode: "immediate" });
   const [open, setOpen] = useState(false);
   const [draftValue, setDraftValue] = useState<string[]>(normalizedValue);
 
@@ -79,6 +80,10 @@ export function SitePriorityEditorField({
   const highlighted = Boolean(search?.isSearching && search.isMatch(label, name));
   const dimmed = Boolean(search?.isSearching && !search.isMatch(label, name));
   const hasChanges = !valuesEqual(normalizeEnabledSites(draftValue), normalizedValue);
+  const rowError = (() => {
+    const error = form.getFieldState(name, fieldFormState).error;
+    return error && typeof error.message === "string" ? error.message : null;
+  })();
 
   const applyDraft = () => {
     form.setValue(name, normalizeEnabledSites(draftValue), {
@@ -94,7 +99,7 @@ export function SitePriorityEditorField({
         <SettingRow
           label={label}
           description={description}
-          error={error}
+          error={rowError}
           status={<AutoSaveStatusIndicator status={status} />}
           highlighted={highlighted}
           dimmed={dimmed}

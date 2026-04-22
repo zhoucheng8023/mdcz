@@ -45,10 +45,10 @@ describe("settingsRegistry", () => {
     });
   });
 
-  it("unflatten builds nested objects for single-field auto-save payloads", () => {
-    // useAutoSaveField saves one field at a time: it passes { [path]: value } to
-    // unflattenConfig before sending to ipc.config.save. Make sure dotted paths
-    // with dynamic segments (site customUrls) nest correctly.
+  it("unflatten builds nested objects for partial auto-save payloads", () => {
+    // useAutoSaveField persists partial dotted-path payloads before sending them
+    // to ipc.config.save. Make sure dynamic segments (site customUrls) still
+    // nest correctly.
     const payload = unflattenConfig({ "scrape.siteConfigs.javdb.customUrl": "https://mirror.example" });
     expect(payload).toMatchObject({
       scrape: { siteConfigs: { javdb: { customUrl: "https://mirror.example" } } },

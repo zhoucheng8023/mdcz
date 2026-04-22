@@ -53,7 +53,7 @@ export function BaseField({
   commitMode = "immediate",
 }: BaseFieldProps) {
   const form = useFormContext();
-  const { status, error: autoSaveError } = useAutoSaveField(name, { mode: commitMode });
+  const { status } = useAutoSaveField(name, { mode: commitMode });
   const search = useOptionalSettingsSearch();
 
   const highlighted = Boolean(search?.isSearching && search.isMatch(label, name));
@@ -64,9 +64,8 @@ export function BaseField({
       control={form.control}
       name={name}
       render={({ field, fieldState }) => {
-        const fieldStateError =
+        const rowError =
           fieldState.error && typeof fieldState.error.message === "string" ? fieldState.error.message : null;
-        const rowError = autoSaveError ?? fieldStateError;
 
         return (
           <FormItem className="block space-y-0" data-field-name={name}>

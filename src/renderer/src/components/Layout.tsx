@@ -4,7 +4,6 @@ import {
   FileText,
   Info,
   LayoutDashboard,
-  Menu,
   Monitor,
   Moon,
   PanelLeftClose,
@@ -20,7 +19,6 @@ import { AppTitleBar } from "@/components/AppTitleBar";
 import { Button } from "@/components/ui/Button";
 import { NavButton } from "@/components/ui/NavButton";
 import { Separator } from "@/components/ui/Separator";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/Sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/Tooltip";
 import { useTheme } from "@/contexts/ThemeProvider";
 import { useCurrentConfig } from "@/hooks/useCurrentConfig";
@@ -201,7 +199,7 @@ export default function Layout({ children }: LayoutProps) {
         {/* Desktop Sidebar */}
         <aside
           className={cn(
-            "hidden md:flex md:flex-col bg-sidebar text-sidebar-foreground border-r-0 shrink-0 transition-[width] duration-300 ease-in-out",
+            "flex flex-col bg-sidebar text-sidebar-foreground border-r-0 shrink-0 transition-[width] duration-300 ease-in-out",
             isCollapsed ? "w-[60px]" : "w-[160px]",
           )}
         >
@@ -215,31 +213,6 @@ export default function Layout({ children }: LayoutProps) {
             systemNav={filteredSystemNav}
           />
         </aside>
-
-        {/* Mobile Sidebar */}
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "md:hidden fixed left-3 z-50 h-9 w-9 rounded-lg bg-sidebar/80 backdrop-blur",
-                useCustomTitleBar ? "top-12" : "top-3",
-              )}
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-[160px] p-0 bg-sidebar">
-            <NavContent
-              pathname={pathname}
-              onThemeToggle={cycleTheme}
-              themeIcon={ThemeIcon}
-              themeLabel={themeLabel}
-              systemNav={filteredSystemNav}
-            />
-          </SheetContent>
-        </Sheet>
 
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden py-2 pl-2">

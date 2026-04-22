@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useFormContext, useWatch } from "react-hook-form";
+import { useFormContext, useFormState, useWatch } from "react-hook-form";
 import { ipc } from "@/client/ipc";
 import { unflattenConfig } from "@/components/settings/settingsRegistry";
 import { useSettingsSavingStore } from "@/store/settingsSavingStore";
@@ -17,7 +17,6 @@ export interface UseAutoSaveFieldOptions {
 
 export interface UseAutoSaveFieldResult {
   status: AutoSaveStatus;
-  error: string | null;
 }
 
 const DEFAULT_DEBOUNCE_MS = 500;
@@ -73,6 +72,47 @@ function valuesEqual(a: unknown, b: unknown): boolean {
   }
 }
 
+function collectServerErrorPaths(errors: unknown, prefix = ""): string[] {
+  if (Array.isArray(errors)) {
+    return errors.flatMap((entry, index) =>
+      collectServerErrorPaths(entry, prefix ? `${prefix}.${index}` : String(index)),
+    );
+  }
+
+  if (!isRecord(errors)) {
+    return [];
+  }
+
+  if (errors.type === "server") {
+    return prefix ? [prefix] : [];
+  }
+
+  const paths: string[] = [];
+  for (const [key, value] of Object.entries(errors)) {
+    if (key === "root") {
+      continue;
+    }
+    paths.push(...collectServerErrorPaths(value, prefix ? `${prefix}.${key}` : key));
+  }
+  return paths;
+}
+
+export function buildAutoSaveFlatPayload(
+  path: string,
+  value: unknown,
+  errors: unknown,
+  getValue: (fieldPath: string) => unknown,
+): Record<string, unknown> {
+  const relatedPaths = new Set([path, ...collectServerErrorPaths(errors)]);
+  const flatPayload: Record<string, unknown> = {};
+
+  for (const relatedPath of relatedPaths) {
+    flatPayload[relatedPath] = relatedPath === path ? value : getValue(relatedPath);
+  }
+
+  return flatPayload;
+}
+
 /**
  * Auto-saves a single form field to the backend via `ipc.config.save`.
  *
@@ -90,9 +130,9 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
   const { mode = "immediate", debounceMs = DEFAULT_DEBOUNCE_MS } = options;
   const form = useFormContext();
   const value = useWatch({ control: form.control, name: path });
+  const fieldFormState = useFormState({ control: form.control, name: path });
 
   const [status, setStatus] = useState<AutoSaveStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
 
   const formRef = useRef(form);
   formRef.current = form;
@@ -125,20 +165,22 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
 
     const performSave = () => {
       const valueToSave = pendingValueRef.current;
+      const flatPayload = buildAutoSaveFlatPayload(path, valueToSave, formRef.current.formState.errors, (fieldPath) =>
+        formRef.current.getValues(fieldPath),
+      );
+      const payloadPaths = Object.keys(flatPayload);
       setStatus("saving");
-      setError(null);
       incrementInFlight();
 
       saveChainRef.current = saveChainRef.current
         .catch(() => {})
         .then(async () => {
           try {
-            const payload = unflattenConfig({ [path]: valueToSave });
+            const payload = unflattenConfig(flatPayload);
             await ipc.config.save(payload);
             lastSavedValueRef.current = valueToSave;
             setStatus("saved");
-            setError(null);
-            formRef.current.clearErrors(path);
+            formRef.current.clearErrors(payloadPaths);
 
             fadeTimerRef.current = window.setTimeout(() => {
               fadeTimerRef.current = null;
@@ -149,10 +191,8 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
             if (serverError) {
               const ownError = serverError.fieldErrors[path];
               if (ownError) {
-                setError(ownError);
                 formRef.current.setError(path, { type: "server", message: ownError });
               } else {
-                setError(null);
                 formRef.current.clearErrors(path);
               }
               for (const otherField of serverError.fields) {
@@ -162,7 +202,6 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
               }
             } else {
               const message = err instanceof Error ? err.message : "保存失败";
-              setError(message);
               formRef.current.setError(path, { type: "server", message });
             }
             setStatus("error");
@@ -191,6 +230,12 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
   }, [value, mode, debounceMs, path, incrementInFlight, decrementInFlight]);
 
   useEffect(() => {
+    if (status === "error" && !form.getFieldState(path, fieldFormState).error) {
+      setStatus("idle");
+    }
+  }, [fieldFormState, form, path, status]);
+
+  useEffect(() => {
     return () => {
       if (debounceTimerRef.current !== null) {
         window.clearTimeout(debounceTimerRef.current);
@@ -201,5 +246,5 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
     };
   }, []);
 
-  return { status, error };
+  return { status };
 }
