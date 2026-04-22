@@ -1,13 +1,11 @@
 import { toErrorMessage } from "@shared/error";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ipc } from "@/client/ipc";
-import { SettingsForm } from "@/components/settings/SettingsForm";
+import { SettingsEditor } from "@/components/settings/SettingsEditor";
 import { SettingsLayout } from "@/components/settings/SettingsLayout";
-import { SettingsSearchProvider, useSettingsSearch } from "@/components/settings/SettingsSearchContext";
 import { Button } from "@/components/ui/Button";
 import {
   Dialog,
@@ -20,7 +18,9 @@ import {
 } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
+import { useConfigProfiles } from "@/hooks/useConfigProfiles";
 import { useCurrentConfig } from "@/hooks/useCurrentConfig";
+import { useDefaultConfig } from "@/hooks/useDefaultConfig";
 import { cn } from "@/lib/utils";
 import { useSettingsSavingStore } from "@/store/settingsSavingStore";
 
@@ -58,14 +58,16 @@ function SettingsComponent() {
     refetchOnWindowFocus: false,
   });
 
-  const profilesQ = useQuery({
-    queryKey: ["config", "profiles"],
-    queryFn: async () => ipc.config.listProfiles(),
+  const defaultsQ = useDefaultConfig({
+    refetchOnWindowFocus: false,
+  });
+
+  const profilesQ = useConfigProfiles({
     refetchOnWindowFocus: false,
   });
 
   const profiles = profilesQ.data?.profiles ?? [];
-  const activeProfile = profilesQ.data?.active ?? "";
+  const activeProfile = profilesQ.data?.active ?? null;
 
   const deletableProfiles = useMemo(
     () => profiles.filter((profile) => profile !== activeProfile),
@@ -92,7 +94,7 @@ function SettingsComponent() {
     setImportMode("new");
     setImportFilePath("");
     setImportProfileName("");
-    setOverwriteProfileName(activeProfile || profiles[0] || "default");
+    setOverwriteProfileName(activeProfile ?? profiles[0] ?? "default");
   };
 
   useEffect(() => {
@@ -109,7 +111,7 @@ function SettingsComponent() {
       return;
     }
     if (!overwriteProfileName || !profiles.includes(overwriteProfileName)) {
-      setOverwriteProfileName(activeProfile || profiles[0] || "default");
+      setOverwriteProfileName(activeProfile ?? profiles[0] ?? "default");
     }
   }, [activeProfile, importDialogOpen, importMode, overwriteProfileName, profiles]);
 
@@ -127,7 +129,7 @@ function SettingsComponent() {
     try {
       await ipc.config.reset();
       invalidateConfigQueries();
-      toast.success(`已恢复档案 "${activeProfile || "default"}" 的默认设置`);
+      toast.success(`已恢复档案 "${activeProfile ?? "default"}" 的默认设置`);
       setResetDialogOpen(false);
     } catch (error) {
       toast.error(`重置失败: ${toErrorMessage(error)}`);
@@ -237,14 +239,6 @@ function SettingsComponent() {
     }
   };
 
-  if (configQ.isLoading) {
-    return (
-      <div className="flex h-[50vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
   if (configQ.isError) {
     return <div className="p-4 text-destructive">Error loading settings.</div>;
   }
@@ -252,21 +246,37 @@ function SettingsComponent() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-hidden">
-        {configQ.data && (
-          <SettingsSearchProvider>
-            <SettingsLayoutConnected
-              profiles={profiles}
-              activeProfile={activeProfile}
-              onSwitchProfile={handleSwitchProfile}
-              onCreateProfile={() => setNewProfileDialogOpen(true)}
-              onDeleteProfile={() => setDeleteProfileDialogOpen(true)}
-              onResetConfig={handleOpenResetDialog}
-              onExportProfile={handleExportProfile}
-              onImportProfile={handleOpenImportDialog}
-            >
-              <SettingsForm key={activeProfile || "default"} data={configQ.data} />
-            </SettingsLayoutConnected>
-          </SettingsSearchProvider>
+        {configQ.data ? (
+          <SettingsEditor
+            key={activeProfile ?? "default"}
+            data={configQ.data}
+            defaultConfig={defaultsQ.data}
+            defaultConfigReady={Boolean(defaultsQ.data)}
+            profiles={profiles}
+            activeProfile={activeProfile}
+            profileLoading={profilesQ.isLoading}
+            onSwitchProfile={handleSwitchProfile}
+            onCreateProfile={() => setNewProfileDialogOpen(true)}
+            onDeleteProfile={() => setDeleteProfileDialogOpen(true)}
+            onResetConfig={handleOpenResetDialog}
+            onExportProfile={handleExportProfile}
+            onImportProfile={handleOpenImportDialog}
+          />
+        ) : (
+          <SettingsLayout
+            searchDisabled
+            profiles={profiles}
+            activeProfile={activeProfile}
+            profileLoading={profilesQ.isLoading}
+            onSwitchProfile={handleSwitchProfile}
+            onCreateProfile={() => setNewProfileDialogOpen(true)}
+            onDeleteProfile={() => setDeleteProfileDialogOpen(true)}
+            onResetConfig={handleOpenResetDialog}
+            onExportProfile={handleExportProfile}
+            onImportProfile={handleOpenImportDialog}
+          >
+            <SettingsRouteSkeleton />
+          </SettingsLayout>
         )}
       </div>
 
@@ -276,7 +286,7 @@ function SettingsComponent() {
             <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">当前档案</p>
             <DialogTitle className="text-2xl font-semibold tracking-tight">恢复默认设置</DialogTitle>
             <DialogDescription className="text-sm leading-6">
-              这会将 <span className="font-medium text-foreground">{activeProfile || "default"}</span> 重置为默认配置。
+              这会将 <span className="font-medium text-foreground">{activeProfile ?? "default"}</span> 重置为默认配置。
               此操作不可撤销。
             </DialogDescription>
           </DialogHeader>
@@ -497,52 +507,35 @@ function SettingsComponent() {
   );
 }
 
-interface SettingsLayoutConnectedProps {
-  profiles: string[];
-  activeProfile: string;
-  onSwitchProfile: (name: string) => void;
-  onCreateProfile: () => void;
-  onDeleteProfile: () => void;
-  onResetConfig: () => void;
-  onExportProfile: () => void;
-  onImportProfile: () => void;
-  children: React.ReactNode;
-}
-
-/**
- * Thin connector between the settings search context and SettingsLayout so
- * Enter on the outer search input jumps to the first match and re-renders
- * only the layout + search provider tree.
- */
-function SettingsLayoutConnected({
-  profiles,
-  activeProfile,
-  onSwitchProfile,
-  onCreateProfile,
-  onDeleteProfile,
-  onResetConfig,
-  onExportProfile,
-  onImportProfile,
-  children,
-}: SettingsLayoutConnectedProps) {
-  const { query, setQuery, focusFirstMatch } = useSettingsSearch();
+function SettingsRouteSkeleton() {
+  const sectionKeys = ["section-a", "section-b", "section-c", "section-d"];
+  const rowKeys = ["row-a", "row-b", "row-c", "row-d"];
 
   return (
-    <SettingsLayout
-      searchValue={query}
-      onSearchChange={setQuery}
-      onSearchSubmit={focusFirstMatch}
-      profiles={profiles}
-      activeProfile={activeProfile}
-      onSwitchProfile={onSwitchProfile}
-      onCreateProfile={onCreateProfile}
-      onDeleteProfile={onDeleteProfile}
-      onResetConfig={onResetConfig}
-      onExportProfile={onExportProfile}
-      onImportProfile={onImportProfile}
-    >
-      {children}
-    </SettingsLayout>
+    <div className="space-y-10">
+      {sectionKeys.map((sectionKey) => (
+        <section key={sectionKey} className="space-y-4">
+          <div className="space-y-2">
+            <div className="h-7 w-40 animate-pulse rounded-full bg-foreground/8" />
+            <div className="h-4 w-72 animate-pulse rounded-full bg-foreground/6" />
+          </div>
+          <div className="space-y-3 rounded-[var(--radius-quiet-xl)] border border-border/30 bg-surface px-5 py-5">
+            {rowKeys.map((rowKey) => (
+              <div
+                key={`${sectionKey}-${rowKey}`}
+                className="flex flex-col gap-2 py-2 md:flex-row md:items-center md:justify-between"
+              >
+                <div className="space-y-2">
+                  <div className="h-4 w-36 animate-pulse rounded-full bg-foreground/8" />
+                  <div className="h-3 w-56 animate-pulse rounded-full bg-foreground/6" />
+                </div>
+                <div className="h-8 w-48 animate-pulse rounded-[var(--radius-quiet)] bg-surface-low" />
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 

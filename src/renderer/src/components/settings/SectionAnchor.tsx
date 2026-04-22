@@ -34,12 +34,19 @@ export function SectionAnchor({
   const toc = useOptionalToc();
   const search = useOptionalSettingsSearch();
   const [open, setOpen] = useState(defaultOpen);
-  const resolvedOpen = search?.isSearching ? true : open;
+  const resolvedOpen = search?.hasActiveFilters ? true : open;
+  const hiddenBySearch = isKnownAnchor(id) && search ? !search.isAnchorVisible(id) : false;
 
   useEffect(() => {
-    if (!toc) return;
+    if (hiddenBySearch || !toc) {
+      return;
+    }
     return toc.register({ id, label });
-  }, [toc, id, label]);
+  }, [hiddenBySearch, toc, id, label]);
+
+  if (hiddenBySearch) {
+    return null;
+  }
 
   return (
     <section data-toc-id={id} id={`settings-${id}`} className={cn("scroll-mt-28", className)}>

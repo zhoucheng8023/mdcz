@@ -1,7 +1,22 @@
-import { useEffect, useRef, useState } from "react";
-import { useFormContext, useFormState, useWatch } from "react-hook-form";
+import type { Configuration } from "@shared/config";
+import {
+  createContext,
+  createElement,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { FieldValues } from "react-hook-form";
+import { useFormContext, useWatch } from "react-hook-form";
+import { toast } from "sonner";
 import { ipc } from "@/client/ipc";
 import { unflattenConfig } from "@/components/settings/settingsRegistry";
+import { CURRENT_CONFIG_QUERY_KEY } from "@/hooks/configQueries";
+import { queryClient } from "@/lib/queryClient";
 import { useSettingsSavingStore } from "@/store/settingsSavingStore";
 
 export type AutoSaveStatus = "idle" | "saving" | "saved" | "error";
@@ -13,14 +28,37 @@ export interface UseAutoSaveFieldOptions {
    */
   mode?: "debounce" | "immediate";
   debounceMs?: number;
+  label?: string;
 }
 
 export interface UseAutoSaveFieldResult {
   status: AutoSaveStatus;
+  resetToDefault: () => void;
+}
+
+interface RegisteredAutoSaveField {
+  mode: "debounce" | "immediate";
+  debounceMs: number;
+  label?: string;
+}
+
+interface SettingsEditorAutosaveContextValue {
+  registerField: (path: string, options: UseAutoSaveFieldOptions) => () => void;
+  getFieldStatus: (path: string) => AutoSaveStatus;
+  resetFieldToDefault: (path: string, label?: string) => void;
+}
+
+interface SettingsEditorAutosaveProviderProps {
+  children?: ReactNode;
+  savedValues: Record<string, unknown>;
+  defaultValues?: Record<string, unknown>;
+  defaultValuesReady?: boolean;
 }
 
 const DEFAULT_DEBOUNCE_MS = 500;
 const SAVED_FADE_MS = 1500;
+
+const SettingsEditorAutosaveContext = createContext<SettingsEditorAutosaveContextValue | null>(null);
 
 interface ServerValidationPayload {
   fields: string[];
@@ -63,7 +101,7 @@ function extractServerValidation(error: unknown): ServerValidationPayload | null
   return { fields: [...mergedFields], fieldErrors };
 }
 
-function valuesEqual(a: unknown, b: unknown): boolean {
+export function valuesEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   try {
     return JSON.stringify(a) === JSON.stringify(b);
@@ -113,81 +151,203 @@ export function buildAutoSaveFlatPayload(
   return flatPayload;
 }
 
-/**
- * Auto-saves a single form field to the backend via `ipc.config.save`.
- *
- * - Observes the field value via react-hook-form's `useWatch`.
- * - Debounces free-text edits (mode="debounce") or saves immediately for
- *   discrete controls (Switch, Select, pickers, chip add/remove, etc.).
- * - Exposes a per-field status machine: `idle | saving | saved | error`.
- * - On validation failure, records server errors via `form.setError` so both
- *   the field's inline message and the section-level `CrossFieldBanner`
- *   (driven by `useCrossFieldErrors`) stay in sync.
- * - Tracks in-flight saves in a shared store so the route can guard profile
- *   switches until pending writes settle.
- */
-export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions = {}): UseAutoSaveFieldResult {
-  const { mode = "immediate", debounceMs = DEFAULT_DEBOUNCE_MS } = options;
-  const form = useFormContext();
-  const value = useWatch({ control: form.control, name: path });
-  const fieldFormState = useFormState({ control: form.control, name: path });
+function cloneConfigValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cloneConfigValue);
+  }
 
-  const [status, setStatus] = useState<AutoSaveStatus>("idle");
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, cloneConfigValue(entry)]));
+  }
+
+  return value;
+}
+
+function mergeConfigValue(base: unknown, override: unknown): unknown {
+  if (Array.isArray(override)) {
+    return cloneConfigValue(override);
+  }
+
+  if (isRecord(override)) {
+    const next: Record<string, unknown> = isRecord(base)
+      ? Object.fromEntries(Object.entries(base).map(([key, value]) => [key, cloneConfigValue(value)]))
+      : {};
+
+    for (const [key, value] of Object.entries(override)) {
+      next[key] = mergeConfigValue(next[key], value);
+    }
+
+    return next;
+  }
+
+  return cloneConfigValue(override);
+}
+
+export function mergeConfigWithFlatPayload(
+  baseConfig: Record<string, unknown>,
+  flatPayload: Record<string, unknown>,
+): Record<string, unknown> {
+  return mergeConfigValue(baseConfig, unflattenConfig(flatPayload)) as Record<string, unknown>;
+}
+
+function formatFieldLabel(label: string | undefined, path: string): string {
+  return label ? `“${label}”` : `“${path}”`;
+}
+
+function toFieldMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
+function nextRevision(revisions: Map<string, number>, path: string): number {
+  const revision = (revisions.get(path) ?? 0) + 1;
+  revisions.set(path, revision);
+  return revision;
+}
+
+function isLatestRevision(revisions: Map<string, number>, path: string, revision: number): boolean {
+  return (revisions.get(path) ?? 0) === revision;
+}
+
+export function SettingsEditorAutosaveProvider({
+  children,
+  savedValues,
+  defaultValues = {},
+  defaultValuesReady = false,
+}: SettingsEditorAutosaveProviderProps) {
+  const form = useFormContext<FieldValues>();
+  const incrementInFlight = useSettingsSavingStore((state) => state.incrementInFlight);
+  const decrementInFlight = useSettingsSavingStore((state) => state.decrementInFlight);
+  const [registeredFields, setRegisteredFields] = useState<Record<string, RegisteredAutoSaveField>>({});
+  const [fieldStatuses, setFieldStatuses] = useState<Record<string, AutoSaveStatus>>({});
+  const watchedPaths = useMemo(() => Object.keys(registeredFields), [registeredFields]);
+  const watchedValues = useWatch({
+    control: form.control,
+    name: watchedPaths,
+  }) as unknown[];
 
   const formRef = useRef(form);
   formRef.current = form;
 
-  const debounceTimerRef = useRef<number | null>(null);
-  const fadeTimerRef = useRef<number | null>(null);
+  const fieldStatusesRef = useRef(fieldStatuses);
+  fieldStatusesRef.current = fieldStatuses;
+
+  const registeredFieldsRef = useRef(registeredFields);
+  registeredFieldsRef.current = registeredFields;
+
+  const savedValuesRef = useRef(savedValues);
+  const defaultValuesRef = useRef(defaultValues);
+  defaultValuesRef.current = defaultValues;
+
+  const committedValuesRef = useRef<Map<string, unknown>>(new Map(Object.entries(savedValues)));
+  const pendingProgrammaticValuesRef = useRef<Map<string, unknown>>(new Map());
+  const saveRevisionsRef = useRef<Map<string, number>>(new Map());
+  const debounceTimersRef = useRef<Map<string, number>>(new Map());
+  const fadeTimersRef = useRef<Map<string, number>>(new Map());
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingValueRef = useRef<unknown>(value);
-  const lastSavedValueRef = useRef<unknown>(value);
 
-  const incrementInFlight = useSettingsSavingStore((state) => state.incrementInFlight);
-  const decrementInFlight = useSettingsSavingStore((state) => state.decrementInFlight);
+  const setFieldStatus = useCallback((path: string, status: AutoSaveStatus) => {
+    setFieldStatuses((previous) => {
+      if (previous[path] === status) {
+        return previous;
+      }
 
-  useEffect(() => {
-    pendingValueRef.current = value;
+      return {
+        ...previous,
+        [path]: status,
+      };
+    });
+  }, []);
 
-    if (valuesEqual(value, lastSavedValueRef.current)) {
-      return;
+  const clearFieldTimers = useCallback((path: string) => {
+    const debounceTimer = debounceTimersRef.current.get(path);
+    if (debounceTimer !== undefined) {
+      window.clearTimeout(debounceTimer);
+      debounceTimersRef.current.delete(path);
     }
 
-    if (debounceTimerRef.current !== null) {
-      window.clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
+    const fadeTimer = fadeTimersRef.current.get(path);
+    if (fadeTimer !== undefined) {
+      window.clearTimeout(fadeTimer);
+      fadeTimersRef.current.delete(path);
     }
+  }, []);
 
-    if (fadeTimerRef.current !== null) {
-      window.clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = null;
-    }
+  const markFieldSaved = useCallback(
+    (path: string) => {
+      clearFieldTimers(path);
+      setFieldStatus(path, "saved");
 
-    const performSave = () => {
-      const valueToSave = pendingValueRef.current;
-      const flatPayload = buildAutoSaveFlatPayload(path, valueToSave, formRef.current.formState.errors, (fieldPath) =>
-        formRef.current.getValues(fieldPath),
-      );
-      const payloadPaths = Object.keys(flatPayload);
-      setStatus("saving");
+      const fadeTimer = window.setTimeout(() => {
+        fadeTimersRef.current.delete(path);
+        setFieldStatuses((previous) => {
+          if (previous[path] !== "saved") {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            [path]: "idle",
+          };
+        });
+      }, SAVED_FADE_MS);
+
+      fadeTimersRef.current.set(path, fadeTimer);
+    },
+    [clearFieldTimers, setFieldStatus],
+  );
+
+  const mergeCurrentConfigCache = useCallback((flatPayload: Record<string, unknown>) => {
+    queryClient.setQueryData(CURRENT_CONFIG_QUERY_KEY, (previous) => {
+      if (!isRecord(previous)) {
+        return previous;
+      }
+
+      return mergeConfigWithFlatPayload(previous, flatPayload);
+    });
+  }, []);
+
+  const enqueueSave = useCallback(
+    (path: string, value: unknown, revision: number) => {
       incrementInFlight();
+      clearFieldTimers(path);
+      setFieldStatus(path, "saving");
 
       saveChainRef.current = saveChainRef.current
         .catch(() => {})
         .then(async () => {
-          try {
-            const payload = unflattenConfig(flatPayload);
-            await ipc.config.save(payload);
-            lastSavedValueRef.current = valueToSave;
-            setStatus("saved");
-            formRef.current.clearErrors(payloadPaths);
+          if (!isLatestRevision(saveRevisionsRef.current, path, revision)) {
+            return;
+          }
 
-            fadeTimerRef.current = window.setTimeout(() => {
-              fadeTimerRef.current = null;
-              setStatus((current) => (current === "saved" ? "idle" : current));
-            }, SAVED_FADE_MS);
-          } catch (err) {
-            const serverError = extractServerValidation(err);
+          const flatPayload = buildAutoSaveFlatPayload(path, value, formRef.current.formState.errors, (fieldPath) =>
+            formRef.current.getValues(fieldPath),
+          );
+          const payloadPaths = Object.keys(flatPayload);
+
+          try {
+            await ipc.config.save(unflattenConfig(flatPayload) as Partial<Configuration>);
+
+            if (!isLatestRevision(saveRevisionsRef.current, path, revision)) {
+              return;
+            }
+
+            for (const [payloadPath, payloadValue] of Object.entries(flatPayload)) {
+              committedValuesRef.current.set(payloadPath, payloadValue);
+            }
+
+            formRef.current.clearErrors(payloadPaths);
+            mergeCurrentConfigCache(flatPayload);
+            markFieldSaved(path);
+          } catch (error) {
+            if (!isLatestRevision(saveRevisionsRef.current, path, revision)) {
+              return;
+            }
+
+            const serverError = extractServerValidation(error);
             if (serverError) {
               const ownError = serverError.fieldErrors[path];
               if (ownError) {
@@ -195,56 +355,277 @@ export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions 
               } else {
                 formRef.current.clearErrors(path);
               }
+
               for (const otherField of serverError.fields) {
-                if (otherField === path) continue;
+                if (otherField === path) {
+                  continue;
+                }
+
                 const message = serverError.fieldErrors[otherField] ?? "校验失败";
                 formRef.current.setError(otherField, { type: "server", message });
               }
             } else {
-              const message = err instanceof Error ? err.message : "保存失败";
-              formRef.current.setError(path, { type: "server", message });
+              formRef.current.setError(path, {
+                type: "server",
+                message: toFieldMessage(error, "保存失败"),
+              });
             }
-            setStatus("error");
+
+            setFieldStatus(path, "error");
           } finally {
             decrementInFlight();
           }
         });
-    };
+    },
+    [clearFieldTimers, decrementInFlight, incrementInFlight, markFieldSaved, mergeCurrentConfigCache, setFieldStatus],
+  );
 
-    if (mode === "immediate") {
-      performSave();
+  const programmaticSave = useCallback(
+    (path: string, value: unknown) => {
+      clearFieldTimers(path);
+      const revision = nextRevision(saveRevisionsRef.current, path);
+      pendingProgrammaticValuesRef.current.set(path, value);
+      formRef.current.setValue(path, value, {
+        shouldDirty: true,
+        shouldTouch: true,
+      });
+      enqueueSave(path, value, revision);
+    },
+    [clearFieldTimers, enqueueSave],
+  );
+
+  const resetFieldToDefault = useCallback(
+    (path: string, label?: string) => {
+      if (!defaultValuesReady || !Object.hasOwn(defaultValuesRef.current, path)) {
+        return;
+      }
+
+      const defaultValue = defaultValuesRef.current[path];
+      const previousValue = formRef.current.getValues(path);
+      const fieldLabel = formatFieldLabel(label, path);
+
+      clearFieldTimers(path);
+      const revision = nextRevision(saveRevisionsRef.current, path);
+      pendingProgrammaticValuesRef.current.set(path, defaultValue);
+      formRef.current.setValue(path, defaultValue, {
+        shouldDirty: true,
+        shouldTouch: true,
+      });
+
+      incrementInFlight();
+      setFieldStatus(path, "saving");
+
+      saveChainRef.current = saveChainRef.current
+        .catch(() => {})
+        .then(async () => {
+          if (!isLatestRevision(saveRevisionsRef.current, path, revision)) {
+            return;
+          }
+
+          try {
+            await ipc.config.reset(path);
+
+            if (!isLatestRevision(saveRevisionsRef.current, path, revision)) {
+              return;
+            }
+
+            committedValuesRef.current.set(path, defaultValue);
+            formRef.current.clearErrors(path);
+            mergeCurrentConfigCache({ [path]: defaultValue });
+            markFieldSaved(path);
+
+            toast.success(`${fieldLabel} 已恢复为默认值`, {
+              action: {
+                label: "撤销",
+                onClick: () => {
+                  programmaticSave(path, previousValue);
+                },
+              },
+            });
+          } catch (error) {
+            if (!isLatestRevision(saveRevisionsRef.current, path, revision)) {
+              return;
+            }
+
+            pendingProgrammaticValuesRef.current.set(path, previousValue);
+            formRef.current.setValue(path, previousValue, {
+              shouldDirty: true,
+              shouldTouch: true,
+            });
+            formRef.current.setError(path, {
+              type: "server",
+              message: toFieldMessage(error, "恢复默认值失败"),
+            });
+            setFieldStatus(path, "error");
+            toast.error(`${fieldLabel} 恢复失败: ${toFieldMessage(error, "未知错误")}`);
+          } finally {
+            decrementInFlight();
+          }
+        });
+    },
+    [
+      clearFieldTimers,
+      decrementInFlight,
+      defaultValuesReady,
+      incrementInFlight,
+      markFieldSaved,
+      mergeCurrentConfigCache,
+      programmaticSave,
+      setFieldStatus,
+    ],
+  );
+
+  const registerField = useCallback(
+    (path: string, options: UseAutoSaveFieldOptions) => {
+      setRegisteredFields((previous) => {
+        const nextField: RegisteredAutoSaveField = {
+          mode: options.mode ?? "immediate",
+          debounceMs: options.debounceMs ?? DEFAULT_DEBOUNCE_MS,
+          label: options.label,
+        };
+
+        const current = previous[path];
+        if (
+          current?.mode === nextField.mode &&
+          current?.debounceMs === nextField.debounceMs &&
+          current?.label === nextField.label
+        ) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          [path]: nextField,
+        };
+      });
+
+      if (!committedValuesRef.current.has(path)) {
+        committedValuesRef.current.set(path, formRef.current.getValues(path));
+      }
+
+      return () => {
+        clearFieldTimers(path);
+        pendingProgrammaticValuesRef.current.delete(path);
+
+        setRegisteredFields((previous) => {
+          if (!(path in previous)) {
+            return previous;
+          }
+
+          const next = { ...previous };
+          delete next[path];
+          return next;
+        });
+      };
+    },
+    [clearFieldTimers],
+  );
+
+  useEffect(() => {
+    if (savedValuesRef.current === savedValues) {
       return;
     }
 
-    debounceTimerRef.current = window.setTimeout(() => {
-      debounceTimerRef.current = null;
-      performSave();
-    }, debounceMs);
+    savedValuesRef.current = savedValues;
+    committedValuesRef.current = new Map(Object.entries(savedValues));
+    pendingProgrammaticValuesRef.current.clear();
+    saveRevisionsRef.current.clear();
 
-    return () => {
-      if (debounceTimerRef.current !== null) {
-        window.clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-    };
-  }, [value, mode, debounceMs, path, incrementInFlight, decrementInFlight]);
-
-  useEffect(() => {
-    if (status === "error" && !form.getFieldState(path, fieldFormState).error) {
-      setStatus("idle");
+    const pendingPaths = new Set([...debounceTimersRef.current.keys(), ...fadeTimersRef.current.keys()]);
+    for (const path of pendingPaths) {
+      clearFieldTimers(path);
     }
-  }, [fieldFormState, form, path, status]);
+
+    setFieldStatuses({});
+  }, [clearFieldTimers, savedValues]);
+
+  useEffect(() => {
+    for (const [index, path] of watchedPaths.entries()) {
+      const value = watchedValues[index];
+      const pendingProgrammaticValue = pendingProgrammaticValuesRef.current.get(path);
+
+      if (pendingProgrammaticValue !== undefined) {
+        if (valuesEqual(value, pendingProgrammaticValue)) {
+          pendingProgrammaticValuesRef.current.delete(path);
+          continue;
+        }
+
+        pendingProgrammaticValuesRef.current.delete(path);
+      }
+
+      const committedValue = committedValuesRef.current.get(path);
+      if (valuesEqual(value, committedValue)) {
+        if (fieldStatusesRef.current[path] === "error" && !formRef.current.getFieldState(path).error) {
+          setFieldStatus(path, "idle");
+        }
+        continue;
+      }
+
+      const field = registeredFieldsRef.current[path];
+      if (!field) {
+        continue;
+      }
+
+      clearFieldTimers(path);
+      const revision = nextRevision(saveRevisionsRef.current, path);
+
+      if (field.mode === "immediate") {
+        enqueueSave(path, value, revision);
+        continue;
+      }
+
+      const debounceTimer = window.setTimeout(() => {
+        debounceTimersRef.current.delete(path);
+        enqueueSave(path, value, revision);
+      }, field.debounceMs);
+
+      debounceTimersRef.current.set(path, debounceTimer);
+    }
+  }, [clearFieldTimers, enqueueSave, setFieldStatus, watchedPaths, watchedValues]);
 
   useEffect(() => {
     return () => {
-      if (debounceTimerRef.current !== null) {
-        window.clearTimeout(debounceTimerRef.current);
+      for (const timer of debounceTimersRef.current.values()) {
+        window.clearTimeout(timer);
       }
-      if (fadeTimerRef.current !== null) {
-        window.clearTimeout(fadeTimerRef.current);
+
+      for (const timer of fadeTimersRef.current.values()) {
+        window.clearTimeout(timer);
       }
     };
   }, []);
 
-  return { status };
+  const contextValue = useMemo<SettingsEditorAutosaveContextValue>(
+    () => ({
+      registerField,
+      getFieldStatus: (path) => fieldStatuses[path] ?? "idle",
+      resetFieldToDefault,
+    }),
+    [fieldStatuses, registerField, resetFieldToDefault],
+  );
+
+  return createElement(SettingsEditorAutosaveContext.Provider, { value: contextValue }, children);
+}
+
+export function useAutoSaveField(path: string, options: UseAutoSaveFieldOptions = {}): UseAutoSaveFieldResult {
+  const autosave = useContext(SettingsEditorAutosaveContext);
+  if (!autosave) {
+    throw new Error("useAutoSaveField must be used within <SettingsEditorAutosaveProvider>");
+  }
+
+  const registrationOptions = useMemo(
+    () => ({
+      mode: options.mode,
+      debounceMs: options.debounceMs,
+      label: options.label,
+    }),
+    [options.debounceMs, options.label, options.mode],
+  );
+
+  useEffect(() => autosave.registerField(path, registrationOptions), [autosave, path, registrationOptions]);
+
+  return {
+    status: autosave.getFieldStatus(path),
+    resetToDefault: () => autosave.resetFieldToDefault(path, options.label),
+  };
 }

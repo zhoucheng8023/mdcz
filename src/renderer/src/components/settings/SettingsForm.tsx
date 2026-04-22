@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef } from "react";
-import type { FieldValues } from "react-hook-form";
-import { useForm } from "react-hook-form";
-import { Form, flattenConfig, useCrawlerSiteOptions } from "./settingsContent";
+import { Search, SlidersHorizontal } from "lucide-react";
+import { useSettingsSearch } from "./SettingsSearchContext";
+import { useCrawlerSiteOptions } from "./settingsContent";
 import {
   DataSourcesSection,
   ExtractionRulesSection,
@@ -11,43 +10,69 @@ import {
 } from "./TopLevelSections";
 
 interface SettingsFormProps {
-  data: Record<string, unknown>;
+  flatDefaults: Record<string, unknown>;
+  initialUseCustomTitleBar: boolean;
 }
 
-export function SettingsForm({ data }: SettingsFormProps) {
-  const flatDefaults = useMemo(() => flattenConfig(data), [data]);
-  const initialUseCustomTitleBarRef = useRef<boolean | null>(null);
-
-  if (initialUseCustomTitleBarRef.current === null) {
-    initialUseCustomTitleBarRef.current = Boolean(flatDefaults["ui.useCustomTitleBar"] ?? true);
-  }
-
-  const form = useForm<FieldValues>({
-    defaultValues: flatDefaults,
-    mode: "onChange",
-  });
-
-  useEffect(() => {
-    form.reset(flatDefaults);
-  }, [flatDefaults, form]);
-
+export function SettingsForm({ flatDefaults, initialUseCustomTitleBar }: SettingsFormProps) {
   const siteOptions = useCrawlerSiteOptions(flatDefaults);
-  const initialUseCustomTitleBar = initialUseCustomTitleBarRef.current ?? true;
+  const search = useSettingsSearch();
 
   return (
-    <Form {...form}>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-        }}
-        className="space-y-12"
+    <div className="space-y-12">
+      {search.hasActiveFilters && search.resultCount === 0 ? (
+        <SettingsEmptyState />
+      ) : (
+        <>
+          <DataSourcesSection siteOptions={siteOptions} />
+          <RateLimitingSection />
+          <ExtractionRulesSection />
+          <PathsTopLevelSection />
+          <SystemTopLevelSection initialUseCustomTitleBar={initialUseCustomTitleBar} />
+        </>
+      )}
+
+      <AdvancedSettingsFooter />
+    </div>
+  );
+}
+
+function SettingsEmptyState() {
+  return (
+    <div className="rounded-[var(--radius-quiet-xl)] border border-border/40 bg-surface px-6 py-8 text-center">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-surface-low text-muted-foreground">
+        <Search className="h-5 w-5" />
+      </div>
+      <div className="mt-4 space-y-1">
+        <p className="text-sm font-medium text-foreground">没有匹配的设置</p>
+        <p className="text-sm leading-6 text-muted-foreground">
+          试试更短的关键字，或使用 <code>@advanced</code>、<code>@id:&lt;settingKey&gt;</code>、
+          <code>@group:数据源</code>
+          之类的筛选。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AdvancedSettingsFooter() {
+  const search = useSettingsSearch();
+  const actionLabel = search.isAdvancedTokenActive
+    ? "退出 @advanced 筛选"
+    : search.isAdvancedVisible
+      ? "隐藏高级设置"
+      : "显示高级设置";
+
+  return (
+    <div className="flex justify-end pt-2">
+      <button
+        type="button"
+        onClick={search.isAdvancedTokenActive ? search.clearAdvancedToken : search.toggleShowAdvanced}
+        className="inline-flex items-center gap-2 rounded-[var(--radius-quiet-capsule)] bg-surface-low px-3.5 py-2 text-sm text-foreground outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        <DataSourcesSection siteOptions={siteOptions} />
-        <RateLimitingSection />
-        <ExtractionRulesSection />
-        <PathsTopLevelSection />
-        <SystemTopLevelSection initialUseCustomTitleBar={initialUseCustomTitleBar} />
-      </form>
-    </Form>
+        <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+        <span>{actionLabel}</span>
+      </button>
+    </div>
   );
 }

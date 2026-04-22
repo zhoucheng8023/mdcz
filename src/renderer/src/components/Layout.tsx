@@ -16,6 +16,7 @@ import {
 import { type ReactNode, useMemo, useState } from "react";
 import AppLogo from "@/assets/images/logo.png";
 import { AppTitleBar } from "@/components/AppTitleBar";
+import { preloadSettingsExperience } from "@/components/settings/preloadSettingsExperience";
 import { Button } from "@/components/ui/Button";
 import { NavButton } from "@/components/ui/NavButton";
 import { Separator } from "@/components/ui/Separator";
@@ -50,13 +51,18 @@ const SYSTEM_NAV: NavItem[] = [
 
 function NavLink({ item, collapsed, isActive }: { item: NavItem; collapsed: boolean; isActive: boolean }) {
   const Icon = item.icon;
+  const preloadOnIntent = () => {
+    if (item.to === "/settings") {
+      void preloadSettingsExperience();
+    }
+  };
 
   if (collapsed) {
     return (
       <Tooltip delayDuration={0}>
         <TooltipTrigger asChild>
           <NavButton asChild isActive={isActive} collapsed={true}>
-            <Link to={item.to}>
+            <Link to={item.to} preload="intent" onFocus={preloadOnIntent} onMouseEnter={preloadOnIntent}>
               <Icon className="h-5 w-5" strokeWidth={isActive ? 2.5 : 2} />
               <span className="sr-only">{item.label}</span>
             </Link>
@@ -71,7 +77,7 @@ function NavLink({ item, collapsed, isActive }: { item: NavItem; collapsed: bool
 
   return (
     <NavButton asChild isActive={isActive} collapsed={false}>
-      <Link to={item.to}>
+      <Link to={item.to} preload="intent" onFocus={preloadOnIntent} onMouseEnter={preloadOnIntent}>
         <Icon className="h-5 w-5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
         <span className="truncate">{item.label}</span>
       </Link>

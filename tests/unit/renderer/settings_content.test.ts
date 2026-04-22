@@ -4,12 +4,17 @@ import {
   NAMING_TEMPLATE_DESCRIPTION,
   NamingSection,
 } from "@renderer/components/settings/settingsContent";
+import { SettingsEditorAutosaveProvider } from "@renderer/hooks/useAutoSaveField";
 import { type ComponentProps, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { type FieldValues, FormProvider, useForm } from "react-hook-form";
 import { describe, expect, it } from "vitest";
 
 function NamingSectionHarness() {
+  const savedValues = {
+    "naming.folderTemplate": "{actor}/{number}",
+    "naming.fileTemplate": "{number}",
+  };
   const form = useForm<FieldValues>({
     defaultValues: {
       naming: {
@@ -19,7 +24,19 @@ function NamingSectionHarness() {
     },
   });
 
-  return createElement(FormProvider, form as ComponentProps<typeof FormProvider>, createElement(NamingSection));
+  return createElement(
+    FormProvider,
+    form as ComponentProps<typeof FormProvider>,
+    createElement(
+      SettingsEditorAutosaveProvider,
+      {
+        savedValues,
+        defaultValues: savedValues,
+        defaultValuesReady: true,
+      },
+      createElement(NamingSection),
+    ),
+  );
 }
 
 describe("settingsContent", () => {

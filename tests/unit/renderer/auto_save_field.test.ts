@@ -1,4 +1,4 @@
-import { buildAutoSaveFlatPayload } from "@renderer/hooks/useAutoSaveField";
+import { buildAutoSaveFlatPayload, mergeConfigWithFlatPayload } from "@renderer/hooks/useAutoSaveField";
 import { describe, expect, it } from "vitest";
 
 describe("useAutoSaveField helpers", () => {
@@ -44,6 +44,40 @@ describe("useAutoSaveField helpers", () => {
 
     expect(payload).toEqual({
       "scrape.siteConfigs.javdb.customUrl": "https://mirror.example",
+    });
+  });
+
+  it("merges flat save payloads back into the nested config cache shape", () => {
+    expect(
+      mergeConfigWithFlatPayload(
+        {
+          naming: {
+            folderTemplate: "{actor}/{number}",
+          },
+          scrape: {
+            siteConfigs: {
+              javdb: {
+                customUrl: "",
+              },
+            },
+          },
+        },
+        {
+          "naming.folderTemplate": "{number}",
+          "scrape.siteConfigs.javdb.customUrl": "https://mirror.example",
+        },
+      ),
+    ).toEqual({
+      naming: {
+        folderTemplate: "{number}",
+      },
+      scrape: {
+        siteConfigs: {
+          javdb: {
+            customUrl: "https://mirror.example",
+          },
+        },
+      },
     });
   });
 });

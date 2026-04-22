@@ -1,5 +1,6 @@
 export enum IpcChannel {
   Config_Get = "config:get",
+  Config_GetDefaults = "config:get-defaults",
   Config_Save = "config:save",
   Config_List = "config:list",
   Config_Reset = "config:reset",

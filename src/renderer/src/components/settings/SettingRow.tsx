@@ -5,6 +5,7 @@ interface SettingRowProps {
   label: string;
   description?: string;
   htmlFor?: string;
+  headerAction?: ReactNode;
   control: ReactNode;
   status?: ReactNode;
   error?: string | null;
@@ -25,6 +26,7 @@ export function SettingRow({
   label,
   description,
   htmlFor,
+  headerAction,
   control,
   status,
   error,
@@ -36,7 +38,7 @@ export function SettingRow({
   return (
     <div
       className={cn(
-        "flex py-3 transition-[opacity,background-color] duration-200",
+        "group/setting-row flex py-3 transition-[opacity,background-color] duration-200",
         fullWidthContent
           ? "flex-col gap-2.5"
           : "flex-col gap-2.5 md:flex-row md:items-start md:justify-between md:gap-6",
@@ -46,9 +48,12 @@ export function SettingRow({
       )}
     >
       <div className="min-w-0 flex-1">
-        <label htmlFor={htmlFor} className="block font-numeric text-sm font-bold tracking-tight text-foreground">
-          {label}
-        </label>
+        <div className="flex items-start gap-2">
+          <label htmlFor={htmlFor} className="block font-numeric text-sm font-bold tracking-tight text-foreground">
+            {label}
+          </label>
+          {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
+        </div>
         {description && <p className="mt-1 max-w-prose text-xs text-muted-foreground">{description}</p>}
         {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
       </div>

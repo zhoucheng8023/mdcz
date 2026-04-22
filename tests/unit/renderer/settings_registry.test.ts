@@ -54,4 +54,20 @@ describe("settingsRegistry", () => {
       scrape: { siteConfigs: { javdb: { customUrl: "https://mirror.example" } } },
     });
   });
+
+  it("marks selected expert-level fields as advanced while keeping public settings searchable", () => {
+    expect(FIELD_REGISTRY.find((entry) => entry.key === "naming.releaseRule")?.visibility).toBe("advanced");
+    expect(FIELD_REGISTRY.find((entry) => entry.key === "translate.llmPrompt")?.visibility).toBe("advanced");
+    expect(FIELD_REGISTRY.find((entry) => entry.key === "paths.mediaPath")?.visibility).toBe("public");
+  });
+
+  it("does not expose about-owned or internal-only config keys through the settings registry", () => {
+    const keys = new Set(FIELD_REGISTRY.map((entry) => entry.key));
+
+    expect(keys.has("behavior.updateCheck")).toBe(false);
+    expect(keys.has("ui.theme")).toBe(false);
+    expect(keys.has("ui.language")).toBe(false);
+    expect(keys.has("download.sceneImageConcurrency")).toBe(false);
+    expect(keys.has("aggregation.fieldPriorities.durationSeconds")).toBe(false);
+  });
 });

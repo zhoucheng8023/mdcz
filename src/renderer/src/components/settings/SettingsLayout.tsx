@@ -5,11 +5,10 @@ import { SettingsSearch } from "./SettingsSearch";
 import { TocProvider } from "./TocContext";
 
 interface SettingsLayoutProps {
-  searchValue: string;
-  onSearchChange: (value: string) => void;
-  onSearchSubmit?: () => void;
+  searchDisabled?: boolean;
   profiles: string[];
-  activeProfile: string;
+  activeProfile: string | null;
+  profileLoading?: boolean;
   onSwitchProfile: (name: string) => void;
   onCreateProfile: () => void;
   onDeleteProfile: () => void;
@@ -20,11 +19,10 @@ interface SettingsLayoutProps {
 }
 
 export function SettingsLayout({
-  searchValue,
-  onSearchChange,
-  onSearchSubmit,
+  searchDisabled = false,
   profiles,
   activeProfile,
+  profileLoading = false,
   onSwitchProfile,
   onCreateProfile,
   onDeleteProfile,
@@ -41,19 +39,22 @@ export function SettingsLayout({
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scroll-smooth">
           <div className="mx-auto flex max-w-6xl gap-6 px-6 pb-24 pt-10 md:px-10">
             <div className="min-w-0 flex-1">
-              <SettingsHeader
-                searchValue={searchValue}
-                onSearchChange={onSearchChange}
-                onSearchSubmit={onSearchSubmit}
-                profiles={profiles}
-                activeProfile={activeProfile}
-                onSwitchProfile={onSwitchProfile}
-                onCreateProfile={onCreateProfile}
-                onDeleteProfile={onDeleteProfile}
-                onResetConfig={onResetConfig}
-                onExportProfile={onExportProfile}
-                onImportProfile={onImportProfile}
-              />
+              <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-end">
+                <div className="flex items-center gap-2.5">
+                  <SettingsSearch disabled={searchDisabled} />
+                  <ProfileCapsule
+                    profiles={profiles}
+                    activeProfile={activeProfile}
+                    isLoading={profileLoading}
+                    onSwitchProfile={onSwitchProfile}
+                    onCreateProfile={onCreateProfile}
+                    onDeleteProfile={onDeleteProfile}
+                    onResetConfig={onResetConfig}
+                    onExportProfile={onExportProfile}
+                    onImportProfile={onImportProfile}
+                  />
+                </div>
+              </header>
               <div className="mt-6">{children}</div>
             </div>
             <FloatingToc />
@@ -61,39 +62,5 @@ export function SettingsLayout({
         </div>
       </div>
     </TocProvider>
-  );
-}
-
-interface SettingsHeaderProps extends Omit<SettingsLayoutProps, "children"> {}
-
-function SettingsHeader({
-  searchValue,
-  onSearchChange,
-  onSearchSubmit,
-  profiles,
-  activeProfile,
-  onSwitchProfile,
-  onCreateProfile,
-  onDeleteProfile,
-  onResetConfig,
-  onExportProfile,
-  onImportProfile,
-}: SettingsHeaderProps) {
-  return (
-    <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-end">
-      <div className="flex items-center gap-2.5">
-        <SettingsSearch value={searchValue} onChange={onSearchChange} onSubmit={onSearchSubmit} />
-        <ProfileCapsule
-          profiles={profiles}
-          activeProfile={activeProfile}
-          onSwitchProfile={onSwitchProfile}
-          onCreateProfile={onCreateProfile}
-          onDeleteProfile={onDeleteProfile}
-          onResetConfig={onResetConfig}
-          onExportProfile={onExportProfile}
-          onImportProfile={onImportProfile}
-        />
-      </div>
-    </header>
   );
 }

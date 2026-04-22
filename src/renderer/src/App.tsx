@@ -1,8 +1,8 @@
 import "./index.css";
 import { toErrorMessage } from "@shared/error";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { createHashHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { ipc } from "./client/ipc";
 import { BootFallback } from "./components/BootFallback";
@@ -12,6 +12,7 @@ import { ThemeProvider } from "./contexts/ThemeProvider";
 import { ToastProvider } from "./contexts/ToastProvider";
 import { useIpcSync } from "./hooks/useIpcSync";
 import { useStylesReady } from "./hooks/useStylesReady";
+import { queryClient } from "./lib/queryClient";
 import { routeTree } from "./routeTree.gen";
 import { useScrapeStore } from "./store/scrapeStore";
 import { useUIStore } from "./store/uiStore";
@@ -20,6 +21,7 @@ const shouldUseHashHistory = typeof window !== "undefined" && window.location.pr
 
 const router = createRouter({
   routeTree,
+  defaultPreload: "intent",
   ...(shouldUseHashHistory ? { history: createHashHistory() } : {}),
 });
 
@@ -30,7 +32,6 @@ declare module "@tanstack/react-router" {
 }
 
 const App = () => {
-  const queryClient = useMemo(() => new QueryClient(), []);
   const { runtimeReady, runtimeError } = useIpcSync(queryClient);
   const stylesReady = useStylesReady();
   const recoveryCheckedRef = useRef(false);

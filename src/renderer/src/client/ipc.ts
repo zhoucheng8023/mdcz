@@ -55,6 +55,7 @@ export const ipc = {
   },
   config: {
     get: (path?: string) => client[IpcChannel.Config_Get]({ path }),
+    getDefaults: () => client[IpcChannel.Config_GetDefaults](undefined) as Promise<Configuration>,
     save: (config?: Partial<Configuration>) => client[IpcChannel.Config_Save]({ config }),
     list: () => client[IpcChannel.Config_List](undefined),
     reset: (path?: string) => client[IpcChannel.Config_Reset]({ path }),

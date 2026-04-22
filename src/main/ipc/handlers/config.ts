@@ -6,6 +6,7 @@ import {
   configManager,
   configurationSchema,
   type DeepPartial,
+  defaultConfiguration,
 } from "@main/services/config";
 import { fileOrganizer } from "@main/services/scraper/FileOrganizer";
 import { toErrorMessage } from "@main/utils/common";
@@ -20,6 +21,7 @@ export const createConfigHandlers = (
 ): Pick<
   IpcRouterContract,
   | typeof IpcChannel.Config_Get
+  | typeof IpcChannel.Config_GetDefaults
   | typeof IpcChannel.Config_Save
   | typeof IpcChannel.Config_List
   | typeof IpcChannel.Config_Reset
@@ -45,6 +47,13 @@ export const createConfigHandlers = (
           throw createIpcError(IpcErrorCode.CONFIG_VALIDATION_ERROR, `Config path not found: ${input.path}`);
         }
         return value;
+      } catch (error) {
+        throw asSerializableIpcError(error);
+      }
+    }),
+    [IpcChannel.Config_GetDefaults]: t.procedure.action(async () => {
+      try {
+        return defaultConfiguration;
       } catch (error) {
         throw asSerializableIpcError(error);
       }

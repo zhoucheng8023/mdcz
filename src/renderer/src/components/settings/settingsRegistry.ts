@@ -1,22 +1,127 @@
 /**
- * Pure data + utilities for the settings form. Extracted from
- * `settingsContent.tsx` so hooks (`useAutoSaveField`, `useCrossFieldErrors`)
- * can import them without pulling in React section renderers and creating a
- * circular dependency with `components/config-form/FieldRenderer.tsx`.
+ * Pure data + utilities for the settings editor. Extracted from
+ * `settingsContent.tsx` so hooks and filter logic can reuse the same metadata
+ * without pulling in React renderers.
  */
 
-// ── Field registry for search/filter ──
+export const SECTION_ORDER = ["dataSources", "rateLimiting", "extractionRules", "paths", "system"] as const;
+
+export type FieldAnchor = (typeof SECTION_ORDER)[number];
+export type FieldSurface = "settings" | "about" | "internal";
+export type FieldVisibility = "public" | "advanced" | "hidden";
 
 export interface FieldEntry {
   key: string;
-  /** Display label (Chinese). */
   label: string;
-  /** Top-level anchor section the field belongs to in the new IA. */
-  anchor: "dataSources" | "rateLimiting" | "extractionRules" | "paths" | "system";
+  anchor: FieldAnchor;
+  surface: FieldSurface;
+  visibility: FieldVisibility;
+  aliases: string[];
+  description?: string;
 }
 
-export const FIELD_REGISTRY: FieldEntry[] = [
-  // paths
+export const SECTION_DESCRIPTIONS: Record<FieldAnchor, string> = {
+  dataSources: "刮削站点、翻译、人物同步服务的数据来源与凭证",
+  rateLimiting: "并发、延迟、重试、代理等节奏与连接控制",
+  extractionRules: "抓取策略、命名模板、资源下载与 NFO",
+  paths: "媒体库、头像库、输出与配置目录",
+  system: "界面、快捷键、刮削后的文件行为",
+};
+
+export const SECTION_LABELS: Record<FieldAnchor, string> = {
+  dataSources: "数据源",
+  rateLimiting: "速率与限流",
+  extractionRules: "提取规则",
+  paths: "目录与路径",
+  system: "系统",
+};
+
+export const SECTION_FILTER_ALIASES: Record<FieldAnchor, string[]> = {
+  dataSources: ["data", "source", "sources", "provider", "translation", "sync"],
+  rateLimiting: ["rate", "limit", "network", "proxy", "retry", "timeout"],
+  extractionRules: ["download", "nfo", "naming", "rule", "rules", "asset"],
+  paths: ["path", "paths", "folder", "directory", "directories"],
+  system: ["system", "ui", "shortcut", "behavior"],
+};
+
+const ADVANCED_FIELD_KEYS = new Set<string>([
+  "paths.actorPhotoFolder",
+  "paths.sceneImagesFolder",
+  "paths.configDirectory",
+  "scrape.javdbDelaySeconds",
+  "scrape.restAfterCount",
+  "scrape.restDuration",
+  "network.proxyType",
+  "network.proxy",
+  "network.useProxy",
+  "network.timeout",
+  "network.retryCount",
+  "download.keepThumb",
+  "download.keepPoster",
+  "download.keepFanart",
+  "download.keepSceneImages",
+  "download.keepTrailer",
+  "download.keepNfo",
+  "naming.assetNamingMode",
+  "naming.actorFallbackToStudio",
+  "naming.releaseRule",
+  "naming.folderNameMax",
+  "naming.fileNameMax",
+  "naming.cnwordStyle",
+  "naming.umrStyle",
+  "naming.leakStyle",
+  "naming.uncensoredStyle",
+  "naming.censoredStyle",
+  "naming.partStyle",
+  "translate.llmPrompt",
+  "translate.llmTemperature",
+  "translate.llmMaxRetries",
+  "translate.llmMaxRequestsPerSecond",
+  "personSync.personOverviewSources",
+  "personSync.personImageSources",
+  "jellyfin.userId",
+  "jellyfin.refreshPersonAfterSync",
+  "jellyfin.lockOverviewAfterSync",
+  "emby.userId",
+  "emby.refreshPersonAfterSync",
+  "ui.hideDock",
+  "ui.hideMenu",
+  "ui.hideWindowButtons",
+  "behavior.failedFileMove",
+  "behavior.deleteEmptyFolder",
+  "behavior.scrapeSoftlinkPath",
+  "behavior.saveLog",
+]);
+
+const FIELD_ALIASES: Record<string, string[]> = {
+  "paths.mediaPath": ["media", "library", "媒体库"],
+  "paths.actorPhotoFolder": ["actor", "photo", "头像", "演员"],
+  "paths.softlinkPath": ["symlink", "softlink", "链接"],
+  "paths.successOutputFolder": ["output", "success", "成功目录"],
+  "paths.failedOutputFolder": ["output", "failed", "失败目录"],
+  "paths.outputSummaryPath": ["summary", "overview", "概览目录"],
+  "paths.configDirectory": ["config", "profile", "配置目录"],
+  "scrape.sites": ["site", "sites", "priority", "source priority", "站点优先级"],
+  "network.javdbCookie": ["cookie", "javdb", "凭证"],
+  "network.javbusCookie": ["cookie", "javbus", "凭证"],
+  "translate.engine": ["translator", "translation", "翻译引擎"],
+  "translate.llmModelName": ["model", "openai", "llm"],
+  "translate.llmApiKey": ["api key", "token", "openai key", "密钥"],
+  "translate.llmBaseUrl": ["base url", "endpoint", "api 地址"],
+  "translate.llmPrompt": ["prompt", "提示词"],
+  "translate.targetLanguage": ["language", "locale", "语言"],
+  "naming.folderTemplate": ["template", "folder naming", "命名模板"],
+  "naming.fileTemplate": ["template", "file naming", "命名模板"],
+  "download.generateNfo": ["nfo", "metadata file"],
+  "download.nfoNaming": ["nfo", "naming", "metadata file"],
+  "jellyfin.url": ["media server", "jellyfin", "server"],
+  "emby.url": ["media server", "emby", "server"],
+  "ui.showLogsPanel": ["logs", "log panel"],
+  "ui.useCustomTitleBar": ["title bar", "window chrome"],
+  "shortcuts.startOrStopScrape": ["hotkey", "shortcut", "快捷键"],
+};
+
+const RAW_FIELD_REGISTRY: Array<Pick<FieldEntry, "key" | "label" | "anchor">> = [
   { key: "paths.mediaPath", label: "媒体目录", anchor: "paths" },
   { key: "paths.actorPhotoFolder", label: "演员头像库目录", anchor: "paths" },
   { key: "paths.softlinkPath", label: "软链接目录", anchor: "paths" },
@@ -25,23 +130,18 @@ export const FIELD_REGISTRY: FieldEntry[] = [
   { key: "paths.outputSummaryPath", label: "概览统计目录", anchor: "paths" },
   { key: "paths.sceneImagesFolder", label: "剧照目录名", anchor: "paths" },
   { key: "paths.configDirectory", label: "配置文件目录", anchor: "paths" },
-  // scrape — sites live in Data Sources
   { key: "scrape.sites", label: "启用站点与优先级", anchor: "dataSources" },
-  // scrape — pacing lives in Rate Limiting
   { key: "scrape.threadNumber", label: "并发线程数", anchor: "rateLimiting" },
   { key: "scrape.javdbDelaySeconds", label: "JavDB 请求延迟(秒)", anchor: "rateLimiting" },
   { key: "scrape.restAfterCount", label: "连续刮削后休息(条数)", anchor: "rateLimiting" },
   { key: "scrape.restDuration", label: "休息时长", anchor: "rateLimiting" },
-  // network — connection in Rate Limiting
   { key: "network.proxyType", label: "代理类型", anchor: "rateLimiting" },
   { key: "network.proxy", label: "代理地址", anchor: "rateLimiting" },
   { key: "network.useProxy", label: "启用代理", anchor: "rateLimiting" },
   { key: "network.timeout", label: "超时时间(秒)", anchor: "rateLimiting" },
   { key: "network.retryCount", label: "重试次数", anchor: "rateLimiting" },
-  // network — site cookies in Data Sources
   { key: "network.javdbCookie", label: "JavDB 凭证", anchor: "dataSources" },
   { key: "network.javbusCookie", label: "JavBus 凭证", anchor: "dataSources" },
-  // download
   { key: "download.downloadThumb", label: "下载横版缩略图", anchor: "extractionRules" },
   { key: "download.downloadPoster", label: "下载海报", anchor: "extractionRules" },
   { key: "download.tagBadges", label: "封面标签角标", anchor: "extractionRules" },
@@ -56,7 +156,6 @@ export const FIELD_REGISTRY: FieldEntry[] = [
   { key: "download.keepSceneImages", label: "保留已有剧照", anchor: "extractionRules" },
   { key: "download.keepTrailer", label: "保留已有预告片", anchor: "extractionRules" },
   { key: "download.keepNfo", label: "保留已有 NFO", anchor: "extractionRules" },
-  // naming
   { key: "naming.folderTemplate", label: "文件夹模板", anchor: "extractionRules" },
   { key: "naming.fileTemplate", label: "文件名模板", anchor: "extractionRules" },
   { key: "naming.assetNamingMode", label: "附属文件命名", anchor: "extractionRules" },
@@ -73,7 +172,6 @@ export const FIELD_REGISTRY: FieldEntry[] = [
   { key: "naming.uncensoredStyle", label: "无码标记", anchor: "extractionRules" },
   { key: "naming.censoredStyle", label: "有码标记", anchor: "extractionRules" },
   { key: "naming.partStyle", label: "分盘样式", anchor: "extractionRules" },
-  // translate
   { key: "translate.enableTranslation", label: "启用内容翻译", anchor: "dataSources" },
   { key: "translate.engine", label: "翻译引擎", anchor: "dataSources" },
   { key: "translate.llmModelName", label: "LLM 模型名称", anchor: "dataSources" },
@@ -84,21 +182,17 @@ export const FIELD_REGISTRY: FieldEntry[] = [
   { key: "translate.llmMaxRetries", label: "LLM 最大重试次数", anchor: "dataSources" },
   { key: "translate.llmMaxRequestsPerSecond", label: "LLM 每秒最大请求数", anchor: "dataSources" },
   { key: "translate.targetLanguage", label: "目标语言", anchor: "dataSources" },
-  // personSync
   { key: "personSync.personOverviewSources", label: "人物简介来源顺序", anchor: "dataSources" },
   { key: "personSync.personImageSources", label: "人物头像来源顺序", anchor: "dataSources" },
-  // jellyfin
   { key: "jellyfin.url", label: "Jellyfin 服务器地址", anchor: "dataSources" },
   { key: "jellyfin.apiKey", label: "Jellyfin API Key", anchor: "dataSources" },
   { key: "jellyfin.userId", label: "Jellyfin 用户 ID", anchor: "dataSources" },
   { key: "jellyfin.refreshPersonAfterSync", label: "同步后刷新人物 (Jellyfin)", anchor: "dataSources" },
   { key: "jellyfin.lockOverviewAfterSync", label: "同步后锁定人物简介 (Jellyfin)", anchor: "dataSources" },
-  // emby
   { key: "emby.url", label: "Emby 服务器地址", anchor: "dataSources" },
   { key: "emby.apiKey", label: "Emby API Key", anchor: "dataSources" },
   { key: "emby.userId", label: "Emby 用户 ID", anchor: "dataSources" },
   { key: "emby.refreshPersonAfterSync", label: "同步后刷新人物 (Emby)", anchor: "dataSources" },
-  // shortcuts
   { key: "shortcuts.startOrStopScrape", label: "开始/停止刮削", anchor: "system" },
   { key: "shortcuts.retryScrape", label: "重新刮削", anchor: "system" },
   { key: "shortcuts.deleteFile", label: "删除文件", anchor: "system" },
@@ -106,13 +200,11 @@ export const FIELD_REGISTRY: FieldEntry[] = [
   { key: "shortcuts.openFolder", label: "打开所在目录", anchor: "system" },
   { key: "shortcuts.editNfo", label: "编辑 NFO", anchor: "system" },
   { key: "shortcuts.playVideo", label: "播放视频", anchor: "system" },
-  // ui
   { key: "ui.showLogsPanel", label: "显示日志面板", anchor: "system" },
   { key: "ui.useCustomTitleBar", label: "使用自定义标题栏", anchor: "system" },
   { key: "ui.hideDock", label: "隐藏 Dock 图标", anchor: "system" },
   { key: "ui.hideMenu", label: "隐藏菜单栏", anchor: "system" },
   { key: "ui.hideWindowButtons", label: "隐藏窗口按钮", anchor: "system" },
-  // behavior
   { key: "behavior.successFileMove", label: "成功后移动文件", anchor: "system" },
   { key: "behavior.failedFileMove", label: "失败后移动文件", anchor: "system" },
   { key: "behavior.successFileRename", label: "成功后重命名文件", anchor: "system" },
@@ -121,23 +213,19 @@ export const FIELD_REGISTRY: FieldEntry[] = [
   { key: "behavior.saveLog", label: "保存日志到文件", anchor: "system" },
 ];
 
-export const SECTION_DESCRIPTIONS: Record<FieldEntry["anchor"], string> = {
-  dataSources: "刮削站点、翻译、人物同步服务的数据来源与凭证",
-  rateLimiting: "并发、延迟、重试、代理等节奏与连接控制",
-  extractionRules: "抓取策略、命名模板、资源下载与 NFO",
-  paths: "媒体库、头像库、输出与配置目录",
-  system: "界面、快捷键、刮削后的文件行为",
-};
+export const FIELD_REGISTRY: FieldEntry[] = RAW_FIELD_REGISTRY.map((entry) => ({
+  ...entry,
+  surface: "settings",
+  visibility: ADVANCED_FIELD_KEYS.has(entry.key) ? "advanced" : "public",
+  aliases: FIELD_ALIASES[entry.key] ?? [],
+}));
 
-export const SECTION_LABELS: Record<FieldEntry["anchor"], string> = {
-  dataSources: "数据源",
-  rateLimiting: "速率与限流",
-  extractionRules: "提取规则",
-  paths: "目录与路径",
-  system: "系统",
-};
+export const FIELD_KEYS = FIELD_REGISTRY.map((entry) => entry.key);
 
-// ── Config value helpers ──
+export const FIELD_REGISTRY_BY_KEY = Object.fromEntries(FIELD_REGISTRY.map((entry) => [entry.key, entry])) as Record<
+  string,
+  FieldEntry
+>;
 
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".");

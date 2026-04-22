@@ -4,6 +4,7 @@ import { useFormContext, useFormState, useWatch } from "react-hook-form";
 import { normalizeEnabledSites, OrderedSiteFieldEditor } from "@/components/config-form/OrderedSiteField";
 import { SiteConfigSection } from "@/components/config-form/SiteConfigSection";
 import { AutoSaveStatusIndicator } from "@/components/settings/AutoSaveStatusIndicator";
+import { ResetToDefaultButton } from "@/components/settings/ResetToDefaultButton";
 import { SettingRow } from "@/components/settings/SettingRow";
 import { useOptionalSettingsSearch } from "@/components/settings/SettingsSearchContext";
 import { Button } from "@/components/ui/Button";
@@ -67,7 +68,7 @@ export function SitePriorityEditorField({
   const fieldFormState = useFormState({ control: form.control, name });
   const normalizedValue = useMemo(() => normalizeEnabledSites(value), [value]);
   const summary = useMemo(() => buildSitePrioritySummary(normalizedValue, options), [normalizedValue, options]);
-  const { status } = useAutoSaveField(name, { mode: "immediate" });
+  const { status, resetToDefault } = useAutoSaveField(name, { mode: "immediate", label });
   const [open, setOpen] = useState(false);
   const [draftValue, setDraftValue] = useState<string[]>(normalizedValue);
 
@@ -77,13 +78,22 @@ export function SitePriorityEditorField({
     }
   }, [normalizedValue, open]);
 
-  const highlighted = Boolean(search?.isSearching && search.isMatch(label, name));
-  const dimmed = Boolean(search?.isSearching && !search.isMatch(label, name));
+  const visible = search ? search.isFieldVisible(name) : true;
+  const highlighted = search ? search.isFieldHighlighted(name) : false;
+  const modified = search ? search.isFieldModified(name) : false;
   const hasChanges = !valuesEqual(normalizeEnabledSites(draftValue), normalizedValue);
   const rowError = (() => {
     const error = form.getFieldState(name, fieldFormState).error;
     return error && typeof error.message === "string" ? error.message : null;
   })();
+
+  useEffect(() => {
+    if (!search) {
+      return;
+    }
+
+    return search.registerMountedField(name);
+  }, [name, search]);
 
   const applyDraft = () => {
     form.setValue(name, normalizeEnabledSites(draftValue), {
@@ -93,6 +103,10 @@ export function SitePriorityEditorField({
     setOpen(false);
   };
 
+  if (!visible) {
+    return null;
+  }
+
   return (
     <>
       <FormItem className="block space-y-0" data-field-name={name}>
@@ -100,9 +114,9 @@ export function SitePriorityEditorField({
           label={label}
           description={description}
           error={rowError}
+          headerAction={modified ? <ResetToDefaultButton label={label} onClick={resetToDefault} /> : null}
           status={<AutoSaveStatusIndicator status={status} />}
           highlighted={highlighted}
-          dimmed={dimmed}
           control={
             <div className="flex items-center gap-3">
               <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground">

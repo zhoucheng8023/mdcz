@@ -1,9 +1,11 @@
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import type { ReactElement } from "react";
+import { useEffect, useState } from "react";
 import type { ControllerRenderProps, FieldValues } from "react-hook-form";
 import { useFormContext } from "react-hook-form";
 import { ipc } from "@/client/ipc";
 import { AutoSaveStatusIndicator } from "@/components/settings/AutoSaveStatusIndicator";
+import { ResetToDefaultButton } from "@/components/settings/ResetToDefaultButton";
 import { SettingRow } from "@/components/settings/SettingRow";
 import { useOptionalSettingsSearch } from "@/components/settings/SettingsSearchContext";
 import { Badge } from "@/components/ui/Badge";
@@ -53,17 +55,29 @@ export function BaseField({
   commitMode = "immediate",
 }: BaseFieldProps) {
   const form = useFormContext();
-  const { status } = useAutoSaveField(name, { mode: commitMode });
+  const { status, resetToDefault } = useAutoSaveField(name, { mode: commitMode, label });
   const search = useOptionalSettingsSearch();
+  const visible = search ? search.isFieldVisible(name) : true;
+  const highlighted = search ? search.isFieldHighlighted(name) : false;
+  const modified = search ? search.isFieldModified(name) : false;
 
-  const highlighted = Boolean(search?.isSearching && search.isMatch(label, name));
-  const dimmed = Boolean(search?.isSearching && !search.isMatch(label, name));
+  useEffect(() => {
+    if (!search) {
+      return;
+    }
+
+    return search.registerMountedField(name);
+  }, [name, search]);
 
   return (
     <FormField
       control={form.control}
       name={name}
-      render={({ field, fieldState }) => {
+      render={({ field, fieldState }): ReactElement => {
+        if (!visible) {
+          return <FormItem className="hidden" aria-hidden="true" />;
+        }
+
         const rowError =
           fieldState.error && typeof fieldState.error.message === "string" ? fieldState.error.message : null;
 
@@ -73,10 +87,10 @@ export function BaseField({
               label={label}
               description={description}
               error={rowError}
+              headerAction={modified ? <ResetToDefaultButton label={label} onClick={resetToDefault} /> : null}
               status={<AutoSaveStatusIndicator status={status} />}
               control={children(field)}
               fullWidthContent={fullWidthContent}
-              dimmed={dimmed}
               highlighted={highlighted}
             />
           </FormItem>

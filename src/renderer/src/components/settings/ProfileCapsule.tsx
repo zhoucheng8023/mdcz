@@ -1,11 +1,12 @@
 import { Check, ChevronDown, Download, type LucideIcon, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover";
 import { cn } from "@/lib/utils";
 
 interface ProfileCapsuleProps {
   profiles: string[];
-  activeProfile: string;
+  activeProfile: string | null;
+  isLoading?: boolean;
   onSwitchProfile: (name: string) => void;
   onCreateProfile: () => void;
   onDeleteProfile: () => void;
@@ -18,6 +19,7 @@ interface ProfileCapsuleProps {
 export function ProfileCapsule({
   profiles,
   activeProfile,
+  isLoading = false,
   onSwitchProfile,
   onCreateProfile,
   onDeleteProfile,
@@ -27,13 +29,29 @@ export function ProfileCapsule({
   className,
 }: ProfileCapsuleProps) {
   const [open, setOpen] = useState(false);
-  const hasOtherProfiles = profiles.filter((p) => p !== activeProfile).length > 0;
-  const visibleProfiles = profiles.filter((p) => p.length > 0);
-  const displayName = activeProfile || "默认配置";
+  const visibleProfiles = useMemo(() => profiles.filter((profile) => profile.length > 0), [profiles]);
+  const resolvedActiveProfile = activeProfile?.trim() || visibleProfiles[0] || "default";
+  const hasOtherProfiles = visibleProfiles.filter((profile) => profile !== resolvedActiveProfile).length > 0;
+
   const runAction = (action: () => void) => {
     setOpen(false);
     action();
   };
+
+  if (isLoading) {
+    return (
+      <div
+        aria-busy="true"
+        className={cn(
+          "inline-flex h-9 items-center gap-2 rounded-[var(--radius-quiet-capsule)] bg-surface-low px-4 text-sm text-muted-foreground",
+          className,
+        )}
+      >
+        <span className="h-3 w-24 animate-pulse rounded-full bg-foreground/10" />
+        <ChevronDown className="h-4 w-4 opacity-40" />
+      </div>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -45,7 +63,7 @@ export function ProfileCapsule({
           className,
         )}
       >
-        <span className="max-w-[140px] truncate font-medium">{displayName}</span>
+        <span className="max-w-[140px] truncate font-medium">{resolvedActiveProfile}</span>
         <ChevronDown className="h-4 w-4 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent
@@ -59,7 +77,7 @@ export function ProfileCapsule({
               配置档案
             </div>
             {visibleProfiles.map((profile) => {
-              const isActive = profile === activeProfile;
+              const isActive = profile === resolvedActiveProfile;
               return (
                 <button
                   key={profile}
