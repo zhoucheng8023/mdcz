@@ -9,6 +9,7 @@ export interface CooldownEntry {
   failureCount: number;
   lastFailureAt: number;
   cooldownUntil: number | null;
+  expiresAt: number | null;
 }
 
 export interface CooldownFailurePolicy {
@@ -67,11 +68,16 @@ const normalizeEntry = (value: unknown): CooldownEntry | null => {
     candidate.cooldownUntil > 0
       ? candidate.cooldownUntil
       : null;
+  const expiresAt =
+    typeof candidate.expiresAt === "number" && Number.isFinite(candidate.expiresAt) && candidate.expiresAt > 0
+      ? candidate.expiresAt
+      : cooldownUntil;
 
   return {
     failureCount: Math.trunc(candidate.failureCount),
     lastFailureAt: Math.trunc(candidate.lastFailureAt),
     cooldownUntil: cooldownUntil ? Math.trunc(cooldownUntil) : null,
+    expiresAt: expiresAt ? Math.trunc(expiresAt) : null,
   };
 };
 
@@ -108,7 +114,7 @@ export class PersistentCooldownStore {
       return undefined;
     }
 
-    if (entry.cooldownUntil !== null && entry.cooldownUntil <= now) {
+    if (this.isExpired(entry, now)) {
       this.entries.delete(key);
       this.schedulePersist();
       return undefined;
@@ -175,6 +181,7 @@ export class PersistentCooldownStore {
         failureCount: normalizedFailureCount,
         lastFailureAt: now,
         cooldownUntil: now + normalizedCooldownMs,
+        expiresAt: now + normalizedCooldownMs,
       })),
       "open",
       key,
@@ -195,6 +202,7 @@ export class PersistentCooldownStore {
           failureCount,
           lastFailureAt: now,
           cooldownUntil: failureCount >= threshold ? now + cooldownMs : null,
+          expiresAt: failureCount >= threshold ? now + cooldownMs : now + windowMs,
         };
       }),
       "recordFailure",
@@ -227,8 +235,17 @@ export class PersistentCooldownStore {
     return (
       left.failureCount === right.failureCount &&
       left.lastFailureAt === right.lastFailureAt &&
-      left.cooldownUntil === right.cooldownUntil
+      left.cooldownUntil === right.cooldownUntil &&
+      left.expiresAt === right.expiresAt
     );
+  }
+
+  private isExpired(entry: CooldownEntry, now: number): boolean {
+    if (entry.expiresAt !== null) {
+      return entry.expiresAt <= now;
+    }
+
+    return entry.cooldownUntil !== null && entry.cooldownUntil <= now;
   }
 
   private loadFromDisk(): void {
@@ -247,7 +264,7 @@ export class PersistentCooldownStore {
           continue;
         }
 
-        if (entry.cooldownUntil !== null && entry.cooldownUntil <= now) {
+        if ((entry.cooldownUntil === null && entry.expiresAt === null) || this.isExpired(entry, now)) {
           continue;
         }
 

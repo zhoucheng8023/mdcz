@@ -115,4 +115,40 @@ describe("PersistentCooldownStore", () => {
       cooldownUntil: null,
     });
   });
+
+  it("prunes stale non-cooldown entries once their failure window expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-22T00:00:00.000Z"));
+
+    const root = await createTempDir();
+    const storePath = join(root, "cooldowns.json");
+    const store = new PersistentCooldownStore({
+      filePath: storePath,
+      loggerName: "PersistentCooldownStoreExpiryTest",
+      persistDelayMs: 0,
+    });
+
+    store.recordFailure("image-host", FAILURE_POLICY);
+
+    expect(store.get("image-host")).toMatchObject({
+      failureCount: 1,
+      cooldownUntil: null,
+    });
+
+    vi.advanceTimersByTime(FAILURE_POLICY.windowMs + 1);
+
+    expect(store.get("image-host")).toBeUndefined();
+
+    await store.flush();
+
+    const reloadedStore = new PersistentCooldownStore({
+      filePath: storePath,
+      loggerName: "PersistentCooldownStoreExpiryReloaded",
+      persistDelayMs: 0,
+    });
+
+    expect(reloadedStore.get("image-host")).toBeUndefined();
+
+    vi.useRealTimers();
+  });
 });
