@@ -1,17 +1,18 @@
 import { toErrorMessage } from "@shared/error";
 import type { AppInfo } from "@shared/ipcTypes";
 import { createFileRoute } from "@tanstack/react-router";
-import { Bug, ExternalLink, Github } from "lucide-react";
+import { Bug, ExternalLink, Github, Sparkles } from "lucide-react";
 import { type CSSProperties, useEffect, useState } from "react";
 import { toast } from "sonner";
 import AppLogo from "@/assets/images/logo.png";
 import { updateConfig } from "@/client/api";
 import { ipc } from "@/client/ipc";
 import type { ConfigOutput } from "@/client/types";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Separator } from "@/components/ui/Separator";
+import { quietHeroRadiusClass, quietPanelRadiusClass } from "@/components/ui/quietCraft";
 import { Switch } from "@/components/ui/Switch";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/about")({
   component: About,
@@ -77,108 +78,140 @@ function About() {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto overflow-x-hidden" style={NO_DRAG_STYLE}>
-      <div className="flex-1 flex flex-col justify-center w-full max-w-2xl mx-auto px-6 py-8 md:px-12">
-        <div className="space-y-8">
-          {/* Header */}
-          <div className="flex items-center gap-6 py-4">
+    <div
+      className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background/30 selection:bg-primary/10"
+      style={NO_DRAG_STYLE}
+    >
+      <div className="flex-1 flex flex-col w-full max-w-xl mx-auto px-6 py-6 md:px-8">
+        <div className="flex flex-col gap-7">
+          {/* Header (Hero Section) */}
+          <section className="flex flex-col items-center text-center gap-3">
             <button
               type="button"
               onClick={() => openUrl("https://github.com/ShotHeadman/mdcz")}
-              className="shrink-0 transition-all hover:scale-105 active:scale-95 group"
+              className={cn("relative group transition-all active:scale-[0.98]", quietHeroRadiusClass)}
             >
+              <div className="absolute inset-0 bg-primary/5 blur-2xl rounded-full scale-125 group-hover:bg-primary/10 transition-colors" />
               <img
                 src={AppLogo}
                 alt="MDCz"
-                className="h-20 w-20 rounded-2xl shadow-sm border bg-card group-hover:shadow-md transition-shadow"
+                className={cn(
+                  "relative h-20 w-20 shadow-xl shadow-primary/5 border-white/40 dark:border-white/5 border-2 bg-white/40 dark:bg-white/5 backdrop-blur-sm p-1",
+                  quietHeroRadiusClass,
+                )}
               />
             </button>
-            <div className="flex flex-col justify-center">
-              <h1 className="text-2xl font-bold tracking-tight">MDCz</h1>
-              <p className="text-sm text-muted-foreground mt-1">影片元数据刮削与管理工具</p>
-              {appInfo && (
-                <button
-                  type="button"
-                  onClick={() => openUrl(`https://github.com/ShotHeadman/mdcz/releases/tag/v${appInfo.version}`)}
-                  className="mt-2 self-start"
-                >
-                  <span className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold hover:bg-primary/20 transition-colors cursor-pointer border border-primary/20">
+            <div className="flex flex-col items-center gap-1">
+              <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+                MDCz
+                {appInfo && (
+                  <Badge variant="secondary" className="mt-1 opacity-80">
                     v{appInfo.version}
-                  </span>
-                </button>
-              )}
+                  </Badge>
+                )}
+              </h1>
             </div>
-          </div>
+          </section>
 
-          <div className="grid gap-4">
-            {/* Support & Development */}
-            <Card className="bg-muted/20 border-none shadow-none p-0">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">支持与反馈</CardTitle>
-                <CardDescription>遇到问题或有好的建议？欢迎反馈给开发者</CardDescription>
-              </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4">
+          <div className="grid gap-7">
+            {/* Feedback & Actions */}
+            <section className="space-y-2">
+              <div className="px-1 flex items-center gap-2 text-xs font-bold tracking-widest text-muted-foreground uppercase opacity-50">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>社区与反馈</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <Button
                   variant="outline"
-                  className="w-full justify-start gap-2 h-10 bg-background/50 border-muted-foreground/20 hover:bg-background hover:border-primary/50 transition-all group"
+                  className={cn(
+                    "h-14 justify-start gap-3.5 px-4.5 bg-surface-low/30 border-border/30 hover:bg-surface-low/60 hover:border-border/60 transition-all group",
+                    quietPanelRadiusClass,
+                  )}
                   onClick={() => openUrl("https://github.com/ShotHeadman/mdcz/issues/new/choose")}
                 >
-                  <Github className="h-4 w-4" />
-                  <span>提交反馈</span>
-                  <ExternalLink className="ml-auto h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="w-8 h-8 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                    <Github className="h-4 w-4" />
+                  </div>
+                  <div className="flex flex-col items-start text-left">
+                    <span className="text-sm font-semibold">提交反馈</span>
+                  </div>
+                  <ExternalLink className="ml-auto h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity translate-x-1 group-hover:translate-x-0" />
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full justify-start gap-2 h-10 bg-background/50 border-muted-foreground/20 hover:bg-background hover:border-primary/50 transition-all group"
+                  className={cn(
+                    "h-14 justify-start gap-3.5 px-4.5 bg-surface-low/30 border-border/30 hover:bg-surface-low/60 hover:border-border/60 transition-all group",
+                    quietPanelRadiusClass,
+                  )}
                   onClick={onDebug}
                 >
-                  <Bug className="h-4 w-4" />
-                  <span>开启调试</span>
-                  <ExternalLink className="ml-auto h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="w-8 h-8 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                    <Bug className="h-4 w-4" />
+                  </div>
+                  <div className="flex flex-col items-start text-left">
+                    <span className="text-sm font-semibold">开启调试</span>
+                  </div>
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </section>
 
-            <Card className="bg-muted/20 border-none shadow-none py-4">
-              <CardContent className="flex justify-between">
-                <CardTitle className="text-sm font-medium">自动检查更新</CardTitle>
-                <Switch
-                  checked={Boolean(updateCheck)}
-                  disabled={updateCheck === null || isSavingUpdateCheck}
-                  onCheckedChange={onUpdateCheckChange}
-                />
-              </CardContent>
-            </Card>
+            {/* Updates Settings */}
+            <section
+              className={cn(
+                "bg-surface-low/30 border border-border/30 p-5 flex items-center justify-between group hover:bg-surface-low/60 hover:border-border/60 transition-all",
+                quietPanelRadiusClass,
+              )}
+            >
+              <div className="space-y-0.5 px-1">
+                <h3 className="text-sm font-semibold">自动检查更新</h3>
+              </div>
+              <Switch
+                checked={Boolean(updateCheck)}
+                disabled={updateCheck === null || isSavingUpdateCheck}
+                onCheckedChange={onUpdateCheckChange}
+              />
+            </section>
 
             {/* Related Projects */}
-            <Card className="bg-muted/20 border-none shadow-none p-0">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">相关项目</CardTitle>
-                <CardDescription>感谢以下开源项目为本工具提供的核心功能支持</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-1">
+            <section className="space-y-2">
+              <div className="px-1 text-xs font-bold tracking-widest text-muted-foreground uppercase opacity-50">
+                相关项目
+              </div>
+              <div className="grid gap-2.5">
                 {PROJECT_LINKS.map((link) => (
                   <button
                     key={link.name}
                     type="button"
                     onClick={() => openUrl(link.url)}
-                    className="flex w-full items-center justify-between p-3 rounded-lg hover:bg-background/80 hover:text-foreground transition-all group text-left border border-transparent hover:border-muted-foreground/10 shadow-none hover:shadow-sm"
+                    className={cn(
+                      "flex w-full items-center justify-between p-4 bg-surface-low/20 hover:bg-surface-low/50 transition-all group border border-transparent hover:border-border/40",
+                      quietPanelRadiusClass,
+                    )}
                   >
-                    <div>
-                      <div className="text-sm font-medium group-hover:text-primary transition-colors">{link.name}</div>
-                      <div className="text-xs text-muted-foreground">{link.description}</div>
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-white/40 dark:bg-black/10 flex items-center justify-center text-muted-foreground/60 group-hover:text-primary transition-colors border border-border/10">
+                        <Github className="h-5 w-5" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-semibold group-hover:text-primary transition-colors">
+                          {link.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground/60">{link.description}</div>
+                      </div>
                     </div>
-                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-all translate-x-1 group-hover:translate-x-0" />
                   </button>
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           </div>
 
-          <Separator className="opacity-50 mb-2" />
-          <div className="text-center text-xs text-muted-foreground/60 font-medium">
-            <p>by ShotHeadman</p>
-          </div>
+          {/* Footer */}
+          <footer className="text-center pt-2 pb-1">
+            <p className="text-[11px] font-semibold text-muted-foreground/30 tracking-[0.2em] uppercase">
+              Crafted by ShotHeadman
+            </p>
+          </footer>
         </div>
       </div>
     </div>
