@@ -43,6 +43,8 @@ function About() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [updateCheck, setUpdateCheck] = useState<boolean | null>(null);
   const [isSavingUpdateCheck, setIsSavingUpdateCheck] = useState(false);
+  const isPackagedApp = appInfo?.isPackaged ?? false;
+  const showDebugAction = !isPackagedApp;
 
   useEffect(() => {
     Promise.all([ipc.app.info(), ipc.config.get()])
@@ -82,7 +84,7 @@ function About() {
       className="h-full flex flex-col overflow-y-auto overflow-x-hidden bg-background/30 selection:bg-primary/10"
       style={NO_DRAG_STYLE}
     >
-      <div className="flex-1 flex flex-col w-full max-w-xl mx-auto px-6 py-6 md:px-8">
+      <div className="flex-1 flex flex-col w-full max-w-xl mx-auto px-6 pt-6 md:px-8">
         <div className="flex flex-col gap-7">
           {/* Header (Hero Section) */}
           <section className="flex flex-col items-center text-center gap-3">
@@ -117,7 +119,7 @@ function About() {
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>社区与反馈</span>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={cn("grid gap-4", showDebugAction ? "grid-cols-2" : "grid-cols-1")}>
                 <Button
                   variant="outline"
                   className={cn(
@@ -134,21 +136,23 @@ function About() {
                   </div>
                   <ExternalLink className="ml-auto h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity translate-x-1 group-hover:translate-x-0" />
                 </Button>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "h-14 justify-start gap-3.5 px-4.5 bg-surface-low/30 border-border/30 hover:bg-surface-low/60 hover:border-border/60 transition-all group",
-                    quietPanelRadiusClass,
-                  )}
-                  onClick={onDebug}
-                >
-                  <div className="w-8 h-8 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                    <Bug className="h-4 w-4" />
-                  </div>
-                  <div className="flex flex-col items-start text-left">
-                    <span className="text-sm font-semibold">开启调试</span>
-                  </div>
-                </Button>
+                {showDebugAction && (
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "h-14 justify-start gap-3.5 px-4.5 bg-surface-low/30 border-border/30 hover:bg-surface-low/60 hover:border-border/60 transition-all group",
+                      quietPanelRadiusClass,
+                    )}
+                    onClick={onDebug}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                      <Bug className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col items-start text-left">
+                      <span className="text-sm font-semibold">开启调试</span>
+                    </div>
+                  </Button>
+                )}
               </div>
             </section>
 
