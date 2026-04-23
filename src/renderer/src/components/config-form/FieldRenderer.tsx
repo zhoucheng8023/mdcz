@@ -22,6 +22,7 @@ import { ShortcutInput } from "@/components/ui/ShortcutInput";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
 import { useAutoSaveField } from "@/hooks/useAutoSaveField";
+import { BufferedFieldControl, parseBufferedNumberValue } from "./BufferedFieldControls";
 import { ChipArrayField } from "./ChipArrayField";
 import { DurationField } from "./DurationField";
 import { OrderedSiteField } from "./OrderedSiteField";
@@ -137,13 +138,22 @@ export function TextField({ name, label, description }: { name: string; label: s
   return (
     <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
-        <FormControl>
-          <Input
-            {...field}
-            value={field.value ?? ""}
-            className="h-8 w-[320px] text-sm bg-background/50 focus:bg-background transition-all"
-          />
-        </FormControl>
+        <BufferedFieldControl field={field}>
+          {(control) => (
+            <FormControl>
+              <Input
+                name={control.name}
+                ref={control.ref}
+                value={control.value}
+                onFocus={control.handleFocus}
+                onChange={(event) => control.handleChangeValue(event.target.value)}
+                onBlur={control.handleBlur}
+                onKeyDown={control.handleCommitKey}
+                className="h-8 w-[320px] text-sm bg-background/50 focus:bg-background transition-all"
+              />
+            </FormControl>
+          )}
+        </BufferedFieldControl>
       )}
     </BaseField>
   );
@@ -153,14 +163,23 @@ export function SecretField({ name, label, description }: { name: string; label:
   return (
     <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
-        <FormControl>
-          <PasswordInput
-            {...field}
-            value={field.value ?? ""}
-            autoComplete="off"
-            className="h-8 w-[320px] text-sm bg-background/50 focus:bg-background transition-all"
-          />
-        </FormControl>
+        <BufferedFieldControl field={field}>
+          {(control) => (
+            <FormControl>
+              <PasswordInput
+                name={control.name}
+                ref={control.ref}
+                value={control.value}
+                autoComplete="off"
+                onFocus={control.handleFocus}
+                onChange={(event) => control.handleChangeValue(event.target.value)}
+                onBlur={control.handleBlur}
+                onKeyDown={control.handleCommitKey}
+                className="h-8 w-[320px] text-sm bg-background/50 focus:bg-background transition-all"
+              />
+            </FormControl>
+          )}
+        </BufferedFieldControl>
       )}
     </BaseField>
   );
@@ -172,15 +191,24 @@ export function UrlField({ name, label, description }: { name: string; label: st
   return (
     <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
-        <FormControl>
-          <Input
-            {...field}
-            value={field.value ?? ""}
-            type="url"
-            placeholder="https://..."
-            className="h-8 w-[320px] text-sm bg-background/50 focus:bg-background transition-all"
-          />
-        </FormControl>
+        <BufferedFieldControl field={field}>
+          {(control) => (
+            <FormControl>
+              <Input
+                type="url"
+                name={control.name}
+                ref={control.ref}
+                value={control.value}
+                placeholder="https://..."
+                onFocus={control.handleFocus}
+                onChange={(event) => control.handleChangeValue(event.target.value)}
+                onBlur={control.handleBlur}
+                onKeyDown={control.handleCommitKey}
+                className="h-8 w-[320px] text-sm bg-background/50 focus:bg-background transition-all"
+              />
+            </FormControl>
+          )}
+        </BufferedFieldControl>
       )}
     </BaseField>
   );
@@ -206,18 +234,26 @@ export function NumberField({
   return (
     <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
-        <FormControl>
-          <Input
-            type="number"
-            {...field}
-            value={field.value ?? ""}
-            onChange={(e) => field.onChange(Number(e.target.value))}
-            min={min}
-            max={max}
-            step={step ?? 1}
-            className="h-8 w-24 text-sm bg-background/50 focus:bg-background transition-all text-right"
-          />
-        </FormControl>
+        <BufferedFieldControl field={field} parse={parseBufferedNumberValue}>
+          {(control) => (
+            <FormControl>
+              <Input
+                type="number"
+                name={control.name}
+                ref={control.ref}
+                value={control.value}
+                min={min}
+                max={max}
+                step={step ?? 1}
+                onFocus={control.handleFocus}
+                onChange={(event) => control.handleChangeValue(event.target.value)}
+                onBlur={control.handleBlur}
+                onKeyDown={control.handleCommitKey}
+                className="h-8 w-24 appearance-none bg-background/50 text-right text-sm transition-all focus:bg-background"
+              />
+            </FormControl>
+          )}
+        </BufferedFieldControl>
       )}
     </BaseField>
   );
@@ -326,21 +362,29 @@ export function CookieFieldWrapper({
   return (
     <BaseField name={name} label={label} description={description} fullWidthContent commitMode="debounce">
       {(field) => (
-        <div className="flex flex-col gap-2">
-          {COOKIE_VALIDATE_FIELDS.has(name) && (
-            <div className="flex justify-end mb-1">
-              <CookieValidateButton fieldKey={name} />
+        <BufferedFieldControl field={field} commitOnEnter={false}>
+          {(control) => (
+            <div className="flex flex-col gap-2">
+              {COOKIE_VALIDATE_FIELDS.has(name) && (
+                <div className="mb-1 flex justify-end">
+                  <CookieValidateButton fieldKey={name} />
+                </div>
+              )}
+              <FormControl>
+                <Textarea
+                  autoSize={false}
+                  name={control.name}
+                  ref={control.ref}
+                  value={control.value}
+                  onFocus={control.handleFocus}
+                  onChange={(event) => control.handleChangeValue(event.target.value)}
+                  onBlur={control.handleBlur}
+                  className="min-h-[80px] resize-none border-input/50 bg-background/50 font-mono text-xs transition-all focus:bg-background"
+                />
+              </FormControl>
             </div>
           )}
-          <FormControl>
-            <Textarea
-              {...field}
-              autoSize={false}
-              value={field.value ?? ""}
-              className="min-h-[80px] font-mono text-xs bg-background/50 focus:bg-background transition-all resize-none border-input/50"
-            />
-          </FormControl>
-        </div>
+        </BufferedFieldControl>
       )}
     </BaseField>
   );
@@ -360,13 +404,21 @@ export function PromptFieldWrapper({
   return (
     <BaseField name={name} label={label} description={description} fullWidthContent commitMode="debounce">
       {(field) => (
-        <FormControl>
-          <Textarea
-            {...field}
-            value={field.value ?? ""}
-            className="min-h-[120px] text-sm bg-background/50 focus:bg-background transition-all border-input/50"
-          />
-        </FormControl>
+        <BufferedFieldControl field={field} commitOnEnter={false}>
+          {(control) => (
+            <FormControl>
+              <Textarea
+                name={control.name}
+                ref={control.ref}
+                value={control.value}
+                onFocus={control.handleFocus}
+                onChange={(event) => control.handleChangeValue(event.target.value)}
+                onBlur={control.handleBlur}
+                className="min-h-[120px] border-input/50 bg-background/50 text-sm transition-all focus:bg-background"
+              />
+            </FormControl>
+          )}
+        </BufferedFieldControl>
       )}
     </BaseField>
   );

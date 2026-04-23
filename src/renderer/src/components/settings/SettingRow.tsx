@@ -65,11 +65,14 @@ export function SettingRow({
       )}
     >
       <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-2">
-          <label htmlFor={htmlFor} className="block font-numeric text-sm font-bold tracking-tight text-foreground">
+        <div className="flex min-h-6 items-center gap-2">
+          <label
+            htmlFor={htmlFor}
+            className="block min-h-6 font-numeric text-sm leading-6 font-bold tracking-tight text-foreground"
+          >
             {label}
           </label>
-          {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
+          {headerAction ? <div className="flex h-6 shrink-0 items-center">{headerAction}</div> : null}
         </div>
         {description && <p className="mt-1 max-w-prose text-xs text-muted-foreground">{description}</p>}
         {error && <p className="mt-1 text-xs text-destructive">{error}</p>}

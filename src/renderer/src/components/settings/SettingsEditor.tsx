@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import type { FieldValues } from "react-hook-form";
 import { useForm } from "react-hook-form";
 import { Form } from "@/components/ui/Form";
-import { SettingsEditorAutosaveProvider } from "@/hooks/useAutoSaveField";
+import { SettingsEditorAutosaveProvider, valuesEqual } from "@/hooks/useAutoSaveField";
 import { SettingsLayout } from "./SettingsLayout";
 import { SettingsSearchProvider } from "./SettingsSearchContext";
 import { flattenConfig } from "./settingsRegistry";
@@ -63,6 +63,10 @@ export function SettingsEditor({
   });
 
   useEffect(() => {
+    if (valuesEqual(form.getValues(), flatConfigValues)) {
+      return;
+    }
+
     form.reset(flatConfigValues);
   }, [flatConfigValues, form]);
 
