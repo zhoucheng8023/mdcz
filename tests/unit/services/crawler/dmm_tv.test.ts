@@ -337,6 +337,31 @@ describe("DmmTvCrawler", () => {
     ).toBe(true);
   });
 
+  it("does not run GraphQL search fallback for manual detail URLs", async () => {
+    const manualDetailUrl = "https://video.dmm.co.jp/av/content/?id=1knbm00007";
+    const networkClient = new BodyAwareDmmTvNetworkClient(
+      new Map<string, string>([
+        [manualDetailUrl, `<html><body><script>self.__next_f.push([1,"shell"])</script></body></html>`],
+      ]),
+    );
+    const crawler = new DmmTvCrawler(withGateway(networkClient));
+
+    const response = await crawler.crawl({
+      number: "KNBM-007",
+      site: Website.DMM_TV,
+      options: {
+        detailUrl: manualDetailUrl,
+      },
+    });
+
+    expect(response.result.success).toBe(false);
+    const searchPayloads = networkClient.requests
+      .filter((request) => request.url === "https://api.video.dmm.co.jp/graphql")
+      .map((request) => request.body as { operationName?: string })
+      .filter((payload) => payload.operationName === "AvSearch" || payload.operationName === "AnimeSearch");
+    expect(searchPayloads).toEqual([]);
+  });
+
   it("does not accept a single GraphQL search result without an id or title match", async () => {
     const guessedDetailUrl = "https://video.dmm.co.jp/av/content/?id=1zzzz00999";
     const networkClient = new BodyAwareDmmTvNetworkClient(

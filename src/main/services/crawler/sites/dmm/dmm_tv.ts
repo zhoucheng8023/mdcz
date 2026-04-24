@@ -333,7 +333,12 @@ export class DmmTvCrawler extends BaseDmmCrawler {
 
   protected override newContext(input: CrawlerInput): DmmTvContext {
     const context = super.newContext(input) as DmmTvContext;
-    context.candidateIds = normalizeContentIds(input.number);
+    const detailContentId = input.options?.detailUrl ? getVideoDetailContentId(input.options.detailUrl) : null;
+    context.candidateIds = Array.from(
+      new Set(
+        [detailContentId, ...normalizeContentIds(input.number)].filter((value): value is string => Boolean(value)),
+      ),
+    );
     context.searchTerms = buildSearchTerms(input.number, context.candidateIds);
     return context;
   }
@@ -443,16 +448,18 @@ export class DmmTvCrawler extends BaseDmmCrawler {
       return htmlResult;
     }
 
-    const searchedDetailUrl = await this.tryResolveDetailUrlViaSearch(context, detailUrl);
-    if (searchedDetailUrl && searchedDetailUrl !== detailUrl) {
-      try {
-        const searchedResult = await this.tryDetailUrl(context, searchedDetailUrl);
-        if (searchedResult) {
-          return searchedResult;
+    if (!context.options.detailUrl) {
+      const searchedDetailUrl = await this.tryResolveDetailUrlViaSearch(context, detailUrl);
+      if (searchedDetailUrl && searchedDetailUrl !== detailUrl) {
+        try {
+          const searchedResult = await this.tryDetailUrl(context, searchedDetailUrl);
+          if (searchedResult) {
+            return searchedResult;
+          }
+        } catch (error) {
+          const message = toErrorMessage(error);
+          this.logger.debug(`DMM TV searched detail miss for ${searchedDetailUrl}: ${message}`);
         }
-      } catch (error) {
-        const message = toErrorMessage(error);
-        this.logger.debug(`DMM TV searched detail miss for ${searchedDetailUrl}: ${message}`);
       }
     }
 

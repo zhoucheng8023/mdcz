@@ -279,6 +279,39 @@ describe("DmmCrawler", () => {
     }
   });
 
+  it("uses manual detail URLs directly without running search", async () => {
+    const detailUrl = "https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=ssis00497/";
+    const networkClient = new FixtureNetworkClient(
+      new Map<string, unknown>([
+        [
+          detailUrl,
+          `
+            <html><body>
+              <h1><span>Direct Detail Title</span></h1>
+              <meta property="og:image" content="https://pics.dmm.co.jp/digital/video/ssis00497/ssis00497ps.jpg" />
+            </body></html>
+          `,
+        ],
+      ]),
+    );
+    const crawler = new DmmCrawler(withGateway(networkClient));
+
+    const response = await crawler.crawl({
+      number: "SSIS-497",
+      site: Website.DMM,
+      options: {
+        detailUrl,
+      },
+    });
+
+    expect(response.result.success).toBe(true);
+    if (!response.result.success) {
+      throw new Error("expected success");
+    }
+    expect(response.result.data.title).toBe("Direct Detail Title");
+    expect(networkClient.requests.map((request) => request.url)).toEqual([detailUrl]);
+  });
+
   it("falls back to additional search keywords and parses direct detail anchors", async () => {
     const number = "KNBM-007";
     const primarySearchUrl = "https://www.dmm.co.jp/search/=/searchstr=knbm00007/sort=ranking/";
