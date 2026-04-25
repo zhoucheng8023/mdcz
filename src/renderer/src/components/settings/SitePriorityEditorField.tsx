@@ -3,7 +3,6 @@ import type { FieldValues } from "react-hook-form";
 import { useFormContext, useFormState, useWatch } from "react-hook-form";
 import { OrderedSiteFieldEditor, type OrderedSiteFieldRow } from "@/components/config-form/OrderedSiteField";
 import { SiteConfigSection } from "@/components/config-form/SiteConfigSection";
-import { AutoSaveStatusIndicator } from "@/components/settings/AutoSaveStatusIndicator";
 import type { OrderedSiteSummary } from "@/components/settings/orderedSiteSummary";
 import { ResetToDefaultButton } from "@/components/settings/ResetToDefaultButton";
 import { SettingRow } from "@/components/settings/SettingRow";
@@ -58,7 +57,7 @@ export function SitePriorityEditorField({
     () => buildSitePrioritySummary(normalizedValue, availableOptions),
     [availableOptions, normalizedValue],
   );
-  const { status, resetToDefault } = useAutoSaveField(name, { mode: "immediate", label });
+  const { resetToDefault } = useAutoSaveField(name, { mode: "immediate", label });
   const [open, setOpen] = useState(false);
   const [draftValue, setDraftValue] = useState<string[]>(normalizedValue);
   const draftSummary = useMemo(
@@ -119,7 +118,6 @@ export function SitePriorityEditorField({
           label={label}
           error={rowError}
           headerAction={modified ? <ResetToDefaultButton label={label} onClick={resetToDefault} /> : null}
-          status={<AutoSaveStatusIndicator status={status} />}
           highlighted={highlighted}
           control={
             <div className="flex items-center gap-3">

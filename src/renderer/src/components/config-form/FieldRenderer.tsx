@@ -3,7 +3,6 @@ import { createContext, type ReactElement, type ReactNode, useContext, useState 
 import type { ControllerRenderProps, FieldValues } from "react-hook-form";
 import { useFormContext } from "react-hook-form";
 import { ipc } from "@/client/ipc";
-import { AutoSaveStatusIndicator } from "@/components/settings/AutoSaveStatusIndicator";
 import { ResetToDefaultButton } from "@/components/settings/ResetToDefaultButton";
 import { SettingRow } from "@/components/settings/SettingRow";
 import { useOptionalSettingsSearch } from "@/components/settings/SettingsSearchContext";
@@ -63,9 +62,7 @@ interface BaseFieldProps {
 }
 
 /**
- * BaseField wires each form field to auto-save and renders it as a
- * `SettingRow` with the micro-status indicator in the right-aligned status
- * slot.
+ * BaseField wires each form field to auto-save and renders it as a `SettingRow`.
  */
 export function BaseField({ name, label, description, children, layout, commitMode = "immediate" }: BaseFieldProps) {
   const sectionMode = useSettingsSectionMode();
@@ -84,7 +81,7 @@ export function BaseField({ name, label, description, children, layout, commitMo
 function ConnectedBaseField({ name, label, description, children, layout, commitMode }: BaseFieldProps) {
   const form = useFormContext();
   const fieldLayout = useContext(ConfigFieldLayoutContext);
-  const { status, resetToDefault } = useAutoSaveField(name, { mode: commitMode, label });
+  const { resetToDefault } = useAutoSaveField(name, { mode: commitMode, label });
   const search = useOptionalSettingsSearch();
   const visible =
     search && isFieldManagedBySettingsSearch(name) ? !search.hasActiveFilters || search.isFieldVisible(name) : true;
@@ -116,7 +113,6 @@ function ConnectedBaseField({ name, label, description, children, layout, commit
               description={description}
               error={rowError}
               headerAction={modified ? <ResetToDefaultButton label={label} onClick={resetToDefault} /> : null}
-              status={<AutoSaveStatusIndicator status={status} />}
               control={children(field)}
               controlClassName={controlClassName}
               layout={resolvedLayout}
