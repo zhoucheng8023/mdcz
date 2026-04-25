@@ -17,6 +17,7 @@ import type {
   BatchTranslateApplyResultItem,
   BatchTranslateScanItem,
   TranslateTestLlmInput,
+  WatermarkDirectoryInfo,
 } from "@shared/ipcTypes";
 import type {
   CrawlerData,
@@ -44,6 +45,9 @@ export const ipc = {
     openExternal: (url: string) => client[IpcChannel.App_OpenExternal]({ url }),
     playMedia: (path: string) => client[IpcChannel.App_PlayMedia]({ path }),
     showItemInFolder: (path: string) => client[IpcChannel.App_ShowItemInFolder]({ path }),
+    ensureWatermarkDirectory: () =>
+      client[IpcChannel.App_EnsureWatermarkDirectory](undefined) as Promise<WatermarkDirectoryInfo>,
+    openWatermarkDirectory: () => client[IpcChannel.App_OpenWatermarkDirectory](undefined),
     relaunch: () => client[IpcChannel.App_Relaunch](undefined),
     syncTitleBarTheme: (isDark: boolean) => client[IpcChannel.App_SyncTitleBarTheme]({ isDark }),
   },

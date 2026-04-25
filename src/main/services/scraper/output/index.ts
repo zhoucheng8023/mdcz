@@ -126,6 +126,10 @@ export const applyPosterTagBadgesIfNeeded = async (input: {
       posterPath,
       badges,
       input.config.download.tagBadgePosition,
+      {
+        imageOverrides: input.config.download.tagBadgeImageOverrides,
+        onWarn: (message) => input.logger.warn(message),
+      },
     );
   } catch (error) {
     input.logger.warn(`Failed to apply poster tag badges for ${posterPath}: ${toErrorMessage(error)}`);

@@ -107,6 +107,7 @@ describe("settings editor metadata and filtering", () => {
     expect(entry("download.sceneImageConcurrency")?.visibility).toBe("advanced");
     expect(entry("download.tagBadgeTypes")).toMatchObject({ anchor: "download", visibility: "public" });
     expect(entry("download.tagBadgePosition")).toMatchObject({ anchor: "download", visibility: "public" });
+    expect(entry("download.tagBadgeImageOverrides")).toMatchObject({ anchor: "download", visibility: "public" });
     expect(entry("aggregation.fieldPriorities.durationSeconds")?.visibility).toBe("advanced");
     expect(entry("naming.partStyle")?.visibility).toBe("public");
     expect(entry("scrape.siteConfigs.javdb.customUrl")).toMatchObject({
@@ -128,6 +129,7 @@ describe("settings editor metadata and filtering", () => {
       download: {
         tagBadgeTypes: ["subtitle", "leak"],
         tagBadgePosition: "bottomRight",
+        tagBadgeImageOverrides: true,
       },
       scrape: {
         sites: ["javdb"],
@@ -147,6 +149,7 @@ describe("settings editor metadata and filtering", () => {
       "translate.llmApiKey": "secret",
       "download.tagBadgeTypes": ["subtitle", "leak"],
       "download.tagBadgePosition": "bottomRight",
+      "download.tagBadgeImageOverrides": true,
       "scrape.siteConfigs.javdb.customUrl": "https://example.org",
       "aggregation.fieldPriorities.durationSeconds": ["dmm_tv", "avbase"],
     });
@@ -155,6 +158,7 @@ describe("settings editor metadata and filtering", () => {
       download: {
         tagBadgeTypes: ["subtitle", "leak"],
         tagBadgePosition: "bottomRight",
+        tagBadgeImageOverrides: true,
       },
       scrape: { siteConfigs: { javdb: { customUrl: "https://example.org" } } },
       aggregation: { fieldPriorities: { durationSeconds: ["dmm_tv", "avbase"] } },
@@ -248,6 +252,11 @@ describe("settings editor metadata and filtering", () => {
       showAdvanced: false,
       modifiedKeys: new Set<string>(),
     });
+    const badgeImageAliasSearch = buildSettingsBrowseState({
+      query: "watermark",
+      showAdvanced: false,
+      modifiedKeys: new Set<string>(),
+    });
 
     expect(badgeTypeAliasSearch.visibleEntries.map((candidate) => candidate.key)).toContain("download.tagBadgeTypes");
     expect(badgeResolutionAliasSearch.visibleEntries.map((candidate) => candidate.key)).toContain(
@@ -255,6 +264,9 @@ describe("settings editor metadata and filtering", () => {
     );
     expect(badgePositionAliasSearch.visibleEntries.map((candidate) => candidate.key)).toContain(
       "download.tagBadgePosition",
+    );
+    expect(badgeImageAliasSearch.visibleEntries.map((candidate) => candidate.key)).toContain(
+      "download.tagBadgeImageOverrides",
     );
   });
 
@@ -694,11 +706,14 @@ describe("settings editor render contracts", () => {
     expect(posterDisabledHtml).not.toContain("为封面添加标签角标");
     expect(posterDisabledHtml).not.toContain("角标类型");
     expect(posterDisabledHtml).not.toContain("角标位置");
+    expect(posterDisabledHtml).not.toContain("覆盖角标图片");
     expect(hiddenHtml).toContain("为封面添加标签角标");
     expect(hiddenHtml).not.toContain("角标类型");
     expect(hiddenHtml).not.toContain("角标位置");
+    expect(hiddenHtml).not.toContain("覆盖角标图片");
     expect(visibleHtml).toContain("角标类型");
     expect(visibleHtml).toContain("角标位置");
+    expect(visibleHtml).toContain("覆盖角标图片");
     expect(visibleHtml).toContain("中字");
     expect(visibleHtml).toContain("流出");
   });

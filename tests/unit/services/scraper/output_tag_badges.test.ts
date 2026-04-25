@@ -37,6 +37,7 @@ describe("applyPosterTagBadgesIfNeeded", () => {
         tagBadges: true,
         tagBadgeTypes: ["subtitle", "fourK"],
         tagBadgePosition: "bottomRight",
+        tagBadgeImageOverrides: true,
       },
     });
     const watermarkService = {
@@ -62,6 +63,7 @@ describe("applyPosterTagBadgesIfNeeded", () => {
       "/tmp/poster.jpg",
       [expect.objectContaining({ label: "中字" }), expect.objectContaining({ label: "4K" })],
       "bottomRight",
+      expect.objectContaining({ imageOverrides: true, onWarn: expect.any(Function) }),
     );
   });
 

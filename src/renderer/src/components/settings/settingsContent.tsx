@@ -3,14 +3,22 @@ import type { Configuration } from "@shared/config";
 import { TRANSLATION_TARGET_OPTIONS } from "@shared/enums";
 import { DEFAULT_LLM_BASE_URL } from "@shared/llm";
 import {
+  POSTER_TAG_BADGE_ASPECT_HEIGHT,
+  POSTER_TAG_BADGE_ASPECT_WIDTH,
+  POSTER_TAG_BADGE_IMAGE_EXTENSIONS,
+  POSTER_TAG_BADGE_IMAGE_FILENAMES,
+  POSTER_TAG_BADGE_MAX_WIDTH,
+  POSTER_TAG_BADGE_MAX_WIDTH_RATIO,
+  POSTER_TAG_BADGE_MIN_WIDTH,
   POSTER_TAG_BADGE_POSITION_LABELS,
   POSTER_TAG_BADGE_POSITION_OPTIONS,
   POSTER_TAG_BADGE_TYPE_LABELS,
   POSTER_TAG_BADGE_TYPE_OPTIONS,
+  POSTER_TAG_BADGE_WIDTH_RATIO,
 } from "@shared/posterBadges";
 import type { NamingPreviewItem } from "@shared/types";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, RotateCcw } from "lucide-react";
+import { FolderOpen, Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FieldValues } from "react-hook-form";
 import { useFormContext, useWatch } from "react-hook-form";
@@ -33,6 +41,15 @@ import {
   UrlField,
 } from "@/components/config-form/FieldRenderer";
 import { Button } from "@/components/ui/Button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/Dialog";
 import { FormControl } from "@/components/ui/Form";
 import { Switch } from "@/components/ui/Switch";
 import { useSettingsSavingStore } from "@/store/settingsSavingStore";
@@ -74,6 +91,13 @@ const TAG_BADGE_POSITION_OPTIONS: EnumOption[] = POSTER_TAG_BADGE_POSITION_OPTIO
   value,
   label: POSTER_TAG_BADGE_POSITION_LABELS[value],
 }));
+const TAG_BADGE_IMAGE_EXTENSION_LABEL = POSTER_TAG_BADGE_IMAGE_EXTENSIONS.map((extension) => `.${extension}`).join(
+  " / ",
+);
+const TAG_BADGE_IMAGE_RATIO_LABEL = `${POSTER_TAG_BADGE_ASPECT_WIDTH}:${POSTER_TAG_BADGE_ASPECT_HEIGHT}`;
+const TAG_BADGE_IMAGE_DEFAULT_SIZE_LABEL = `${POSTER_TAG_BADGE_ASPECT_WIDTH}x${POSTER_TAG_BADGE_ASPECT_HEIGHT}px`;
+const TAG_BADGE_IMAGE_WIDTH_PERCENT_LABEL = `${Math.round(POSTER_TAG_BADGE_WIDTH_RATIO * 100)}%`;
+const TAG_BADGE_IMAGE_MAX_WIDTH_PERCENT_LABEL = `${Math.round(POSTER_TAG_BADGE_MAX_WIDTH_RATIO * 100)}%`;
 
 export const NAMING_TEMPLATE_DESCRIPTION =
   "可用占位符：{actor} {actorFallbackPrefix} {number} {date} {title} {originaltitle} {studio} {publisher}";
@@ -106,6 +130,7 @@ const ASSET_DOWNLOAD_FIELD_KEYS = [
   "download.tagBadges",
   "download.tagBadgeTypes",
   "download.tagBadgePosition",
+  "download.tagBadgeImageOverrides",
   "download.downloadFanart",
   "download.downloadSceneImages",
   "download.downloadTrailer",
@@ -338,6 +363,7 @@ export function AssetDownloadsSection() {
             description="多个角标会按顺序堆叠在同一个角落。"
             options={TAG_BADGE_POSITION_OPTIONS}
           />
+          <PosterBadgeImageOverridesField />
         </>
       )}
       <BoolField name="download.downloadFanart" label="下载背景图" />
@@ -365,6 +391,116 @@ export function AssetDownloadsSection() {
         min={1}
         max={20}
       />
+    </>
+  );
+}
+
+function PosterBadgeImageOverridesField() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [watermarkDirectoryPath, setWatermarkDirectoryPath] = useState("");
+  const [openingDirectory, setOpeningDirectory] = useState(false);
+
+  const handleEnable = async () => {
+    try {
+      const result = await ipc.app.ensureWatermarkDirectory();
+      setWatermarkDirectoryPath(result.path);
+      setDialogOpen(true);
+    } catch (error) {
+      toast.error(`创建角标图片目录失败: ${error instanceof Error ? error.message : "未知错误"}`);
+    }
+  };
+
+  const handleOpenDirectory = async () => {
+    setOpeningDirectory(true);
+    try {
+      await ipc.app.openWatermarkDirectory();
+    } catch (error) {
+      toast.error(`打开角标图片目录失败: ${error instanceof Error ? error.message : "未知错误"}`);
+    } finally {
+      setOpeningDirectory(false);
+    }
+  };
+
+  return (
+    <>
+      <BaseField
+        name="download.tagBadgeImageOverrides"
+        label="覆盖角标图片"
+        description="开启后，放在 userdata/watermark 中的匹配图片会替换内建角标样式。"
+        commitMode="immediate"
+      >
+        {(field) => (
+          <FormControl>
+            <Switch
+              checked={Boolean(field.value)}
+              onCheckedChange={(checked) => {
+                field.onChange(checked);
+                if (checked) {
+                  void handleEnable();
+                }
+              }}
+            />
+          </FormControl>
+        )}
+      </BaseField>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl gap-5 rounded-[var(--radius-quiet-xl)] border border-border/50 bg-surface-floating p-6">
+          <DialogHeader className="gap-2 text-left">
+            <DialogTitle>覆盖角标图片</DialogTitle>
+            <DialogDescription className="text-sm leading-6">
+              将自定义图片放入下方目录。文件名匹配时会优先使用图片，未匹配或读取失败时继续使用内建角标。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <div className="rounded-xl border border-border/50 bg-surface-low px-3 py-2">
+              <div className="text-xs text-muted-foreground">目录</div>
+              <div className="mt-1 break-all font-mono text-xs">{watermarkDirectoryPath || "userdata/watermark"}</div>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-border/50">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-surface-low text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">角标</th>
+                    <th className="px-3 py-2 font-medium">可用文件名</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {POSTER_TAG_BADGE_TYPE_OPTIONS.map((type) => (
+                    <tr key={type} className="border-t border-border/40">
+                      <td className="px-3 py-2">{POSTER_TAG_BADGE_TYPE_LABELS[type]}</td>
+                      <td className="px-3 py-2 font-mono">{POSTER_TAG_BADGE_IMAGE_FILENAMES[type].join(" / ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="space-y-1 text-xs leading-5 text-muted-foreground">
+              <p>支持格式：{TAG_BADGE_IMAGE_EXTENSION_LABEL}。</p>
+              <p>
+                推荐比例：{TAG_BADGE_IMAGE_RATIO_LABEL}，推荐素材尺寸 {TAG_BADGE_IMAGE_DEFAULT_SIZE_LABEL}
+                。角标槽位宽度约为海报宽度的 {TAG_BADGE_IMAGE_WIDTH_PERCENT_LABEL}，并限制在{" "}
+                {POSTER_TAG_BADGE_MIN_WIDTH}-{POSTER_TAG_BADGE_MAX_WIDTH}px；低分辨率海报会继续压到不超过海报宽度的{" "}
+                {TAG_BADGE_IMAGE_MAX_WIDTH_PERCENT_LABEL}，高度按比例计算。
+              </p>
+              <p>图片会按角标槽位等比缩放，不会拉伸；方形图片会以槽位高度 x 槽位高度靠左放置。</p>
+              <p>建议使用透明 PNG 或 WebP。图片过大时会自动缩小，损坏或无法读取的图片会回退到内建角标。</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={handleOpenDirectory} disabled={openingDirectory}>
+              {openingDirectory ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FolderOpen className="h-3.5 w-3.5" />
+              )}
+              打开文件夹
+            </Button>
+            <DialogClose asChild>
+              <Button type="button">知道了</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

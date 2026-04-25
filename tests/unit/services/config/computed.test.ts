@@ -69,6 +69,7 @@ describe("buildComputedConfiguration", () => {
     expect(defaults.download.tagBadgeTypes).toEqual([...DEFAULT_POSTER_TAG_BADGE_TYPES]);
     expect(defaults.download.tagBadgeTypes).not.toEqual([...POSTER_TAG_BADGE_TYPE_OPTIONS]);
     expect(defaults.download.tagBadgePosition).toBe("topLeft");
+    expect(defaults.download.tagBadgeImageOverrides).toBe(false);
     expect(customized.download.tagBadgeTypes).toEqual(["subtitle", "leak"]);
     expect(customized.download.tagBadgePosition).toBe("bottomRight");
   });
