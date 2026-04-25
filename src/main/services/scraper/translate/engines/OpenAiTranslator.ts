@@ -15,6 +15,12 @@ interface TranslationLogger {
 const OPENAI_RETRY_STATUS_CODE = 429;
 const RETRY_AFTER_CAP_MS = 15_000;
 const QUOTE_PATTERN = /^['\u0022\u201C\u201D]+|['\u0022\u201C\u201D]+$/gu;
+const REQUEST_TIMEOUT_PATTERN = /request timeout|timed out|timeout \(\d+ ms\)/iu;
+
+interface RetryDecision {
+  delayMs: number;
+  reason: string;
+}
 
 export class OpenAiTranslator {
   private readonly requestQueues = new Map<number, PQueue>();
@@ -157,25 +163,30 @@ export class OpenAiTranslator {
           throw error;
         }
 
-        const retryAfterMs = this.getRetryAfterDelayMs(error);
-        if (retryAfterMs === null) {
+        const retryDecision = this.getRetryDecision(error, attempt);
+        if (!retryDecision) {
           throw error;
         }
 
         attempt += 1;
-        this.logger.warn(`LLM API returned 429, retrying (${attempt}/${maxRetryCount}) after ${retryAfterMs}ms`);
-        await sleep(retryAfterMs, undefined, signal ? { signal } : undefined);
+        this.logger.warn(
+          `LLM request retrying after ${retryDecision.reason} (${attempt}/${maxRetryCount}) in ${retryDecision.delayMs}ms`,
+        );
+        await sleep(retryDecision.delayMs, undefined, signal ? { signal } : undefined);
       }
     }
   }
 
-  private getRetryAfterDelayMs(error: unknown): number | null {
+  private getRetryDecision(error: unknown, attempt: number): RetryDecision | null {
     if (!error || typeof error !== "object") {
       return null;
     }
 
     const status = (error as { status?: unknown }).status;
     if (status !== OPENAI_RETRY_STATUS_CODE) {
+      if (this.isRetryableTimeout(error)) {
+        return { delayMs: this.getExponentialDelayMs(attempt), reason: "timeout" };
+      }
       return null;
     }
 
@@ -184,10 +195,19 @@ export class OpenAiTranslator {
 
     const rawRetryAfter = readRetryAfterHeader(headers);
     const parsed = parseRetryAfterMs(rawRetryAfter);
-    if (parsed === null) {
-      return null;
+    if (parsed !== null) {
+      return { delayMs: Math.min(parsed, RETRY_AFTER_CAP_MS), reason: "HTTP 429" };
     }
 
-    return Math.min(parsed, RETRY_AFTER_CAP_MS);
+    return { delayMs: this.getExponentialDelayMs(attempt), reason: "HTTP 429" };
+  }
+
+  private getExponentialDelayMs(attempt: number): number {
+    return Math.min(1000 * 2 ** attempt, RETRY_AFTER_CAP_MS);
+  }
+
+  private isRetryableTimeout(error: unknown): boolean {
+    const message = toErrorMessage(error);
+    return REQUEST_TIMEOUT_PATTERN.test(message);
   }
 }
