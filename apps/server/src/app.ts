@@ -75,16 +75,10 @@ export const buildServer = (options: BuildServerOptions = {}): ServerApp => {
     );
   };
   config.setBeforeActiveConfigurationCommit(async (next, { source }) => {
-    await mediaRoots.assertConfiguredMediaPath(
-      next,
-      source === "load" || source === "watch" ? reportUnavailableMediaPath : undefined,
-    );
+    await mediaRoots.assertConfiguredMediaPath(next, source === "load" ? reportUnavailableMediaPath : undefined);
   });
   config.setAfterActiveConfigurationCommit(async (next, { source }) => {
-    await mediaRoots.registerConfiguredMediaPath(
-      next,
-      source === "load" || source === "watch" ? reportUnavailableMediaPath : undefined,
-    );
+    await mediaRoots.registerConfiguredMediaPath(next, source === "load" ? reportUnavailableMediaPath : undefined);
   });
   config.onDiagnostic((event) => {
     runtimeLogs
@@ -190,7 +184,6 @@ export const buildServer = (options: BuildServerOptions = {}): ServerApp => {
 
   fastify.addHook("onReady", async () => {
     await services.config.load();
-    await services.config.startWatching();
     await services.persistence.initialize();
     await services.scans.recoverInterrupted();
   });
@@ -199,7 +192,6 @@ export const buildServer = (options: BuildServerOptions = {}): ServerApp => {
   fastify.addHook("onClose", async () => {
     if (closed) return;
     closed = true;
-    await services.config.stopWatching();
     await services.scans.close();
     await services.scrape.close();
     await services.maintenance.close();

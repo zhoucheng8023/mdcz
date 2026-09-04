@@ -67,16 +67,10 @@ export const createContainer = ({
     );
   };
   configManager.setBeforeActiveConfigurationCommit(async (next, { source }) => {
-    await mediaRoots.assertConfiguredMediaPath(
-      next,
-      source === "load" || source === "watch" ? reportUnavailableMediaPath : undefined,
-    );
+    await mediaRoots.assertConfiguredMediaPath(next, source === "load" ? reportUnavailableMediaPath : undefined);
   });
   configManager.setAfterActiveConfigurationCommit(async (next, { source }) => {
-    await mediaRoots.registerConfiguredMediaPath(
-      next,
-      source === "load" || source === "watch" ? reportUnavailableMediaPath : undefined,
-    );
+    await mediaRoots.registerConfiguredMediaPath(next, source === "load" ? reportUnavailableMediaPath : undefined);
   });
   const outputLibraryScanner = new OutputLibraryScanner({ persistenceService });
   const desktopLibraryService = new DesktopLibraryService(persistenceService);

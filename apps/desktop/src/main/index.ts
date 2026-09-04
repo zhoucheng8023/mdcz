@@ -117,7 +117,6 @@ const cleanupResources = async (): Promise<void> => {
 
     disposeLoggerListener?.();
     disposeLoggerListener = null;
-    await configManager.stopWatching();
     disposeShortcutConfigListener?.();
     disposeShortcutConfigListener = null;
     shortcutService.dispose();
@@ -147,7 +146,6 @@ if (!app.requestSingleInstanceLock()) {
     .then(async () => {
       await bootstrap();
       const initialConfig = await configManager.getValidated();
-      await configManager.startWatching();
       await ensureMainWindow(toMainWindowCreationOptions(initialConfig));
 
       if (windowService) {

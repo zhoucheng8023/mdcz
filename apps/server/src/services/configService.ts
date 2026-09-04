@@ -146,14 +146,6 @@ export class ServerConfigService {
     this.config.reportDiagnostic(kind, error);
   }
 
-  async startWatching(): Promise<void> {
-    await this.config.startWatching();
-  }
-
-  async stopWatching(): Promise<void> {
-    await this.config.stopWatching();
-  }
-
   async get(): Promise<Configuration>;
   async get(propertyPath: string): Promise<unknown>;
   async get(propertyPath?: string): Promise<Configuration | unknown> {
