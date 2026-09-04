@@ -1,7 +1,7 @@
 import { isSharedDirectoryMode } from "@mdcz/shared/assetNaming";
 import { type Configuration, NFO_FIELD_OPTIONS, type NfoField } from "@mdcz/shared/config";
 import { TRANSLATION_TARGET_OPTIONS } from "@mdcz/shared/enums";
-import { DEFAULT_LLM_BASE_URL } from "@mdcz/shared/llm";
+import { DEFAULT_LLM_BASE_URL, LLM_REASONING_EFFORT_OPTIONS } from "@mdcz/shared/llm";
 import {
   POSTER_TAG_BADGE_ASPECT_HEIGHT,
   POSTER_TAG_BADGE_ASPECT_WIDTH,
@@ -66,6 +66,15 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
   { value: "google", label: "Google 翻译（免费）" },
 ];
 const LANGUAGE_OPTIONS = [...TRANSLATION_TARGET_OPTIONS];
+const LLM_REASONING_EFFORT_LABELS = {
+  low: "低",
+  medium: "中",
+  high: "高",
+} as const;
+const LLM_REASONING_EFFORT_FIELD_OPTIONS: EnumOption[] = LLM_REASONING_EFFORT_OPTIONS.map((value) => ({
+  value,
+  label: LLM_REASONING_EFFORT_LABELS[value],
+}));
 const PART_STYLE_OPTIONS: EnumOption[] = [
   { value: "RAW", label: "保持原始后缀" },
   { value: "CD", label: "统一为 CD1 / CD2" },
@@ -1029,7 +1038,8 @@ export function TranslateSection() {
       llmBaseUrl: String(form.getValues("translate.llmBaseUrl") ?? ""),
       llmPrompt: String(form.getValues("translate.llmPrompt") ?? ""),
       llmTemperature: Number(form.getValues("translate.llmTemperature") ?? 0),
-      llmTimeout: Number(form.getValues("translate.llmTimeout") ?? 60),
+      llmReasoningEffort: form.getValues("translate.llmReasoningEffort") ?? "low",
+      llmTimeout: Number(form.getValues("translate.llmTimeout") ?? 120),
     };
 
     setTesting(true);
@@ -1092,6 +1102,12 @@ export function TranslateSection() {
           />
           <PromptFieldWrapper name="translate.llmPrompt" label="LLM 翻译提示词" />
           <NumberField name="translate.llmTemperature" label="LLM 温度" min={0} max={2} step={0.1} />
+          <EnumField
+            name="translate.llmReasoningEffort"
+            label="LLM 推理强度"
+            description="较高强度可能改善复杂文本翻译，但会显著增加耗时和 token 消耗。"
+            options={LLM_REASONING_EFFORT_FIELD_OPTIONS}
+          />
           <NumberField name="translate.llmTimeout" label="LLM 请求超时(秒)" min={1} max={300} />
           <NumberField name="translate.llmMaxRetries" label="LLM 最大重试次数" min={1} max={20} />
           <NumberField name="translate.llmMaxRequestsPerSecond" label="LLM 每秒最大请求数" min={1} max={100} />

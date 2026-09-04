@@ -187,7 +187,12 @@ describe("settings parity runtime helpers", () => {
     config.translate.llmBaseUrl = "https://example.test/v1";
     await expect(
       testLlmConnectivity(
-        { llmModelName: "gpt-test", llmPrompt: "{lang}:{content}", llmTemperature: 1.5 },
+        {
+          llmModelName: "gpt-test",
+          llmPrompt: "{lang}:{content}",
+          llmTemperature: 1.5,
+          llmReasoningEffort: "high",
+        },
         config,
         llmApiClient,
         logger,
@@ -198,8 +203,9 @@ describe("settings parity runtime helpers", () => {
         baseUrl: "https://example.test/v1",
         model: "gpt-test",
         prompt: expect.stringContaining("简体中文:ある日の暮方の事である。"),
+        reasoningEffort: "high",
         temperature: 0,
-        timeout: 60_000,
+        timeout: 120_000,
       }),
       undefined,
     );

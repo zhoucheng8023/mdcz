@@ -24,6 +24,11 @@ describe("LlmApiClient", () => {
         baseUrl: "http://127.0.0.1:11434/v1",
         temperature: 0.2,
         prompt: "hello",
+        reasoningEffort: "low",
+        responseFormat: {
+          name: "translation",
+          schema: { type: "object" },
+        },
       }),
     ).resolves.toBe("本地响应");
 
@@ -33,6 +38,14 @@ describe("LlmApiClient", () => {
       expect.objectContaining({
         model: "qwen3:8b",
         input: "hello",
+        reasoning: { effort: "low" },
+        text: {
+          format: {
+            type: "json_schema",
+            name: "translation",
+            schema: { type: "object" },
+          },
+        },
       }),
       expect.objectContaining({
         headers: expect.any(Headers),
@@ -130,12 +143,30 @@ describe("LlmApiClient", () => {
         baseUrl: "",
         temperature: 1,
         prompt: "hello",
+        reasoningEffort: "low",
+        responseFormat: {
+          name: "translation",
+          schema: { type: "object" },
+        },
       }),
     ).resolves.toBe("聊天回退成功");
 
     expect(postJsonDetailed).toHaveBeenCalledTimes(2);
     expect(postJsonDetailed.mock.calls[0][0]).toBe(`${DEFAULT_LLM_BASE_URL}/responses`);
     expect(postJsonDetailed.mock.calls[1][0]).toBe(`${DEFAULT_LLM_BASE_URL}/chat/completions`);
+    expect(postJsonDetailed.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
+        reasoning_effort: "low",
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "translation",
+            strict: true,
+            schema: { type: "object" },
+          },
+        },
+      }),
+    );
 
     const headers = postJsonDetailed.mock.calls[1][2].headers as Headers;
     expect(headers.get("authorization")).toBe("Bearer test-key");

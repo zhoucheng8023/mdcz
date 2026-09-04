@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Configuration, DeepPartial } from "./config";
 import { Website } from "./enums";
+import { LLM_REASONING_EFFORT_OPTIONS } from "./llm";
 import { assetRefSchema, parseWireRelativeDirectory, type RootFileRef, rootFileRefSchema } from "./mediaRef";
 import { normalizedCropRegionSchema } from "./posterCrop";
 import type { MediaCandidate } from "./types";
@@ -943,6 +944,7 @@ export const translateTestLlmInputSchema = z.object({
   llmBaseUrl: z.string().optional(),
   llmPrompt: z.string().optional(),
   llmTemperature: z.number().optional(),
+  llmReasoningEffort: z.enum(LLM_REASONING_EFFORT_OPTIONS).optional(),
   llmTimeout: z.number().optional(),
 });
 

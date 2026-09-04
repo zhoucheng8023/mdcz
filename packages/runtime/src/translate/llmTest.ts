@@ -1,4 +1,5 @@
 import type { Configuration } from "@mdcz/shared/config";
+import type { LlmReasoningEffort } from "@mdcz/shared/llm";
 import {
   isMissingRequiredLlmApiKey,
   type LlmApiClient,
@@ -14,6 +15,7 @@ export interface TranslateTestLlmInput {
   llmBaseUrl?: string;
   llmPrompt?: string;
   llmTemperature?: number;
+  llmReasoningEffort?: LlmReasoningEffort;
   llmTimeout?: number;
 }
 
@@ -33,6 +35,7 @@ export const testLlmConnectivity = async (
   const llmApiKey = typeof input?.llmApiKey === "string" ? input.llmApiKey : configuration.translate.llmApiKey;
   const llmBaseUrl = typeof input?.llmBaseUrl === "string" ? input.llmBaseUrl : configuration.translate.llmBaseUrl;
   const llmPrompt = typeof input?.llmPrompt === "string" ? input.llmPrompt : configuration.translate.llmPrompt;
+  const llmReasoningEffort = input?.llmReasoningEffort ?? configuration.translate.llmReasoningEffort;
   const llmTimeout =
     typeof input?.llmTimeout === "number" && Number.isFinite(input.llmTimeout)
       ? input.llmTimeout
@@ -59,6 +62,7 @@ export const testLlmConnectivity = async (
         llmModelName,
         llmPrompt,
         llmTemperature: 0,
+        llmReasoningEffort,
         llmTimeout: Math.max(1, Math.trunc(llmTimeout)),
       },
     };

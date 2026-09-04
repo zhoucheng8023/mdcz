@@ -1,3 +1,5 @@
+import type { LlmReasoningEffort } from "./llm";
+
 export type IpcActionContext = {
   // biome-ignore lint/suspicious/noExplicitAny: keep shared IPC contracts structurally compatible with tipc without importing desktop/Electron types.
   sender: any;
@@ -31,6 +33,7 @@ export type TranslateTestLlmInput = {
   llmBaseUrl?: string;
   llmPrompt?: string;
   llmTemperature?: number;
+  llmReasoningEffort?: LlmReasoningEffort;
   llmTimeout?: number;
 };
 

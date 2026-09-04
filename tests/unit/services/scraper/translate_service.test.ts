@@ -17,7 +17,6 @@ vi.mock("node:timers/promises", () => {
   };
 });
 
-const appendMappingCandidate = vi.fn();
 const findMappedActorName = vi.fn();
 const findMappedGenreName = vi.fn();
 
@@ -43,7 +42,6 @@ const createTranslateService = (networkClient: NetworkClient, llmApiClient: LlmA
     llmApiClient,
     logger,
     mappingStore: {
-      appendMappingCandidate,
       findMappedActorName,
       findMappedGenreName,
     },
@@ -59,14 +57,15 @@ const createLogger = () => ({
 describe("TranslateService term consistency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(appendMappingCandidate).mockResolvedValue(undefined);
     vi.mocked(findMappedActorName).mockResolvedValue(null);
     vi.mocked(findMappedGenreName).mockResolvedValue(null);
     sleepMock.mockClear();
   });
 
-  it("keeps actor original term and only translates genre term", async () => {
-    const generateText = vi.fn().mockResolvedValue("统一译名");
+  it("batches title, plot, and unmapped genres into one structured llm request", async () => {
+    const generateText = vi
+      .fn()
+      .mockResolvedValue(JSON.stringify({ title: "中文标题", plot: "中文简介", genres: ["统一译名"] }));
     const llmApiClient = createLlmApiClient(generateText);
 
     const service = createTranslateService(new NetworkClient({}), llmApiClient);
@@ -74,7 +73,8 @@ describe("TranslateService term consistency", () => {
 
     const translated = await service.translateCrawlerData(
       {
-        title: " ",
+        title: "Japanese title",
+        plot: "Japanese plot",
         number: "DLDSS-463",
         actors: ["同一日语词", "同一日语词"],
         genres: ["同一日语词"],
@@ -85,14 +85,17 @@ describe("TranslateService term consistency", () => {
     );
 
     expect(generateText).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(appendMappingCandidate)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(appendMappingCandidate)).toHaveBeenCalledWith(
+    expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        category: "genre",
-        keyword: "同一日语词",
+        prompt: expect.stringContaining('"title":"Japanese title","plot":"Japanese plot","genres":["同一日语词"]'),
+        reasoningEffort: "low",
+        responseFormat: expect.objectContaining({ name: "translated_metadata" }),
       }),
+      undefined,
     );
     expect(translated.actors).toEqual(["同一日语词", "同一日语词"]);
+    expect(translated.title_zh).toBe("中文标题");
+    expect(translated.plot_zh).toBe("中文简介");
     expect(translated.genres).toEqual(["统一译名"]);
   });
 
@@ -119,7 +122,6 @@ describe("TranslateService term consistency", () => {
     );
 
     expect(generateText).not.toHaveBeenCalled();
-    expect(vi.mocked(appendMappingCandidate)).not.toHaveBeenCalled();
     expect(vi.mocked(findMappedActorName)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(findMappedGenreName)).toHaveBeenCalledTimes(1);
     expect(translated.actors).toEqual(["小花暖"]);
@@ -330,7 +332,7 @@ describe("TranslateService term consistency", () => {
 
     expect(translated.title_zh).toBeUndefined();
     expect(translated.plot_zh).toBeUndefined();
-    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
 
   it("does not call llm for genre terms when the selected engine is google", async () => {

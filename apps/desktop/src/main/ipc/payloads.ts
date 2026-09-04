@@ -1,4 +1,5 @@
 import { Website } from "@mdcz/shared/enums";
+import { LLM_REASONING_EFFORT_OPTIONS } from "@mdcz/shared/llm";
 import { localFileTargetSchema, parseWireRelativeDirectory, rootFileRefSchema } from "@mdcz/shared/mediaRef";
 import { normalizedCropRegionSchema } from "@mdcz/shared/posterCrop";
 import {
@@ -75,6 +76,7 @@ export const translateTestLlmInputSchema = z.object({
   llmBaseUrl: optionalString,
   llmPrompt: optionalString,
   llmTemperature: z.number().optional(),
+  llmReasoningEffort: z.enum(LLM_REASONING_EFFORT_OPTIONS).optional(),
   llmTimeout: z.number().optional(),
 });
 

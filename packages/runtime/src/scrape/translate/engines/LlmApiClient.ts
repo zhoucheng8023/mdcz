@@ -1,3 +1,4 @@
+import type { LlmReasoningEffort } from "@mdcz/shared/llm";
 import { DEFAULT_LLM_BASE_URL } from "@mdcz/shared/llm";
 import { toErrorMessage } from "../../../shared";
 
@@ -26,6 +27,11 @@ export interface LlmTextRequest {
   baseUrl: string;
   temperature: number;
   prompt: string;
+  reasoningEffort?: LlmReasoningEffort;
+  responseFormat?: {
+    name: string;
+    schema: Record<string, unknown>;
+  };
   timeout?: number;
 }
 
@@ -184,6 +190,18 @@ export class LlmApiClient {
         model: request.model,
         input: request.prompt,
         temperature: request.temperature,
+        ...(request.reasoningEffort ? { reasoning: { effort: request.reasoningEffort } } : {}),
+        ...(request.responseFormat
+          ? {
+              text: {
+                format: {
+                  type: "json_schema",
+                  name: request.responseFormat.name,
+                  schema: request.responseFormat.schema,
+                },
+              },
+            }
+          : {}),
       },
       { headers, signal, timeout: request.timeout },
     );
@@ -215,12 +233,25 @@ export class LlmApiClient {
       {
         model: request.model,
         temperature: request.temperature,
+        ...(request.reasoningEffort ? { reasoning_effort: request.reasoningEffort } : {}),
         messages: [
           {
             role: "user",
             content: request.prompt,
           },
         ],
+        ...(request.responseFormat
+          ? {
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  name: request.responseFormat.name,
+                  strict: true,
+                  schema: request.responseFormat.schema,
+                },
+              },
+            }
+          : {}),
       },
       { headers, signal, timeout: request.timeout },
     );

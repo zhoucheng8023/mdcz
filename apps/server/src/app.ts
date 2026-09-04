@@ -92,7 +92,7 @@ export const buildServer = (options: BuildServerOptions = {}): ServerApp => {
       .warn(`Configuration ${event.kind} for profile ${event.profileName}: ${event.message}`);
   });
   runtimeLoggerService.setFactory((name) => runtimeLogs.getLogger(name));
-  const mappingStore = options.resources?.mappingStore ?? createServerTranslationMappingStore(config);
+  const mappingStore = options.resources?.mappingStore ?? createServerTranslationMappingStore();
   const networkClient =
     options.resources?.networkClient ??
     new NetworkClient({
