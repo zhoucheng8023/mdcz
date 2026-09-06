@@ -11,7 +11,7 @@ const resolveFixtureRoot = (value, fallback) => path.resolve(workspaceRoot, valu
 const env = {
   ...process.env,
   MDCZ_NETWORK_FIXTURE_MODE: "replay",
-  MDCZ_REPLAY_DELAY_MS: process.env.MDCZ_REPLAY_DELAY_MS?.trim() || "2000",
+  MDCZ_REPLAY_DELAY_MS: process.env.MDCZ_REPLAY_DELAY_MS?.trim() || "500",
   MDCZ_NETWORK_FIXTURES_ROOT: resolveFixtureRoot(process.env.MDCZ_NETWORK_FIXTURES_ROOT, "tests/fixtures/network"),
 };
 const command = /\.(?:c?js|mjs)$/iu.test(pnpmCli) ? process.execPath : pnpmCli;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { stat as fsStat } from "node:fs/promises";
 import path from "node:path";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
@@ -339,7 +340,7 @@ export class LibraryRepository {
           .limit(1)
           .get()
       : null;
-    const itemId = input.librarySource?.libraryItemId ?? `${target.rootId}:${target.rootRelativePath}`;
+    const itemId = input.librarySource?.libraryItemId ?? randomUUID();
     return {
       librarySource: input.librarySource,
       targetCandidates,
