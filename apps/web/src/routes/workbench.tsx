@@ -240,6 +240,9 @@ function WorkbenchPage() {
           <ScrapeWorkbenchAdapter
             ports={ports}
             failedCount={failedCount}
+            conflictAction={
+              <PublicationConflictDialog list={api.publication.conflicts} resolve={api.publication.resolveConflict} />
+            }
             onPauseScrape={() => void handlePauseScrape()}
             onResumeScrape={() => void handleResumeScrape()}
             onRetryFailed={() => void handleRetryFailed()}
@@ -255,7 +258,6 @@ function WorkbenchPage() {
         onOpenChange={setUncensoredDialogOpen}
         onConfirm={handleConfirmUncensored}
       />
-      <PublicationConflictDialog list={api.publication.conflicts} resolve={api.publication.resolveConflict} />
     </div>
   );
 }

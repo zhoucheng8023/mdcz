@@ -4,6 +4,7 @@ import type {
   PublicationConflictSnapshot,
 } from "@mdcz/shared/publicationConflicts";
 import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@mdcz/ui";
+import { AlertTriangle } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export function PublicationConflictDialog({
@@ -14,19 +15,15 @@ export function PublicationConflictDialog({
   resolve(input: PublicationConflictResolution): Promise<unknown>;
 }) {
   const [conflicts, setConflicts] = useState<PublicationConflictSnapshot[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
         const next = await list();
-        if (!cancelled) {
-          setConflicts(next);
-          setLoadError(null);
-        }
-      } catch (error) {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+        if (!cancelled) setConflicts(next);
+      } catch {
+        // Poll errors are ignored during background status checks
       } finally {
         if (!cancelled) timer = setTimeout(() => void poll(), 1500);
       }
@@ -37,10 +34,12 @@ export function PublicationConflictDialog({
       clearTimeout(timer);
     };
   }, [list]);
+
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const conflict = conflicts[0];
+
   const choose = async (choice: PublicationConflictChoice) => {
     if (!conflict) return;
     setBusy(true);
@@ -54,14 +53,28 @@ export function PublicationConflictDialog({
       setBusy(false);
     }
   };
-  if (!conflict) return loadError ? <p role="alert">无法读取文件冲突：{loadError}</p> : null;
+
+  if (!conflict) return null;
+
+  const isDismissed = dismissed === conflict.id;
+
   return (
     <>
-      <Button variant="outline" onClick={() => setDismissed(null)}>
-        处理文件冲突（{conflicts.length}）
-      </Button>
+      {isDismissed ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 rounded-quiet-capsule px-2.5 text-xs font-bold text-amber-500 hover:bg-amber-500/10 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300"
+          onClick={() => setDismissed(null)}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          待处理冲突 ({conflicts.length})
+        </Button>
+      ) : null}
+
       <Dialog
-        open={dismissed !== conflict.id}
+        open={!isDismissed}
         onOpenChange={(open) => {
           if (!open) setDismissed(conflict.id);
         }}
@@ -84,7 +97,7 @@ export function PublicationConflictDialog({
               {conflict.targetSize} 字节 · {new Date(conflict.targetModifiedAt).toLocaleString()}
             </p>
             <p>保留两份时，新文件保存为：{conflict.keepBothPath}</p>
-            <p>视频加后缀时，字幕和元数据仍使用原定名称；它们的冲突分别处理。</p>
+            <p>字幕与元数据不会跟随视频重命名；若存在冲突将单独处理。</p>
             {error && (
               <p role="alert" className="text-destructive">
                 {error}

@@ -263,6 +263,9 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
           ) : workbenchMode === "scrape" ? (
             <ScrapeWorkbenchAdapter
               ports={workbenchPorts}
+              conflictAction={
+                <PublicationConflictDialog list={ipc.scraper.conflicts} resolve={ipc.scraper.resolveConflict} />
+              }
               onPauseScrape={handlePauseScrape}
               onResumeScrape={handleResumeScrape}
               onStopScrape={handleStopScrape}
@@ -281,7 +284,6 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
         items={ambiguousDialogItems}
         onConfirm={handleConfirmUncensored}
       />
-      <PublicationConflictDialog list={ipc.scraper.conflicts} resolve={ipc.scraper.resolveConflict} />
     </div>
   );
 }
