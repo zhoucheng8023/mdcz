@@ -32,11 +32,12 @@ Responses are written to `test-results/recording/network`, then the cases touche
 ```bash
 pnpm test:e2e:fixtures
 pnpm replay:desktop
+pnpm replay:webui
 ```
 
 Replay matches requests within the active item and channel. Each scrape execution gets a fresh playback cursor, so the same case can be stopped and started again without restarting the application. A missing interaction fails without public-network fallback.
 
-`replay:desktop` resolves fixture paths from the workspace root and adds a 2-second delay before each recorded crawler or media response so pause, resume, and stop can be exercised manually. Override the delay with `MDCZ_REPLAY_DELAY_MS=5000 pnpm replay:desktop`.
+`replay:desktop` and `replay:webui` resolve fixture paths from the workspace root and add a 500ms delay before each recorded crawler or media response so pause, resume, and stop can be exercised manually. Override the delay with `MDCZ_REPLAY_DELAY_MS=5000 pnpm replay:webui`.
 
 The fixture E2E journey disables translation, media downloads, person images, and update checks. Media replay remains available for focused download or visual tests that explicitly enable those features.
 
