@@ -16,6 +16,8 @@ export interface PublicationMove {
 }
 
 export interface PublicationPlan {
+  expectedFiles?: import("./preflight").ObservedPublicationFile[];
+  targetChanges?: Array<{ from: RootFileRef; to: RootFileRef }>;
   operationId: string;
   operationType: "scrape" | "maintenance";
   video?: PublicationMove;

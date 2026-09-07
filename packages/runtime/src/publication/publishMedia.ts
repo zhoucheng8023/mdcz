@@ -205,6 +205,10 @@ export const commitPublishedMedia = async <TResult>(
             data = artifact.content.data;
           }
           const writeStartedAt = startPhase("sidecar-write");
+          const capacity = await fileSystem.statfs(path.dirname(targetPath));
+          if (capacity.bavail * capacity.bsize < expectedBytes(data)) {
+            throw new Error(`Insufficient space for publication target: ${targetPath}`);
+          }
           await fileSystem.writeFile(temporaryPath, data);
           recordPhase("sidecar-write", writeStartedAt);
           const flushStartedAt = startPhase("flush");
@@ -226,13 +230,7 @@ export const commitPublishedMedia = async <TResult>(
       const targetPath = resolved.resolve(video.target);
       const targetFact = observedAt(resolved.observed, targetPath);
       const targetExisted = targetFact?.exists === true;
-      const targetSatisfied =
-        targetFact?.exists === true &&
-        targetFact.isFile &&
-        (content === undefined
-          ? targetFact.size === video.size
-          : (await fileSystem.readFile(targetPath)).equals(Buffer.from(content)));
-      if (sourcePath !== targetPath && (!targetSatisfied || replacing.has(refKey(video.target)))) {
+      if (sourcePath !== targetPath) {
         await fileSystem.mkdir(path.dirname(targetPath), { recursive: true });
         const temporaryPath = createTargetTemporaryPath(targetPath, plan.operationId);
         planned.push({
@@ -257,12 +255,20 @@ export const commitPublishedMedia = async <TResult>(
             }
             const copyStartedAt = startPhase("video-copy");
             if (content !== undefined) {
+              const capacity = await fileSystem.statfs(path.dirname(targetPath));
+              if (capacity.bavail * capacity.bsize < expectedBytes(content)) {
+                throw new Error(`Insufficient space for publication target: ${targetPath}`);
+              }
               await fileSystem.writeFile(temporaryPath, content);
             } else {
               try {
                 await fileSystem.rename(sourcePath, temporaryPath);
               } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+                const capacity = await fileSystem.statfs(path.dirname(targetPath));
+                if (capacity.bavail * capacity.bsize < video.size) {
+                  throw new Error(`Insufficient space for publication target: ${targetPath}`);
+                }
                 await fileSystem.copyFile(sourcePath, temporaryPath);
               }
             }

@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
@@ -141,7 +141,12 @@ describe("FileScraper .strm support", () => {
     const scraper = createScraper({ config, crawlerData, plan, writeNfo });
     const sourcePath = await createTempFile("ABC-123.strm");
 
-    const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 });
+    const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(result.status).toBe("success");
     expect(result.fileName).toBe("ABC-123");
@@ -180,12 +185,21 @@ describe("FileScraper .strm support", () => {
       const scraper = createScraper({ config, crawlerData, plan, writeNfo });
       const sourcePath = await createTempFile("ABC-123.strm");
 
-      const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 });
+      const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      });
 
       expect(writeNfo).not.toHaveBeenCalled();
-      expect(result.nfo?.relativePath).toBe(nfoPath);
+      expect(result.nfo).toEqual({ rootId: "test-root", relativePath: relative(tmpdir(), nfoPath) });
       if (scenario.shouldSyncMovieAlias) {
-        await expect(readFile(movieNfoPath, "utf8")).resolves.toBe(await readFile(nfoPath, "utf8"));
+        expect(result.publicationPlan?.artifacts).toContainEqual({
+          target: { rootId: "test-root", relativePath: relative(tmpdir(), movieNfoPath) },
+          content: { kind: "bytes", data: Buffer.from(await readFile(nfoPath, "utf8")) },
+        });
+        await expect(readFile(movieNfoPath)).rejects.toMatchObject({ code: "ENOENT" });
         continue;
       }
       await expect(readFile(movieNfoPath, "utf8")).rejects.toThrow();
@@ -244,7 +258,12 @@ describe("FileScraper .strm support", () => {
       localScanService,
     });
     await writeFile(join(root, "ABC-123-U.strm"), "video");
-    const result = await scraper.scrapeFile(join(root, "ABC-123-U.strm"), { fileIndex: 1, totalFiles: 1 });
+    const result = await scraper.scrapeFile(join(root, "ABC-123-U.strm"), { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(fileOrganizer.plan).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -294,7 +313,12 @@ describe("FileScraper .strm support", () => {
       localScanService,
     });
     await writeFile(join(root, "ABC-123.strm"), "video");
-    await scraper.scrapeFile(join(root, "ABC-123.strm"), { fileIndex: 1, totalFiles: 1 });
+    await scraper.scrapeFile(join(root, "ABC-123.strm"), { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(writeNfo).toHaveBeenCalledWith(
       plan.nfoPath,

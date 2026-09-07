@@ -54,7 +54,13 @@ export interface MaintenanceSessionPreview {
   updatedAt: Date;
 }
 
-export type MaintenanceSessionApplyItemStatus = "pending" | "processing" | "success" | "failed" | "skipped";
+export type MaintenanceSessionApplyItemStatus =
+  | "pending"
+  | "processing"
+  | "waiting_conflict"
+  | "success"
+  | "failed"
+  | "skipped";
 
 export interface MaintenanceApplySelection {
   previewId: string;

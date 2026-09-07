@@ -1,5 +1,6 @@
 import type { ScrapeResult } from "@mdcz/shared/types";
 import { describe, expect, it, vi } from "vitest";
+import { PublicationConflictError, publicationConflicts } from "../../publication/conflicts";
 import { ScrapeCoordinator, type ScrapeHostPort, type ScrapeRunStore } from "./ScrapeCoordinator";
 import type { ScrapeRunItem } from "./ScrapeRunSession";
 
@@ -64,6 +65,97 @@ const createHost = (
 });
 
 describe("ScrapeCoordinator", () => {
+  it("shares stop completion while an admitted publication is committing", async () => {
+    const run: Run = {
+      id: "stop-commit",
+      items: [
+        { id: "one", rootId: "root", relativePath: "one.mp4" },
+        { id: "two", rootId: "root", relativePath: "two.mp4" },
+      ],
+    };
+    const store = createStore(run);
+    const committing = deferred<void>();
+    const release = deferred<void>();
+    const host = createHost(run, async (item) => resultFor(item, "success"));
+    const create = host.createExecution;
+    host.createExecution = async (entry, reporter) => ({
+      ...(await create(entry, reporter)),
+      commitItem: async (item, result) => {
+        if (item.id === "one") {
+          committing.resolve();
+          await release.promise;
+        }
+        return result;
+      },
+    });
+    const coordinator = new ScrapeCoordinator(store, host);
+    await coordinator.start("start");
+    await committing.promise;
+    const first = coordinator.stop(run.id);
+    const second = coordinator.stop(run.id);
+    expect(store.finalize).not.toHaveBeenCalled();
+    release.resolve();
+    const snapshots = await Promise.all([first, second]);
+    expect(snapshots[0]).toEqual(snapshots[1]);
+    expect(snapshots[0].items.map((item) => item.status)).toEqual(["success", "skipped"]);
+    expect(store.finalize).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "resolve",
+    "stop",
+  ] as const)("continues other items while a conflict waits, then handles %s", async (action) => {
+    const run: Run = {
+      id: `conflict-${action}`,
+      items: [
+        { id: "one", rootId: "root", relativePath: "one.mp4" },
+        { id: "two", rootId: "root", relativePath: "two.mp4" },
+      ],
+    };
+    const store = createStore(run);
+    let chosen = false;
+    const host = createHost(run, async (item) => resultFor(item, "success"));
+    const create = host.createExecution;
+    host.createExecution = async (entry, reporter) => ({
+      ...(await create(entry, reporter)),
+      commitItem: async (item, result) => {
+        if (item.id === "one" && result.status === "success" && !chosen)
+          throw new PublicationConflictError(
+            {
+              id: run.id,
+              operationId: run.id,
+              sourcePath: "/one",
+              targetPath: "/two",
+              keepBothPath: "/two (1)",
+              sourceSize: 3,
+              targetSize: 3,
+              sourceModifiedAt: 1,
+              targetModifiedAt: 1,
+            },
+            async () => {
+              chosen = true;
+            },
+          );
+        return result;
+      },
+    });
+    const coordinator = new ScrapeCoordinator(store, host);
+    await coordinator.start("start");
+    await coordinator.waitForIdle();
+    expect(coordinator.liveRuns()[0]?.snapshot.items.map((item) => item.status)).toEqual([
+      "waiting_conflict",
+      "success",
+    ]);
+    expect(store.finalize).not.toHaveBeenCalled();
+    if (action === "resolve") await publicationConflicts.resolve({ id: run.id, choice: "keep_both" });
+    else {
+      await coordinator.stop(run.id);
+      await expect(publicationConflicts.resolve({ id: run.id, choice: "keep_new" })).rejects.toThrow("已变化");
+    }
+    await coordinator.waitForIdle();
+    expect(store.finalize).toHaveBeenCalledOnce();
+    expect(coordinator.liveRuns()).toEqual([]);
+  });
   it("re-enqueues the settled run through retry instead of create()", async () => {
     const run: Run = {
       id: "run-1",

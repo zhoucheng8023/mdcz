@@ -1,5 +1,6 @@
 import { resolveRootRelativePath } from "@mdcz/media-store";
 import { parseWireRelativePath, type RootFileRef } from "@mdcz/shared/mediaRef";
+import { createPublicationConflict } from "./conflicts";
 import type {
   PublicationFileSystem,
   PublicationJournalManifestObsolete,
@@ -107,6 +108,9 @@ export const preflightPublication = async (
   previous?: readonly ObservedPublicationFile[],
 ): Promise<ResolvedPublicationPlan> => {
   if (!plan.operationId.trim()) throw new Error("Publication operation ID is required");
+  for (const fact of plan.expectedFiles ?? []) {
+    assertPublicationFileUnchanged(fact, await observePublicationFile(fileSystem, fact.path));
+  }
   const refs = planRefs(plan);
   const rootIds = [...new Set(refs.map((ref) => ref.rootId))];
   const roots = new Map(
@@ -137,40 +141,28 @@ export const preflightPublication = async (
     return fact;
   };
 
-  const requiredBytesByRoot = new Map<string, number>();
   for (const move of moves) {
     if (!Number.isSafeInteger(move.size) || move.size < 0) throw new Error("Invalid publication move size");
     const sourcePath = resolve(move.source);
     const targetPath = resolve(move.target);
     const source = await record(sourcePath);
     const target = await record(targetPath);
-    const content = move.content;
-    const targetHoldsResult =
-      target.exists &&
-      target.isFile &&
-      (content === undefined
-        ? target.size === move.size
-        : (await fileSystem.readFile(targetPath)).equals(Buffer.from(content)));
     if (source.exists) {
       if (!source.isFile || source.size !== move.size) {
         throw new Error(`Publication source size mismatch: ${refLabel(move.source)}`);
       }
-    } else if (!targetHoldsResult) {
+    } else {
       throw new Error(`Publication source is missing: ${refLabel(move.source)}`);
     }
-    if (sourcePath !== targetPath && target.exists && !targetHoldsResult && !replacing.has(refKey(move.target))) {
-      throw new Error(`Publication target already exists: ${refLabel(move.target)}`);
-    }
-    if (sourcePath !== targetPath && !target.exists) {
-      requiredBytesByRoot.set(move.target.rootId, (requiredBytesByRoot.get(move.target.rootId) ?? 0) + move.size);
-    }
-  }
-  for (const [rootId, requiredBytes] of requiredBytesByRoot) {
-    const targetRoot = roots.get(rootId);
-    if (!targetRoot) throw new Error(`Publication root not resolved: ${rootId}`);
-    const capacity = await fileSystem.statfs(targetRoot.hostPath);
-    if (capacity.bavail * capacity.bsize < requiredBytes) {
-      throw new Error(`Insufficient space for publication target: ${targetRoot.hostPath}`);
+    if (sourcePath !== targetPath && target.exists && !replacing.has(refKey(move.target))) {
+      throw await createPublicationConflict({
+        plan,
+        target: move.target,
+        source: move.source,
+        sourceSize: move.size,
+        resolve,
+        fileSystem,
+      });
     }
   }
 
@@ -184,7 +176,13 @@ export const preflightPublication = async (
     const expected = Buffer.from(artifact.content.data);
     const actual = await fileSystem.readFile(targetPath);
     if (!actual.equals(expected) && !replacing.has(refKey(artifact.target))) {
-      throw new Error(`Publication target already exists: ${refLabel(artifact.target)}`);
+      throw await createPublicationConflict({
+        plan,
+        target: artifact.target,
+        sourceSize: expected.length,
+        resolve,
+        fileSystem,
+      });
     }
   }
 

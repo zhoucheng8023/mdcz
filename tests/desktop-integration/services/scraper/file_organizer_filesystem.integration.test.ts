@@ -70,8 +70,8 @@ describe("FileOrganizer filesystem organize", () => {
     );
     const preparedCollision = await organizer.ensureOutputReady(collisionPlan, collisionSourcePath);
 
-    expect(preparedCollision.targetVideoPath).toBe(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN (1).mp4"));
-    expect(preparedCollision.nfoPath).toBe(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN (1).nfo"));
+    expect(preparedCollision.targetVideoPath).toBe(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.mp4"));
+    expect(preparedCollision.nfoPath).toBe(join(root, "output", "XYZ-999-CEN", "XYZ-999-CEN.nfo"));
 
     const inPlaceRoot = await createTempDir();
     const sourcePath = join(inPlaceRoot, "source.mp4");

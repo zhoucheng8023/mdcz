@@ -17,7 +17,8 @@ import type {
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry, MaintenancePresetId } from "@mdcz/shared/types";
 import { mediaPathOwnership } from "../library/mediaPathOwnership";
-import type { PreparedPublicationPlan } from "../publication";
+import { type PreparedPublicationPlan, PublicationError, type PublicationPlan } from "../publication";
+import { PublicationConflictError, publicationConflicts } from "../publication/conflicts";
 import { isAbortError } from "../scrape/utils/abort";
 import { TaskExecutor, type TaskExecutorContext } from "../tasks";
 import {
@@ -44,6 +45,7 @@ export interface MaintenanceLibraryPort {
     operationId: string;
     ownershipToken: string;
     plan: PreparedPublicationPlan;
+    resolvedPlan?: PublicationPlan;
     refresh: {
       librarySource?: MaintenanceLibrarySource;
       sourceAbsolutePath: string;
@@ -192,6 +194,8 @@ export class MaintenanceSessionCoordinator {
   private session: MaintenanceSession | null = null;
   private active: ActiveExecution | null = null;
   private executionPromise: Promise<void> | null = null;
+  private readonly conflictRuns = new Set<Promise<void>>();
+  private stopOperation?: { sessionId: string; generation: number; promise: Promise<MaintenanceSessionSnapshot> };
   private readonly changeWaiters = new Map<string, Set<() => void>>();
   private revision = 0;
   private releaseOwnedPaths: (() => void) | null = null;
@@ -315,10 +319,20 @@ export class MaintenanceSessionCoordinator {
     return current.statusSnapshot();
   }
 
-  async stop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
+  stop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
+    const current = this.require(sessionId);
+    if (this.stopOperation?.sessionId === sessionId && this.stopOperation.generation === current.generation)
+      return this.stopOperation.promise;
+    const promise = this.finishStop(sessionId);
+    this.stopOperation = { sessionId, generation: current.generation, promise };
+    return promise;
+  }
+
+  private async finishStop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
     const current = this.require(sessionId);
     if (current.status === "completed" || current.status === "failed") return current.statusSnapshot();
     const generation = current.beginStopping(STOPPED);
+    publicationConflicts.cancelTask(sessionId);
     await this.publishStatus(current, "stopping", "Stopping maintenance session");
     this.active?.executor.stop();
     await this.awaitCurrentExecution();
@@ -363,6 +377,7 @@ export class MaintenanceSessionCoordinator {
     if (this.closing) return;
     this.closing = true;
     const session = this.session;
+    if (session) publicationConflicts.cancelTask(session.id);
     if (!session?.isActive()) {
       session?.invalidate();
       this.releasePaths();
@@ -571,23 +586,16 @@ export class MaintenanceSessionCoordinator {
             };
           }
         },
-        applyResult: async (item, executionResult) => {
-          let result = executionResult.result;
-          if (executionResult.publication) {
-            try {
-              this.assertCurrent(sessionId, generation, ["running", "paused"]);
-              await this.deps.library.publishRefresh(executionResult.publication);
-            } catch (error) {
-              if (!this.isCurrent(sessionId, generation)) throw error;
-              result = libraryCommitFailure(error);
-            }
-          }
-          await this.commitItem(sessionId, generation, item, result);
-        },
+        applyResult: async (item, executionResult) =>
+          await this.applyPublication(sessionId, generation, item, executionResult),
       });
       if (!this.isCurrent(sessionId, generation) || this.require(sessionId).status !== "running") return;
       const current = this.assertCurrent(sessionId, generation, ["running"]);
       const progress = current.progress();
+      if (progress.completedEntries < progress.totalEntries) {
+        this.releasePaths();
+        return;
+      }
       const failedAll =
         progress.totalEntries > 0 && progress.successCount === 0 && progress.failedCount >= progress.totalEntries;
       await this.finishSession(
@@ -609,6 +617,57 @@ export class MaintenanceSessionCoordinator {
       if (this.active?.sessionId === sessionId && this.active.generation === generation) this.active = null;
       this.notify(sessionId);
     }
+  }
+
+  private async applyPublication(
+    sessionId: string,
+    generation: number,
+    item: MaintenanceBatchItem,
+    execution: ApplyExecutionResult,
+  ): Promise<void> {
+    let result = execution.result;
+    if (execution.publication) {
+      try {
+        this.assertCurrent(sessionId, generation, ["running", "paused"]);
+        await this.deps.library.publishRefresh(execution.publication);
+        const targetPath = execution.publication.refresh.targetAbsolutePath;
+        if (result.entry) result.entry.fileInfo.filePath = targetPath;
+        const target = resolveRootFile(await this.deps.roots.list(), targetPath);
+        result.outputRelativePath = target.relativePath;
+        result.outputSize = execution.publication.refresh.size;
+      } catch (error) {
+        if (!this.isCurrent(sessionId, generation)) throw error;
+        if (error instanceof PublicationConflictError && this.require(sessionId).status !== "stopping") {
+          this.require(sessionId).markConflict(generation, item);
+          publicationConflicts.register(sessionId, item.id, error, async () => {
+            const run = this.applyPublication(sessionId, generation, item, execution);
+            this.conflictRuns.add(run);
+            try {
+              await run;
+            } finally {
+              this.conflictRuns.delete(run);
+            }
+            const session = this.require(sessionId);
+            const progress = session.progress();
+            if (session.status === "running" && progress.completedEntries === progress.totalEntries) {
+              await this.finishSession(
+                sessionId,
+                generation,
+                progress.failedCount === progress.totalEntries ? "failed" : "completed",
+                null,
+              );
+            }
+          });
+          await this.publishChanged(this.require(sessionId));
+          return;
+        }
+        result =
+          error instanceof PublicationError && error.committed
+            ? { ...result, error: errorMessage(error) }
+            : libraryCommitFailure(error);
+      }
+    }
+    await this.commitItem(sessionId, generation, item, result);
   }
 
   private async executeItems<TItem, TResult>(
@@ -789,6 +848,7 @@ export class MaintenanceSessionCoordinator {
   }
 
   private async awaitCurrentExecution(): Promise<void> {
+    await Promise.all(this.conflictRuns);
     for (;;) {
       const current = this.executionPromise;
       if (!current) return;

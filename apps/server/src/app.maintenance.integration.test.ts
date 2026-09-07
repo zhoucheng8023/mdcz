@@ -95,9 +95,9 @@ const waitForMaintenanceSession = async (
   await expect
     .poll(async () => {
       session = await readMaintenanceSession(fastify, token);
-      return session?.id === sessionId ? `${session.phase}:${session.status}` : null;
+      return session?.id === sessionId ? session : null;
     })
-    .toBe(`${phase}:${status}`);
+    .toMatchObject({ phase, status });
   if (!session) throw new Error(`Maintenance session disappeared: ${sessionId}`);
   return session;
 };
@@ -113,7 +113,7 @@ const createMaintenanceRuntime = (
     aggregationService,
     config,
     downloadManager: {
-      downloadAll: async () => undefined,
+      downloadAll: async () => ({ sceneImages: [], downloaded: [] }),
     } as never,
     fileOrganizer: new FileOrganizer(),
     nfoGenerator: new NfoGenerator(),

@@ -1,6 +1,8 @@
-import type { MediaRoot } from "@mdcz/media-store";
+import { stat } from "node:fs/promises";
+import { type MediaRoot, resolveRootRelativePath } from "@mdcz/media-store";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { CrawlerData, ScrapeResult } from "@mdcz/shared/types";
+import { PublicationConflictError } from "./conflicts";
 import { libraryEntryFromPublicationPlan } from "./libraryEntry";
 import { commitPublishedMedia } from "./publishMedia";
 import {
@@ -142,6 +144,15 @@ export const commitScrapeTerminalResult = async (input: {
     throw new Error(`Successful scrape has no publication plan: ${input.itemPath}`);
   }
   const success = input.success;
+  for (const change of success.plan.targetChanges ?? []) {
+    if (success.nfo?.rootId === change.from.rootId && success.nfo.relativePath === change.from.relativePath)
+      success.nfo = change.to;
+  }
+  const source = success.plan.video!.source;
+  const sourcePath = resolveRootRelativePath(await input.resolveRoot(source.rootId), source.relativePath);
+  const sourceStats = await (input.fileSystem?.stat ?? stat)(sourcePath);
+  success.size = success.plan.video!.size;
+  success.modifiedAt = sourceStats.mtime;
   const crawlerData = success.crawlerData;
   if (!crawlerData) {
     throw new Error(`Successful scrape has no crawler data: ${input.itemPath}`);
@@ -191,6 +202,7 @@ export const commitScrapeTerminalResult = async (input: {
         }),
     });
   } catch (error) {
+    if (error instanceof PublicationConflictError) throw error;
     const coordinatedError = formatCommitFailure(error);
     return await commitFailure(coordinatedError, [error]);
   }
@@ -199,6 +211,9 @@ export const commitScrapeTerminalResult = async (input: {
     ...result,
     resultId: committed.value.outcomeId,
     status: "success",
+    output,
+    nfo: success.nfo ?? undefined,
+    assets: success.plan.assets,
     ...(committed.cleanupError ? { error: formatCommitFailure(committed.cleanupError) } : {}),
   };
 };

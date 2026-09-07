@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
 
 import type { Configuration } from "@mdcz/shared/config";
@@ -9,7 +8,7 @@ import { FileMover } from "./organize/FileMover";
 import { NamingEngine } from "./organize/NamingEngine";
 import { PathPlanner } from "./organize/PathPlanner";
 import { SidecarResolver } from "./organize/SidecarResolver";
-import { ensureParentDirectory, hasEnoughDiskSpace, isPathInside, listVideoFiles } from "./utils/filesystem";
+import { ensureParentDirectory, isPathInside, listVideoFiles } from "./utils/filesystem";
 import { parseFileInfo } from "./utils/number";
 import { inspectStrmTarget, isStrmFile, writeStrmTarget } from "./utils/strm";
 
@@ -138,17 +137,6 @@ export class FileOrganizer {
       if (otherVideos.length > 0) {
         this.logger.warn(`Cannot organize in place because multiple video files exist in ${sourceDir}`);
         throw new Error("成功后不移动文件时，仅支持源目录内存在单个视频文件");
-      }
-    }
-
-    if (!sameDirectoryOutput) {
-      const stats = await stat(sourceFilePath);
-      const diskCheckPath = options.createDirectories
-        ? outputRoot
-        : await this.pathPlanner.resolveExistingDirectory(outputRoot);
-      const ok = await hasEnoughDiskSpace(diskCheckPath, stats.size);
-      if (!ok) {
-        throw new Error(`Not enough disk space to move file to ${outputRoot}`);
       }
     }
 

@@ -136,6 +136,10 @@ const trpcMutation = async <TOutput>(path: string, input?: unknown): Promise<TOu
   (await getTrpc().mutation(path, input)) as TOutput;
 
 export const api: ServerApiContract = {
+  publication: {
+    conflicts: () => trpcQuery("publication.conflicts"),
+    resolveConflict: (input) => trpcMutation("publication.resolveConflict", input),
+  },
   auth: {
     setup: () => trpcQuery("auth.setup"),
     login: async (input) => {

@@ -21,6 +21,8 @@ export enum IpcChannel {
   Scraper_GetStatus = "scraper:get-status",
   Scraper_Retry = "scraper:retry",
   Scraper_ConfirmUncensored = "scraper:confirm-uncensored",
+  Publication_Conflicts = "publication:conflicts",
+  Publication_ResolveConflict = "publication:resolve-conflict",
 
   Crawler_Test = "crawler:test",
   Crawler_ListSites = "crawler:list-sites",

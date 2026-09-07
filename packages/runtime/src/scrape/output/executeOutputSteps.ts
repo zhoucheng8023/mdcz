@@ -4,8 +4,7 @@ import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "../ac
 import type { ImageAlternatives, SourceMap } from "../aggregation";
 import type { DownloadCallbacks, DownloadManager } from "../download";
 import type { OrganizePlan } from "../FileOrganizer";
-import { type NfoGenerator, type NfoOptions, nfoIgnoreFieldsToEnabledFields, reconcileExistingNfoFiles } from "../nfo";
-import { pathExists } from "../utils/filesystem";
+import { type NfoGenerator, type NfoOptions, nfoIgnoreFieldsToEnabledFields } from "../nfo";
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
 
@@ -106,7 +105,6 @@ export const writePreparedNfo = async (input: {
   nfoGenerator: NfoGenerator;
   nfoPath?: string;
   sourceVideoPath: string;
-  keepExisting?: boolean;
   localState?: NfoLocalState;
   sources?: SourceMap;
   videoMeta?: VideoMeta;
@@ -122,13 +120,6 @@ export const writePreparedNfo = async (input: {
 
   if (input.startLogLabel) {
     input.onLog?.(input.startLogLabel);
-  }
-
-  if (input.keepExisting) {
-    const existingNfoPath = await reconcileExistingNfoFiles(input.nfoPath, input.config.download.nfoNaming, pathExists);
-    if (existingNfoPath) {
-      return existingNfoPath;
-    }
   }
 
   const videoMeta = input.videoMeta ?? (await input.probeVideoMetadata?.(input.sourceVideoPath));

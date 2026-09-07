@@ -81,6 +81,10 @@ import type {
 import type { NamingPreviewItem } from "./types";
 
 export interface ServerApiContract {
+  publication: {
+    conflicts(): Promise<import("./publicationConflicts").PublicationConflictSnapshot[]>;
+    resolveConflict(input: import("./publicationConflicts").PublicationConflictResolution): Promise<{ success: true }>;
+  };
   auth: {
     setup(): Promise<AuthSessionDto>;
     login(input: AuthLoginInput): Promise<AuthSessionDto>;

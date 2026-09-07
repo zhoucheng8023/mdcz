@@ -129,7 +129,10 @@ describe("MaintenanceFileScraper asset replacement", () => {
     );
   });
 
-  it("removes a stale local trailer when maintenance explicitly replaces it with no new trailer asset", async () => {
+  it.each([
+    "preserve",
+    "replace",
+  ] as const)("retains the local trailer when %s produces no replacement", async (decision) => {
     const root = await createTempDir();
     const oldTrailerPath = join(root, "trailer.mp4");
     await writeFile(oldTrailerPath, "old-trailer", "utf8");
@@ -148,15 +151,20 @@ describe("MaintenanceFileScraper asset replacement", () => {
       undefined,
       {
         crawlerData: createCrawlerData({ trailer_url: undefined }),
-        assetDecisions: { trailer: "replace" },
+        assetDecisions: { trailer: decision },
       },
     );
 
     expect(result.status).toBe("success");
-    expect(result.updatedEntry?.assets.trailer).toBeUndefined();
-    expect(result.publicationPlan?.obsoletePaths).toContain(oldTrailerPath);
+    expect(result.updatedEntry?.assets.trailer).toBe(join(root, "output", "ABC-123", "trailer.mp4"));
+    expect(result.publicationPlan?.obsoletePaths).not.toContain(oldTrailerPath);
+    expect(result.publicationPlan?.sidecars).toContainEqual({
+      sourcePath: oldTrailerPath,
+      targetPath: join(root, "output", "ABC-123", "trailer.mp4"),
+      size: 11,
+    });
     expect(result.publicationPlan?.replaceExistingTargetPaths).toBeDefined();
-    expect(result.publicationPlan?.replaceExistingTargetPaths).toContain(
+    expect(result.publicationPlan?.replaceExistingTargetPaths).not.toContain(
       join(root, "output", "ABC-123", "ABC-123.mp4"),
     );
     await expect(readFile(oldTrailerPath, "utf8")).resolves.toBe("old-trailer");

@@ -198,6 +198,9 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
       executeItem: execution.executeItem,
       commitItem: execution.commitItem,
       onSnapshot: () => this.host.onInvalidate(this.liveRuns()),
+      onConflictResolved: async () => {
+        await this.settle(entry, entry.session.snapshot());
+      },
     });
     Object.assign(entry, {
       id,
@@ -255,6 +258,9 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     entry: WorkflowEntry<TRun, TManualScrape>,
     snapshot: ScrapeRunSnapshot<TManualScrape>,
   ): Promise<void> {
+    if (!["completed", "failed", "stopped", "interrupted"].includes(snapshot.status)) {
+      throw new Error(`Cannot settle non-terminal scrape run: ${snapshot.status}`);
+    }
     entry.settlement ??= (async () => {
       const disposition =
         snapshot.status === "completed"

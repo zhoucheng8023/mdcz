@@ -164,7 +164,6 @@ export class MaintenanceSession {
     if (this.statusValue === "completed" || this.statusValue === "failed" || this.statusValue === "stopping") {
       return this.generationValue;
     }
-    this.generationValue += 1;
     this.statusValue = "stopping";
     this.errorValue = error;
     this.touch();
@@ -290,6 +289,16 @@ export class MaintenanceSession {
     return { item: this.cloneBatchItem(current), preview: this.preview(item.selection.previewId) };
   }
 
+  markConflict(generation: number, item: MaintenanceBatchItem): void {
+    this.assertGeneration(generation, ["running", "paused"]);
+    const current = this.currentBatch?.items.get(item.selection.previewId);
+    if (!current || current.id !== item.id)
+      throw new StaleMaintenanceGenerationError(`Stale maintenance item: ${item.id}`);
+    current.status = "waiting_conflict";
+    current.error = "文件冲突，等待选择";
+    this.touch();
+  }
+
   commitItem(generation: number, item: MaintenanceBatchItem, result: MaintenanceApplyItemResult): boolean {
     this.assertGeneration(generation, ["running", "paused", "stopping"]);
     const current = this.currentBatch?.items.get(item.selection.previewId);
@@ -313,7 +322,7 @@ export class MaintenanceSession {
     this.assertGeneration(generation, ["running", "paused", "stopping"]);
     let changed = false;
     for (const item of this.currentBatch?.items.values() ?? []) {
-      if (item.status !== "pending" && item.status !== "processing") continue;
+      if (TERMINAL_ITEM_STATUSES.has(item.status)) continue;
       changed = this.commitItem(generation, item, { status: "skipped", error }) || changed;
     }
     return changed;

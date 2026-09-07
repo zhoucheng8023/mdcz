@@ -27,6 +27,8 @@ import {
 } from "@mdcz/runtime/scrape";
 import { runtimeLoggerService } from "@mdcz/runtime/shared";
 import {
+  resolveScrapeAttempts,
+  resolveScrapeRetry,
   ScrapeCoordinator,
   type ScrapeHostPort,
   type ScrapeRunItem,
@@ -542,13 +544,7 @@ export class ScrapeService {
     applyScrapeNetworkPolicy(this.networkClient, configuration);
     const policy = createScrapeExecutionPolicy(configuration, { logger: console });
     const repository = (await this.persistence.getState()).repositories.scrapeRuns;
-    const settledAttemptIds = new Set(manifest.outcomes.map((outcome) => outcome.attemptId));
-    const openAttemptByItemId = new Map(
-      manifest.attempts
-        .filter((attempt) => !settledAttemptIds.has(attempt.id))
-        .map((attempt) => [attempt.itemId, attempt.id]),
-    );
-    const latestOutcomeByItemId = new Map(manifest.outcomes.map((outcome) => [outcome.itemId, outcome]));
+    const { openAttemptByItemId, latestOutcomeByItemId } = resolveScrapeAttempts(manifest);
     const initialItems: ScrapeRunItemInitialState<ServerManualScrape>[] = manifest.items.map((item) => {
       const outcome = latestOutcomeByItemId.get(item.id);
       if (openAttemptByItemId.has(item.id) || !outcome) return { id: item.id, status: "pending", error: null };
@@ -564,67 +560,25 @@ export class ScrapeService {
         const root = roots.get(item.rootId);
         if (!root) throw new Error(`Scrape root disappeared before session creation: ${item.rootId}`);
         const retrying = openAttemptByItemId.has(item.id);
-        let sourcePath = resolveRootRelativePath(root, item.relativePath);
-        let executionSource: { rootId: string; relativePath: string } | undefined;
-        const latestOutcome = latestOutcomeByItemId.get(item.id);
-        if (
-          retrying &&
-          latestOutcome?.outcome === "success" &&
-          latestOutcome.outputRootId &&
-          latestOutcome.outputRelativePath
-        ) {
-          const previousOutputRoot =
-            roots.get(latestOutcome.outputRootId) ?? (await this.mediaRoots.get(latestOutcome.outputRootId));
-          roots.set(previousOutputRoot.id, previousOutputRoot);
-          const previousOutputPath = resolveRootRelativePath(previousOutputRoot, latestOutcome.outputRelativePath);
-          const previousOutputExists = await stat(previousOutputPath)
-            .then((value) => value.isFile())
-            .catch((error: unknown) => {
-              if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-              throw error;
-            });
-          if (previousOutputExists) {
-            sourcePath = previousOutputPath;
-            executionSource = { rootId: previousOutputRoot.id, relativePath: latestOutcome.outputRelativePath };
-          }
-        }
-        if (retrying && !executionSource) {
-          const sourceExists = await stat(sourcePath)
-            .then((value) => value.isFile())
-            .catch((error: unknown) => {
-              if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-              throw error;
-            });
-          if (!sourceExists) {
-            const failedRelativePath = path.join(
-              configuration.paths.failedOutputFolder.trim(),
-              path.basename(item.relativePath),
-            );
-            const failedPath = resolveRootRelativePath(requestedOutputRoot ?? root, failedRelativePath);
-            const failedFileExists = await stat(failedPath)
-              .then((value) => value.isFile())
-              .catch((error: unknown) => {
-                if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-                throw error;
-              });
-            if (failedFileExists) {
-              const failedRoot = requestedOutputRoot ?? root;
-              sourcePath = failedPath;
-              executionSource = { rootId: failedRoot.id, relativePath: toRootRelativePath(failedRoot, failedPath) };
-            }
-          }
-        }
+        const execution = await resolveScrapeRetry({
+          item,
+          retrying,
+          latestOutcome: latestOutcomeByItemId.get(item.id),
+          outputRoot: requestedOutputRoot ?? root,
+          outputRelativeDirectory: manifest.requestedOutputRelativeDirectory ?? "",
+          failedOutputFolder: configuration.paths.failedOutputFolder,
+          resolveRoot: async (id) => {
+            const resolved = roots.get(id) ?? (await this.mediaRoots.get(id));
+            roots.set(id, resolved);
+            return resolved;
+          },
+        });
         return this.prepareScrapeItem({
           id: item.id,
           rootId: item.rootId,
           relativePath: item.relativePath,
-          sourcePath,
+          ...execution,
           manualScrape: { manualUrl: item.manualUrl, uncensoredChoice: item.uncensoredChoice },
-          ...(executionSource ? { executionSource } : {}),
-          ...(retrying ? { replaceExistingTargets: true } : {}),
-          ...(retrying && requestedOutputRoot
-            ? { outputBaseDirectory: resolveRootRelativePath(requestedOutputRoot, "") }
-            : {}),
         });
       }),
     );

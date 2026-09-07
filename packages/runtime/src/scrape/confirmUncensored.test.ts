@@ -49,13 +49,13 @@ const dependencies = (): UncensoredConfirmDependencies => ({
       targetVideoPath: `/media/leak/${fileInfo.fileName}.mp4`,
       nfoPath: "/media/leak/movie.nfo",
     })),
-    ensureOutputReady: vi.fn(async (plan) => plan),
-    organizeVideo: vi.fn(async (_fileInfo, plan) => plan.targetVideoPath),
+    resolveOutputPlan: vi.fn(async (plan) => plan),
   },
   localScanService: { scanVideo: vi.fn(async (_root, videoPath) => entryFor(videoPath)) },
   logger: { info: vi.fn(), warn: vi.fn() },
   nfoGenerator: { writeNfo: vi.fn(async () => "/media/leak/movie.nfo") },
   pathExists: vi.fn(async () => true),
+  publish: vi.fn(async () => undefined),
 });
 
 describe("confirmUncensoredOutputs", () => {
@@ -73,7 +73,7 @@ describe("confirmUncensoredOutputs", () => {
 
     expect(result.updatedCount).toBe(2);
     expect(result.failures).toEqual([]);
-    expect(deps.fileOrganizer.organizeVideo).toHaveBeenCalledTimes(2);
+    expect(deps.publish).toHaveBeenCalledTimes(2);
     expect(deps.nfoGenerator.writeNfo).toHaveBeenCalledTimes(1);
     expect(deps.nfoGenerator.writeNfo).toHaveBeenCalledWith(
       "/media/leak/movie.nfo",
@@ -126,7 +126,7 @@ describe("confirmUncensoredOutputs", () => {
     expect(result.updatedCount).toBe(0);
     expect(result.failures).toHaveLength(2);
     expect(result.failures.every((failure) => failure.message.includes("Conflicting uncensored choices"))).toBe(true);
-    expect(deps.fileOrganizer.organizeVideo).not.toHaveBeenCalled();
+    expect(deps.publish).not.toHaveBeenCalled();
     expect(deps.nfoGenerator.writeNfo).not.toHaveBeenCalled();
   });
 

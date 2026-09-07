@@ -1,0 +1,152 @@
+import { readFile, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import type { CrawlerData, DiscoveredAssets, DownloadedAssets } from "@mdcz/shared/types";
+import type { OrganizePlan } from "../scrape/FileOrganizer";
+import { buildSubtitleSidecarTargetPath } from "../scrape/media";
+import { getNfoWritePaths } from "../scrape/nfo";
+import { prepareMovedStrmContent, prepareStrmMirrorContent } from "../scrape/utils/strm";
+import type { PreparedPublicationPlan } from "./types";
+
+export const preparePublicationPlan = async (input: {
+  sourceVideoPath: string;
+  outputVideoPath: string;
+  stagingDir: string;
+  existingAssetDir: string;
+  metadataOutputDir: string;
+  downloadedAssets: DownloadedAssets;
+  actorPhotoPaths: string[];
+  existingAssets?: DiscoveredAssets;
+  existingNfoPath?: string;
+  organizePlan?: OrganizePlan;
+  nfoNaming: "both" | "movie" | "filename";
+  remoteData?: CrawlerData;
+  writeNfo(
+    assets: DownloadedAssets,
+    writeFile: (path: string, content: string) => Promise<void>,
+  ): Promise<string | undefined>;
+}): Promise<{ plan: PreparedPublicationPlan; assets: DiscoveredAssets; nfoPath?: string }> => {
+  const artifacts: PreparedPublicationPlan["artifacts"] = [];
+  const sidecars: NonNullable<PreparedPublicationPlan["sidecars"]> = [];
+  const obsolete = new Set<string>();
+  const replacements = new Set<string>();
+  const mapped = new Map<string, string>();
+  const existing = input.existingAssets;
+  const downloaded = input.downloadedAssets;
+  const assets: DiscoveredAssets = { sceneImages: [], actorPhotos: [] };
+  const within = (directory: string, filePath: string): string | undefined => {
+    const name = relative(directory, filePath);
+    return name &&
+      name !== ".." &&
+      !name.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) &&
+      !isAbsolute(name)
+      ? name
+      : undefined;
+  };
+  const groups = [
+    { key: "thumb" as const, paths: [downloaded.thumb ?? existing?.thumb], old: [existing?.thumb] },
+    { key: "poster" as const, paths: [downloaded.poster ?? existing?.poster], old: [existing?.poster] },
+    { key: "fanart" as const, paths: [downloaded.fanart ?? existing?.fanart], old: [existing?.fanart] },
+    { key: "trailer" as const, paths: [downloaded.trailer ?? existing?.trailer], old: [existing?.trailer] },
+    {
+      key: "sceneImages" as const,
+      paths: downloaded.sceneImages.length ? downloaded.sceneImages : (existing?.sceneImages ?? []),
+      old: existing?.sceneImages ?? [],
+    },
+    {
+      key: "actorPhotos" as const,
+      paths: input.actorPhotoPaths.length ? input.actorPhotoPaths : (existing?.actorPhotos ?? []),
+      old: existing?.actorPhotos ?? [],
+    },
+  ];
+  for (const group of groups) {
+    const targets: string[] = [];
+    for (const sourcePath of group.paths) {
+      if (!sourcePath) continue;
+      let targetPath = mapped.get(sourcePath);
+      if (!targetPath) {
+        const stagedName = within(input.stagingDir, sourcePath);
+        const existingName = within(input.existingAssetDir, sourcePath);
+        const collection = group.key === "sceneImages" || group.key === "actorPhotos";
+        targetPath = join(
+          input.metadataOutputDir,
+          stagedName ??
+            existingName ??
+            (collection ? join(basename(dirname(sourcePath)), basename(sourcePath)) : basename(sourcePath)),
+        );
+        if (stagedName) {
+          artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(sourcePath) } });
+          replacements.add(targetPath);
+        } else if (sourcePath !== targetPath) {
+          sidecars.push({ sourcePath, targetPath, size: (await stat(sourcePath)).size });
+        }
+        mapped.set(sourcePath, targetPath);
+      }
+      targets.push(targetPath);
+    }
+    if (group.key === "sceneImages" || group.key === "actorPhotos") assets[group.key] = [...new Set(targets)];
+    else assets[group.key] = targets[0];
+    if (group.paths.some((source) => source && within(input.stagingDir, source))) {
+      for (const old of group.old) if (old && !targets.includes(old)) obsolete.add(old);
+    }
+  }
+  let nfoPath = await input.writeNfo({ ...assets, downloaded: [...replacements] }, async (targetPath, data) => {
+    artifacts.push({ targetPath, content: { kind: "text", data } });
+    replacements.add(targetPath);
+  });
+  if (!nfoPath && input.existingNfoPath) {
+    const paths = getNfoWritePaths(input.organizePlan?.nfoPath ?? input.existingNfoPath, input.nfoNaming);
+    nfoPath = paths.canonicalPath;
+    for (const targetPath of paths.requiredPaths) {
+      if (targetPath === input.existingNfoPath) continue;
+      artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(input.existingNfoPath) } });
+    }
+  }
+  if (input.existingNfoPath && nfoPath && input.existingNfoPath !== nfoPath) obsolete.add(input.existingNfoPath);
+  if (input.organizePlan?.strmPath) {
+    artifacts.push({
+      targetPath: input.organizePlan.strmPath,
+      content: { kind: "text", data: await prepareStrmMirrorContent(input.sourceVideoPath, input.outputVideoPath) },
+    });
+  }
+  for (const sidecar of input.organizePlan?.subtitleSidecars ?? []) {
+    sidecars.push({
+      sourcePath: sidecar.path,
+      targetPath: buildSubtitleSidecarTargetPath(sidecar, input.outputVideoPath),
+      size: (await stat(sidecar.path)).size,
+    });
+  }
+  const assetRefs: PreparedPublicationPlan["assets"] = [];
+  for (const kind of ["thumb", "poster", "fanart", "trailer"] as const) {
+    const targetPath = assets[kind];
+    const url = input.remoteData?.[`${kind}_source_url`] ?? input.remoteData?.[`${kind}_url`];
+    if (targetPath) assetRefs.push({ kind, targetPath });
+    else if (url?.trim()) assetRefs.push({ kind, url });
+  }
+  assetRefs.push(...assets.sceneImages.map((targetPath) => ({ kind: "scene", targetPath })));
+  assetRefs.push(...assets.actorPhotos.map((targetPath) => ({ kind: "actor", targetPath })));
+  if (!assets.sceneImages.length)
+    assetRefs.push(...(input.remoteData?.scene_images ?? []).map((url) => ({ kind: "scene", url })));
+  const retained = new Set([
+    input.outputVideoPath,
+    nfoPath,
+    ...artifacts.map((artifact) => artifact.targetPath),
+    ...sidecars.map((move) => move.targetPath),
+  ]);
+  return {
+    assets,
+    nfoPath,
+    plan: {
+      video: {
+        sourcePath: input.sourceVideoPath,
+        targetPath: input.outputVideoPath,
+        size: (await stat(input.sourceVideoPath)).size,
+        content: await prepareMovedStrmContent(input.sourceVideoPath, input.outputVideoPath),
+      },
+      sidecars,
+      artifacts,
+      assets: assetRefs,
+      obsoletePaths: [...obsolete].filter((filePath) => !retained.has(filePath)),
+      replaceExistingTargetPaths: [...replacements],
+    },
+  };
+};

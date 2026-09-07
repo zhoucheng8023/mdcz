@@ -4,8 +4,10 @@ import { loggerService } from "@main/services/LoggerService";
 import { ScraperServiceError } from "@main/services/scraper";
 import { confirmUncensoredItems, createUncensoredConfirmDependencies } from "@main/services/scraper/confirmUncensored";
 import type { StartScrapeResult } from "@main/services/scraper/ScraperService";
+import { publicationConflicts } from "@mdcz/runtime/publication";
 import { IpcChannel } from "@mdcz/shared/IpcChannel";
 import type { IpcRouterContract } from "@mdcz/shared/ipcContract";
+import { publicationConflictResolutionSchema } from "@mdcz/shared/publicationConflicts";
 import { withIpcErrorHandling } from "../errorHandling";
 import { createIpcError, IpcErrorCode } from "../errors";
 import {
@@ -32,6 +34,8 @@ export const createScraperHandlers = (
 ): Pick<
   IpcRouterContract,
   | typeof IpcChannel.Scraper_GetStatus
+  | typeof IpcChannel.Publication_Conflicts
+  | typeof IpcChannel.Publication_ResolveConflict
   | typeof IpcChannel.Scraper_Start
   | typeof IpcChannel.Scraper_StartSinglePath
   | typeof IpcChannel.Scraper_Stop
@@ -43,6 +47,10 @@ export const createScraperHandlers = (
   const { scraperService } = context;
 
   return {
+    [IpcChannel.Publication_Conflicts]: t.procedure.action(async () => publicationConflicts.list()),
+    [IpcChannel.Publication_ResolveConflict]: t.procedure
+      .input(publicationConflictResolutionSchema)
+      .action(async ({ input }) => await publicationConflicts.resolve(input)),
     [IpcChannel.Scraper_GetStatus]: t.procedure
       .input(scraperGetStatusInputSchema)
       .action(async ({ input }) => scraperService.getSnapshot(input.taskId)),

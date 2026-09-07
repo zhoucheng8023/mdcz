@@ -154,6 +154,15 @@ export const prepareMovedStrmContent = async (sourcePath: string, targetPath: st
   return info.kind === "relative_path" && info.resolvedPath ? replaceStrmTarget(content, info.resolvedPath) : undefined;
 };
 
+export const prepareStrmMirrorContent = async (sourcePath: string, outputVideoPath: string): Promise<string> => {
+  if (!isStrmFile(sourcePath)) return outputVideoPath;
+  const content = await readFile(sourcePath, "utf8");
+  const target = normalizeStrmContent(content);
+  if (!target) throw new Error(`STRM file does not contain a playable target: ${sourcePath}`);
+  const info = classifyStrmTarget(sourcePath, target);
+  return info.kind === "relative_path" && info.resolvedPath ? replaceStrmTarget(content, info.resolvedPath) : content;
+};
+
 export const resolvePlayableMediaTarget = async (
   filePath: string,
 ): Promise<

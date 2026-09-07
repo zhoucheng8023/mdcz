@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runtimeLoggerService } from "../shared";
+import { PublicationConflictError } from "./conflicts";
 import { createMemoryPublicationJournal } from "./memoryJournal";
 import { commitPublishedMedia } from "./publishMedia";
 import { PublicationError, type PublicationFileSystem, type PublicationPlan } from "./types";
@@ -96,6 +97,69 @@ const residue = async (...roots: string[]): Promise<string[]> => {
 };
 
 describe("commitPublishedMedia", () => {
+  it.each([
+    "keep_both",
+    "keep_new",
+    "keep_existing",
+  ] as const)("resolves same-size subtitle conflicts only after choosing %s", async (choice) => {
+    const test = await fixture();
+    const source = path.join(path.dirname(test.source), "movie.srt");
+    const target = path.join(path.dirname(test.target), "movie.srt");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(source, "NEW");
+    await writeFile(target, "OLD");
+    test.plan.sidecars = [
+      {
+        source: { rootId: "input", relativePath: "movie.srt" },
+        target: { rootId: "output", relativePath: "Movie/movie.srt" },
+        size: 3,
+      },
+    ];
+    const commit = vi.fn(() => "committed");
+    const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit };
+    const conflict = await commitPublishedMedia(test.plan, options).catch((error) => error);
+    expect(conflict).toBeInstanceOf(PublicationConflictError);
+    expect(commit).not.toHaveBeenCalled();
+    expect(await readFile(source, "utf8")).toBe("NEW");
+    expect(await readFile(target, "utf8")).toBe("OLD");
+    await conflict.applyChoice(choice);
+    await expect(commitPublishedMedia(test.plan, options)).resolves.toBe("committed");
+    expect(await readFile(target, "utf8")).toBe(choice === "keep_new" ? "NEW" : "OLD");
+    if (choice === "keep_both") expect(await readFile(conflict.snapshot.keepBothPath, "utf8")).toBe("NEW");
+    expect(existsSync(source)).toBe(false);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("checks copy capacity only when rename crosses devices: %s", async (crossDevice) => {
+    const test = await fixture();
+    test.plan.artifacts = [];
+    test.plan.assets = [];
+    const fs = await defaultFileSystem();
+    const copy = vi.fn(fs.copyFile);
+    const options = {
+      resolveRoot: test.resolveRoot,
+      journal: createMemoryPublicationJournal(),
+      commit: vi.fn(),
+      fileSystem: {
+        ...fs,
+        copyFile: copy,
+        statfs: async () => ({ bavail: 0, bsize: 1 }),
+        rename: async (source: string, target: string) => {
+          if (crossDevice && source === test.source) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+          await fs.rename(source, target);
+        },
+      },
+    };
+    if (crossDevice) {
+      await expect(commitPublishedMedia(test.plan, options)).rejects.toThrow("Insufficient space");
+      expect(await readFile(test.source, "utf8")).toBe("video");
+      expect(options.commit).not.toHaveBeenCalled();
+    } else {
+      await commitPublishedMedia(test.plan, options);
+      expect(await readFile(test.target, "utf8")).toBe("video");
+    }
+    expect(copy).not.toHaveBeenCalled();
+  });
   it("publishes across roots, commits once, then removes sources and obsolete files", async () => {
     const test = await fixture();
     const commit = vi.fn(() => "committed");
@@ -539,14 +603,14 @@ describe("commitPublishedMedia", () => {
     );
   });
 
-  it("repeats a completed operation without changing the library identity", async () => {
+  it("rejects replaying a move without its source instead of inferring success from target size", async () => {
     const test = await fixture();
     const commit = vi.fn(() => ({ libraryItemId: "library-item-1" }));
     const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit };
 
     await expect(commitPublishedMedia(test.plan, options)).resolves.toEqual({ libraryItemId: "library-item-1" });
-    await expect(commitPublishedMedia(test.plan, options)).resolves.toEqual({ libraryItemId: "library-item-1" });
-    expect(commit).toHaveBeenCalledTimes(2);
+    await expect(commitPublishedMedia(test.plan, options)).rejects.toThrow("Publication source is missing");
+    expect(commit).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a video target that appears after preview with the expected size", async () => {

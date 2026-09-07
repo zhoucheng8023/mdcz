@@ -95,6 +95,9 @@ export const ipc = {
         runId,
       ),
     confirmUncensored: (items: UncensoredConfirmItem[]) => client[IpcChannel.Scraper_ConfirmUncensored]({ items }),
+    conflicts: () => client[IpcChannel.Publication_Conflicts](undefined),
+    resolveConflict: (input: import("@mdcz/shared/publicationConflicts").PublicationConflictResolution) =>
+      client[IpcChannel.Publication_ResolveConflict](input),
   },
   crawler: {
     test: (site: Website, number: string) => client[IpcChannel.Crawler_Test]({ site, number }),

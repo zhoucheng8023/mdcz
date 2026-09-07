@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { MediaRoot } from "@mdcz/media-store";
@@ -17,19 +17,14 @@ import type {
   VideoMeta,
 } from "@mdcz/shared/types";
 import { isUnrecoverableNetworkError } from "../network";
-import {
-  createPublicationPlan,
-  type PreparedPublicationPlan,
-  type PublicationPlan,
-  toRootFileRef,
-} from "../publication";
+import { createPublicationPlan, type PublicationPlan, preparePublicationPlan, toRootFileRef } from "../publication";
 import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "./actorOutput";
 import type { AggregationResult, AggregationService, ManualScrapeOptions } from "./aggregation";
 import { canonicalizeCrawlerDataActorAliases } from "./canonicalizeActorAliases";
 import type { DownloadManager } from "./download";
 import { type FileOrganizer, resolveMetadataOutputDir } from "./FileOrganizer";
-import { buildSubtitleSidecarTargetPath, isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "./media";
-import type { NfoGenerator, NfoOptions } from "./nfo";
+import { isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "./media";
+import { findExistingNfoPath, type NfoGenerator, type NfoOptions } from "./nfo";
 import {
   downloadCrawlerAssets,
   organizePreparedVideo,
@@ -39,9 +34,9 @@ import {
 } from "./output/executeOutputSteps";
 import type { TranslateService } from "./TranslateService";
 import { isAbortError, throwIfAborted } from "./utils/abort";
+import { pathExists } from "./utils/filesystem";
 import { classifyMovie, isLikelyUncensoredNumber } from "./utils/movieClassification";
 import { parseFileInfo } from "./utils/number";
-import { prepareMovedStrmContent } from "./utils/strm";
 
 export interface RuntimeScrapeSignalService {
   showFailedInfo(input: { fileInfo: FileInfo; error: string }): void;
@@ -98,7 +93,8 @@ export type FileScrapeOptions = {
   outputBaseDirectory?: string;
 };
 
-export type FileScrapeResult = ScrapeResult & { publicationPlan?: PublicationPlan };
+export type FileScrapeResult = ScrapeResult &
+  ({ status: "success"; publicationPlan: PublicationPlan } | { status: "failed" | "skipped"; publicationPlan?: never });
 
 const toScrapeIdentity = (
   fileId: string,
@@ -176,7 +172,7 @@ export class FileScraper {
         this.setProgress(progress, 100);
         const error =
           this.deps.aggregationService.getFailureSummary?.(fileInfo.number) ?? "No crawler returned metadata";
-        const result: ScrapeResult = { ...toScrapeIdentity(fileId, fileInfo, options), status: "failed", error };
+        const result: FileScrapeResult = { ...toScrapeIdentity(fileId, fileInfo, options), status: "failed", error };
         this.deps.signalService.showScrapeResult(result);
         this.deps.signalService.showFailedInfo({ fileInfo, error });
         return result;
@@ -254,146 +250,62 @@ export class FileScraper {
       throwIfAborted(signal);
       this.setProgress(progress, 75);
 
-      const toTargetPath = (stagedPath: string): string => {
-        const relativePath = path.relative(stagingDir as string, stagedPath);
-        if (relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath)) {
-          return path.join(metadataOutputDir, relativePath);
-        }
-
-        const existingRelativePath = path.relative(metadataOutputDir, stagedPath);
-        if (existingRelativePath && !existingRelativePath.startsWith("..") && !path.isAbsolute(existingRelativePath)) {
-          return stagedPath;
-        }
-
-        throw new Error(`Scrape asset is outside its staging and output directories: ${stagedPath}`);
-      };
-      const downloadedAssets = downloaded.assets ?? { sceneImages: [], downloaded: [] };
-      const targetAssets: DownloadedAssets = {
-        ...downloadedAssets,
-        thumb: downloadedAssets.thumb ? toTargetPath(downloadedAssets.thumb) : undefined,
-        poster: downloadedAssets.poster ? toTargetPath(downloadedAssets.poster) : undefined,
-        fanart: downloadedAssets.fanart ? toTargetPath(downloadedAssets.fanart) : undefined,
-        sceneImages: (downloadedAssets.sceneImages ?? []).map(toTargetPath),
-        trailer: downloadedAssets.trailer ? toTargetPath(downloadedAssets.trailer) : undefined,
-        downloaded: (downloadedAssets.downloaded ?? []).map(toTargetPath),
-      };
-
-      if (configuration.download.generateNfo) {
-        this.deps.signalService.showLogText(`[${fileInfo.number}] Generating NFO...`);
-      }
-      const nfoArtifacts = new Map<string, string>();
-      const savedNfoPath = await writePreparedNfo({
-        assets: targetAssets,
-        config: configuration,
-        crawlerData,
-        enabled: configuration.download.generateNfo,
-        fileInfo,
-        keepExisting: configuration.download.keepNfo,
-        localState: existingNfoLocalState,
-        nfoGenerator: this.deps.nfoGenerator,
-        buildTags: this.deps.buildTags,
-        nfoPath: plan.nfoPath,
+      const outputVideoPath = await organizePreparedVideo({ enabled: true, fileInfo, plan });
+      const preservedNfoPath = configuration.download.keepNfo
+        ? await findExistingNfoPath(plan.nfoPath, configuration.download.nfoNaming, pathExists)
+        : undefined;
+      const publication = await preparePublicationPlan({
         sourceVideoPath: fileInfo.filePath,
-        sources: aggregationResult.sources,
-        videoMeta,
-        probeVideoMetadata: this.deps.probeVideoMetadata,
-        writeFile: async (targetPath, content) => {
-          nfoArtifacts.set(targetPath, content);
-        },
+        outputVideoPath,
+        stagingDir,
+        existingAssetDir: metadataOutputDir,
+        metadataOutputDir,
+        downloadedAssets: downloaded.assets,
+        actorPhotoPaths: prepared.actorPhotoPaths,
+        existingNfoPath: preservedNfoPath,
+        organizePlan: plan,
+        nfoNaming: configuration.download.nfoNaming,
+        remoteData: crawlerData,
+        writeNfo: async (assets, writeFile) =>
+          await writePreparedNfo({
+            assets,
+            config: configuration,
+            crawlerData,
+            enabled: configuration.download.generateNfo && !preservedNfoPath,
+            fileInfo,
+            localState: existingNfoLocalState,
+            nfoGenerator: this.deps.nfoGenerator,
+            buildTags: this.deps.buildTags,
+            nfoPath: plan.nfoPath,
+            sourceVideoPath: fileInfo.filePath,
+            sources: aggregationResult.sources,
+            videoMeta,
+            probeVideoMetadata: this.deps.probeVideoMetadata,
+            writeFile,
+          }),
       });
-      this.deps.signalService.showScrapeInfo({ fileInfo, site: this.requireWebsite(crawlerData), step: "organize" });
-      this.deps.signalService.showLogText(`[${fileInfo.number}] Organizing files...`);
       throwIfAborted(signal);
-      const outputVideoPath = await organizePreparedVideo({
-        enabled: true,
-        fileInfo,
-        plan,
-      });
-      const sourceStats = await stat(fileInfo.filePath);
-      const stagedArtifactPaths = Array.from(
-        new Set([...(downloadedAssets.downloaded ?? []), ...prepared.actorPhotoPaths]),
-      );
-      const artifacts: PreparedPublicationPlan["artifacts"] = await Promise.all(
-        stagedArtifactPaths.map(async (stagedPath) => ({
-          targetPath: toTargetPath(stagedPath),
-          content: { kind: "bytes" as const, data: await readFile(stagedPath) },
-        })),
-      );
-      artifacts.push(
-        ...[...nfoArtifacts].map(([targetPath, data]) => ({
-          targetPath,
-          content: { kind: "text" as const, data },
-        })),
-      );
-      if (plan.strmPath) {
-        artifacts.push({ targetPath: plan.strmPath, content: { kind: "text", data: outputVideoPath } });
-      }
-      const assetTargets: PreparedPublicationPlan["assets"] = [];
-      const addLocalAsset = (kind: string, targetPath: string | undefined) => {
-        if (targetPath) assetTargets.push({ kind, targetPath });
-      };
-      addLocalAsset("thumb", targetAssets.thumb);
-      addLocalAsset("poster", targetAssets.poster);
-      addLocalAsset("fanart", targetAssets.fanart);
-      addLocalAsset("trailer", targetAssets.trailer);
-      for (const sceneImage of targetAssets.sceneImages) addLocalAsset("scene", sceneImage);
-      // A download toggled off means the file is not written, not that the artwork is hidden:
-      // the source site's URL still backs the detail preview when no local file was produced.
-      const addRemoteAsset = (kind: string, url: string | undefined, localPath: string | undefined) => {
-        if (!localPath && url?.trim()) assetTargets.push({ kind, url });
-      };
-      addRemoteAsset("thumb", crawlerData.thumb_source_url ?? crawlerData.thumb_url, targetAssets.thumb);
-      addRemoteAsset("poster", crawlerData.poster_source_url ?? crawlerData.poster_url, targetAssets.poster);
-      addRemoteAsset("fanart", crawlerData.fanart_source_url ?? crawlerData.fanart_url, targetAssets.fanart);
-      addRemoteAsset("trailer", crawlerData.trailer_source_url ?? crawlerData.trailer_url, targetAssets.trailer);
-      if (targetAssets.sceneImages.length === 0) {
-        for (const url of crawlerData.scene_images) addRemoteAsset("scene", url, undefined);
-      }
       this.setProgress(progress, 100);
+      const savedNfoPath = publication.nfoPath;
+      const preparedPlan = publication.plan;
       const classification = classifyMovie(fileInfo, crawlerData, existingNfoLocalState);
-      const preparedPlan: PreparedPublicationPlan = {
-        video: {
-          sourcePath: fileInfo.filePath,
-          targetPath: outputVideoPath,
-          size: sourceStats.size,
-          content: await prepareMovedStrmContent(fileInfo.filePath, outputVideoPath),
-        },
-        sidecars: await Promise.all(
-          (plan.subtitleSidecars ?? []).map(async (sidecar) => ({
-            sourcePath: sidecar.path,
-            targetPath: buildSubtitleSidecarTargetPath(sidecar, outputVideoPath),
-            size: (await stat(sidecar.path)).size,
-          })),
-        ),
-        artifacts,
-        assets: assetTargets,
-        obsoletePaths: [],
-        replaceExistingTargetPaths: options.replaceExistingTargets
-          ? [outputVideoPath, ...artifacts.map((artifact) => artifact.targetPath)]
-          : [...nfoArtifacts.keys()],
-      };
       const identity = toScrapeIdentity(fileId, fileInfo, options);
-      const publicationPlan =
-        options.roots && options.roots.length > 0
-          ? createPublicationPlan(
-              options.operationId ?? `${options.scrapeSessionId ?? "scrape"}:${identity.relativePath}`,
-              "scrape",
-              preparedPlan,
-              options.roots,
-            )
-          : undefined;
-      const toRef = (absolutePath: string) =>
-        options.roots && options.roots.length > 0
-          ? toRootFileRef(absolutePath, options.roots)
-          : { rootId: identity.rootId, relativePath: absolutePath };
+      if (!options.roots?.length) throw new Error("Scrape publication requires registered media roots");
+      const publicationPlan = createPublicationPlan(
+        options.operationId ?? `${options.scrapeSessionId ?? "scrape"}:${identity.relativePath}`,
+        "scrape",
+        preparedPlan,
+        options.roots,
+      );
+      const toRef = (absolutePath: string) => toRootFileRef(absolutePath, options.roots!);
       const result: FileScrapeResult = {
         ...identity,
         status: "success",
         crawlerData,
         videoMeta,
-        output: publicationPlan?.video?.target ?? toRef(outputVideoPath),
+        output: publicationPlan.video!.target,
         ...(savedNfoPath ? { nfo: toRef(savedNfoPath) } : {}),
-        assets: publicationPlan?.assets ?? [],
+        assets: publicationPlan.assets,
         sources: aggregationResult.sources,
         uncensoredAmbiguous:
           classification.uncensored &&
@@ -408,7 +320,7 @@ export class FileScraper {
       this.setProgress(progress, 100);
       if (isAbortError(error)) {
         this.deps.logger.info(`Scrape aborted for ${fileInfo.filePath}`);
-        const result: ScrapeResult = {
+        const result: FileScrapeResult = {
           ...toScrapeIdentity(fileId, fileInfo, options),
           status: "skipped",
           error: "Operation aborted",
@@ -419,7 +331,11 @@ export class FileScraper {
 
       const message = toErrorMessage(error);
       this.deps.logger.error(`Scrape failed for ${fileInfo.filePath}: ${message}`);
-      const result: ScrapeResult = { ...toScrapeIdentity(fileId, fileInfo, options), status: "failed", error: message };
+      const result: FileScrapeResult = {
+        ...toScrapeIdentity(fileId, fileInfo, options),
+        status: "failed",
+        error: message,
+      };
       this.deps.signalService.showScrapeResult(result);
       this.deps.signalService.showFailedInfo({ fileInfo, error: message });
       return result;

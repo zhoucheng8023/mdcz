@@ -434,20 +434,38 @@ describe("MaintenanceSessionCoordinator", () => {
     await fixture.coordinator.close();
   });
 
-  it("drops a result from an old generation before the library transaction", async () => {
+  it.each([
+    "prepare",
+    "publish",
+  ] as const)("stops during %s without discarding a committed publication", async (phase) => {
     const { promise: blocked, resolve: releaseApply } = promiseWithResolvers<void>();
     const { promise: started, resolve: applyStarted } = promiseWithResolvers<void>();
     const outputPath = fileURLToPath(import.meta.url);
     const fixture = createCoordinator({
       applyEntry: vi.fn(async ({ entry }) => {
-        applyStarted();
-        await blocked;
+        if (phase === "prepare") {
+          applyStarted();
+          await blocked;
+        }
         return {
           status: "success" as const,
           entry: { ...entry, fileInfo: { ...entry.fileInfo, filePath: outputPath } },
           outputRelativePath: "one.mp4",
+          plan: {
+            video: { sourcePath: outputPath, targetPath: outputPath, size: 1 },
+            artifacts: [],
+            assets: [],
+            obsoletePaths: [],
+          },
         };
       }),
+    });
+    fixture.library.publishRefresh.mockImplementation(async () => {
+      if (phase === "publish") {
+        applyStarted();
+        await blocked;
+      }
+      return { libraryItemId: "committed" };
     });
     const preview = await fixture.coordinator.startPreview({
       rootId: root.id,
@@ -461,12 +479,12 @@ describe("MaintenanceSessionCoordinator", () => {
     });
     await started;
     const stopping = fixture.coordinator.stop(preview.session.id);
+    const repeatedStop = fixture.coordinator.stop(preview.session.id);
     releaseApply();
-    await stopping;
+    await Promise.all([stopping, repeatedStop]);
     const batch = await apply.completion;
-
-    expect(fixture.library.publishRefresh).not.toHaveBeenCalled();
-    expect(batch.applied).toEqual([expect.objectContaining({ status: "skipped" })]);
+    expect(fixture.library.publishRefresh).toHaveBeenCalledTimes(phase === "publish" ? 1 : 0);
+    expect(batch.applied).toEqual([expect.objectContaining({ status: phase === "publish" ? "success" : "skipped" })]);
     await fixture.coordinator.close();
   });
 

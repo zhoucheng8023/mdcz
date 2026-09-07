@@ -50,13 +50,12 @@ interface PreparedUncensoredConfirmItem {
 
 export interface UncensoredConfirmDependencies {
   artifactResolver: Pick<MaintenanceArtifactResolver, "resolve">;
-  fileOrganizer: Pick<FileOrganizer, "ensureOutputReady" | "organizeVideo" | "plan"> &
-    Partial<Pick<FileOrganizer, "resolveOutputPlan">>;
+  fileOrganizer: Pick<FileOrganizer, "plan" | "resolveOutputPlan">;
   localScanService: Pick<LocalScanService, "scanVideo">;
   logger: Pick<RuntimeLogger, "info" | "warn">;
   nfoGenerator: Pick<NfoGenerator, "writeNfo">;
   pathExists: (filePath: string) => Promise<boolean>;
-  publish?(input: {
+  publish(input: {
     operationId: string;
     sourceVideoPath: string;
     targetVideoPath: string;
@@ -175,17 +174,8 @@ export const confirmUncensoredOutputs = async (
           config,
           prepared.nextLocalState,
         );
-        const plan = dependencies.fileOrganizer.resolveOutputPlan
-          ? await dependencies.fileOrganizer.resolveOutputPlan(rawPlan, prepared.entry.fileInfo.filePath)
-          : await dependencies.fileOrganizer.ensureOutputReady(rawPlan, prepared.entry.fileInfo.filePath);
-        const outputVideoPath = dependencies.publish
-          ? plan.targetVideoPath
-          : await dependencies.fileOrganizer.organizeVideo(
-              prepared.entry.fileInfo,
-              plan,
-              config,
-              config.paths.mediaPath?.trim() || dirname(prepared.entry.fileInfo.filePath),
-            );
+        const plan = await dependencies.fileOrganizer.resolveOutputPlan(rawPlan, prepared.entry.fileInfo.filePath);
+        const outputVideoPath = plan.targetVideoPath;
         processedItems.push({ ...prepared, outputVideoPath, plan });
       } catch (error) {
         fail(prepared.item, `Failed to reorganize ${prepared.item.videoPath}: ${toErrorMessage(error)}`);
@@ -242,25 +232,23 @@ export const confirmUncensoredOutputs = async (
 
     for (const { processed, artifacts } of finalizedItems) {
       try {
-        if (dependencies.publish) {
-          await dependencies.publish({
-            operationId: `uncensored-confirm:${processed.item.fileId}`,
-            sourceVideoPath: processed.item.videoPath,
-            targetVideoPath: processed.outputVideoPath,
-            artifacts: [
-              ...[...nfoArtifacts].map(([targetPath, data]) => ({
-                targetPath,
-                content: { kind: "text" as const, data },
-              })),
-              ...artifacts.publicationArtifacts.map(({ targetPath, data }) => ({
-                targetPath,
-                content: { kind: "bytes" as const, data },
-              })),
-            ],
-            obsoletePaths: artifacts.obsoletePaths,
-            replaceExistingArtifacts: true,
-          });
-        }
+        await dependencies.publish({
+          operationId: `uncensored-confirm:${processed.item.fileId}`,
+          sourceVideoPath: processed.item.videoPath,
+          targetVideoPath: processed.outputVideoPath,
+          artifacts: [
+            ...[...nfoArtifacts].map(([targetPath, data]) => ({
+              targetPath,
+              content: { kind: "text" as const, data },
+            })),
+            ...artifacts.publicationArtifacts.map(({ targetPath, data }) => ({
+              targetPath,
+              content: { kind: "bytes" as const, data },
+            })),
+          ],
+          obsoletePaths: artifacts.obsoletePaths,
+          replaceExistingArtifacts: true,
+        });
         updatedItems.push({
           fileId: processed.item.fileId,
           sourceVideoPath: processed.item.videoPath,

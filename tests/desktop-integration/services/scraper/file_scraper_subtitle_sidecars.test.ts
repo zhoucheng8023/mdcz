@@ -127,7 +127,9 @@ describe("FileScraper subtitle sidecars", () => {
     const writeNfo = vi.fn().mockResolvedValue(plan.nfoPath);
     const scraper = createScraper(plan, writeNfo);
 
-    const result = await scraper.scrapeFile(videoPath, { fileIndex: 1, totalFiles: 1 });
+    const result = await scraper.scrapeFile(videoPath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [{ id: "test-root", hostPath: tmpdir() }],
+    });
     const nfoOptions = writeNfo.mock.calls[0]?.[2] as { fileInfo?: FileInfo } | undefined;
 
     expect(result.status).toBe("success");

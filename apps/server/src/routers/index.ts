@@ -1,3 +1,5 @@
+import { publicationConflicts } from "@mdcz/runtime/publication";
+import { publicationConflictResolutionSchema } from "@mdcz/shared/publicationConflicts";
 import type { HealthResponse } from "@mdcz/shared/serverDtos";
 import {
   authLoginInputSchema,
@@ -317,6 +319,13 @@ export const appRouter = t.router({
     stop: protectedProcedure
       .input(scrapeTaskControlInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: await ctx.services.scrape.stop(input) })),
+  }),
+  publication: t.router({
+    conflicts: protectedProcedure.query(() => publicationConflicts.list()),
+    resolveConflict: protectedProcedure.input(publicationConflictResolutionSchema).mutation(async ({ input }) => {
+      await publicationConflicts.resolve(input);
+      return { success: true as const };
+    }),
   }),
   setup: t.router({
     complete: setupProcedure.input(setupCompleteInputSchema).mutation(async ({ ctx, input }) => {

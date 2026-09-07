@@ -13,7 +13,11 @@ import {
   WorkbenchSetupAdapter,
   type WorkbenchSetupPort,
 } from "@mdcz/views/adapters";
-import { UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
+import {
+  PublicationConflictDialog,
+  UncensoredConfirmDialog,
+  type UncensoredConfirmSelection,
+} from "@mdcz/views/scrape";
 import {
   selectIsScraping,
   selectScrapeResults,
@@ -251,6 +255,7 @@ function WorkbenchPage() {
         onOpenChange={setUncensoredDialogOpen}
         onConfirm={handleConfirmUncensored}
       />
+      <PublicationConflictDialog list={api.publication.conflicts} resolve={api.publication.resolveConflict} />
     </div>
   );
 }

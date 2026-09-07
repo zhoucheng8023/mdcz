@@ -15,7 +15,11 @@ import {
   startMaintenanceFlow,
   useWorkbenchSessionSnapshot,
 } from "@mdcz/views/adapters";
-import { UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
+import {
+  PublicationConflictDialog,
+  UncensoredConfirmDialog,
+  type UncensoredConfirmSelection,
+} from "@mdcz/views/scrape";
 import { selectMaintenanceExecutionStatus, useMaintenanceStore } from "@mdcz/views/state/maintenanceStore";
 import {
   selectIsScraping,
@@ -277,6 +281,7 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
         items={ambiguousDialogItems}
         onConfirm={handleConfirmUncensored}
       />
+      <PublicationConflictDialog list={ipc.scraper.conflicts} resolve={ipc.scraper.resolveConflict} />
     </div>
   );
 }

@@ -101,6 +101,8 @@ describe("confirmUncensoredItems", () => {
         actorPhotos: [],
       },
       outputVideoPath,
+      publicationArtifacts: [],
+      obsoletePaths: [],
     }));
 
     const result = await confirmUncensoredItems(
@@ -129,11 +131,7 @@ describe("confirmUncensoredItems", () => {
             targetVideoPath: fileInfo.filePath.replace("/library", "/output/FC2-123456"),
             nfoPath: "/output/FC2-123456/FC2-123456.nfo",
           })),
-          ensureOutputReady: vi.fn().mockImplementation(async (plan) => plan),
-          organizeVideo: vi
-            .fn()
-            .mockResolvedValueOnce("/output/FC2-123456/FC2-123456-cd1.mp4")
-            .mockResolvedValueOnce("/output/FC2-123456/FC2-123456-cd2.mp4"),
+          resolveOutputPlan: vi.fn().mockImplementation(async (plan) => plan),
         },
         localScanService: {
           scanVideo: vi.fn().mockResolvedValueOnce(firstEntry).mockResolvedValueOnce(secondEntry),
@@ -146,6 +144,7 @@ describe("confirmUncensoredItems", () => {
           writeNfo,
         },
         pathExists: vi.fn().mockResolvedValue(true),
+        publish: vi.fn().mockResolvedValue(undefined),
       },
     );
 
