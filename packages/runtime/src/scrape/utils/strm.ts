@@ -126,6 +126,10 @@ export const writeStrmTarget = async (filePath: string, nextTarget: string): Pro
     }
     throw error;
   });
+  await atomicWriteFile(filePath, replaceStrmTarget(content, nextTarget));
+};
+
+export const replaceStrmTarget = (content: string, nextTarget: string): string => {
   const { lines, eol, hasBom } = parseStrmContent(content);
   const targetLineIndex = findTargetLineIndex(lines);
 
@@ -138,7 +142,16 @@ export const writeStrmTarget = async (filePath: string, nextTarget: string): Pro
     lines[targetLineIndex] = `${leading}${nextTarget}${trailing}`;
   }
 
-  await atomicWriteFile(filePath, `${hasBom ? "\uFEFF" : ""}${lines.join(eol)}`);
+  return `${hasBom ? "\uFEFF" : ""}${lines.join(eol)}`;
+};
+
+export const prepareMovedStrmContent = async (sourcePath: string, targetPath: string): Promise<string | undefined> => {
+  if (!isStrmFile(sourcePath) || resolve(dirname(sourcePath)) === resolve(dirname(targetPath))) return undefined;
+  const content = await readFile(sourcePath, "utf8");
+  const target = normalizeStrmContent(content);
+  if (!target) return undefined;
+  const info = classifyStrmTarget(sourcePath, target);
+  return info.kind === "relative_path" && info.resolvedPath ? replaceStrmTarget(content, info.resolvedPath) : undefined;
 };
 
 export const resolvePlayableMediaTarget = async (

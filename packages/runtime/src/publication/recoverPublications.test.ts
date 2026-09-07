@@ -29,6 +29,51 @@ const residue = async (root: string): Promise<string[]> => {
 };
 
 describe("recoverPublications", () => {
+  it.each([
+    ["staged", false],
+    ["published", false],
+    ["backed-up", true],
+    ["published", true],
+  ] as const)("restores moved video and subtitles after a crash at %s (replacing=%s)", async (phase, replacing) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "mdcz-recover-moves-"));
+    directories.push(directory);
+    const journal = createMemoryPublicationJournal();
+    const manifest: PublicationJournalManifest = { entries: [], obsolete: [] };
+    for (const extension of ["mp4", "zh.srt"]) {
+      const source = `source.${extension}`;
+      const target = `target.${extension}`;
+      const temporary = `${target}.part`;
+      const backup = `${target}.bak`;
+      await writeFile(path.join(directory, phase === "published" ? target : temporary), `original-${extension}`);
+      if (replacing) await writeFile(path.join(directory, backup), `previous-${extension}`);
+      manifest.entries.push({
+        rootId: "root",
+        relativePath: target,
+        temporaryPath: temporary,
+        backupPath: replacing ? backup : null,
+        targetExisted: replacing,
+        source: { rootId: "root", relativePath: source },
+      });
+    }
+    journal.begin({ operationId: "crashed-move", operationType: "scrape", manifest, createdAt: new Date() });
+    const options = { journal, resolveRoot: async () => ({ id: "root", hostPath: directory }) };
+    await recoverPublications(options);
+    await recoverPublications(options);
+    for (const extension of ["mp4", "zh.srt"]) {
+      await expect(readFile(path.join(directory, `source.${extension}`), "utf8")).resolves.toBe(
+        `original-${extension}`,
+      );
+      if (replacing) {
+        await expect(readFile(path.join(directory, `target.${extension}`), "utf8")).resolves.toBe(
+          `previous-${extension}`,
+        );
+      } else {
+        await expect(stat(path.join(directory, `target.${extension}`))).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    }
+    expect(journal.listUnfinished()).toEqual([]);
+    await expect(residue(directory)).resolves.toEqual([]);
+  });
   it("rolls back a pending row that has both backup and new target on disk", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "mdcz-recover-"));
     directories.push(directory);

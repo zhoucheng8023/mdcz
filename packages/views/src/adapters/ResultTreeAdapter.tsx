@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import type { MediaBrowserFilter, MediaBrowserItem } from "../common";
 import { getScrapeResultTitle, type ResultTreeManualUrlTarget, ResultTreeView } from "../detail";
 import type { ScrapeActionPort } from "./ports";
-import { activateRetryScrapeTask } from "./workbenchSession";
+import { activateNewScrapeTask, activateRetryScrapeTask } from "./workbenchSession";
 
 function getFileNameFromPath(filePath: string) {
   const slash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
@@ -222,10 +222,10 @@ export function ResultTreeAdapter({ port }: { port: ScrapeActionPort }) {
           setManualUrlTarget(null);
         }
       }}
-      onManualUrlSubmit={async () => {
+      onManualUrlSubmit={async (target, manualUrl) => {
         try {
-          const response = await port.retryFailed();
-          activateRetryScrapeTask();
+          const response = await port.rescrapeByUrl(target.targets, manualUrl);
+          activateNewScrapeTask();
           toast.success(response.message);
         } catch (error) {
           toast.error(toErrorMessage(error, "按 URL 重新刮削失败"));

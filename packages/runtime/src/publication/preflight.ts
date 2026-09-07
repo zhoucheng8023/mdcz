@@ -1,9 +1,9 @@
-import path from "node:path";
 import { resolveRootRelativePath } from "@mdcz/media-store";
 import { parseWireRelativePath, type RootFileRef } from "@mdcz/shared/mediaRef";
 import type {
   PublicationFileSystem,
   PublicationJournalManifestObsolete,
+  PublicationMove,
   PublicationObsoleteObservation,
   PublicationPlan,
   PublishMediaOptions,
@@ -20,6 +20,20 @@ export interface ResolvedPublicationPlan {
 }
 
 const refKey = (ref: RootFileRef): string => `${ref.rootId}\0${parseWireRelativePath(ref.relativePath)}`;
+
+const refLabel = (ref: RootFileRef): string => `${ref.rootId}:${ref.relativePath}`;
+
+export const planMoves = (plan: PublicationPlan): PublicationMove[] => [
+  ...(plan.video ? [plan.video] : []),
+  ...(plan.sidecars ?? []),
+];
+
+export const planRefs = (plan: PublicationPlan): RootFileRef[] => [
+  ...planMoves(plan).flatMap((move) => [move.source, move.target]),
+  ...plan.artifacts.map(({ target }) => target),
+  ...plan.assets.flatMap((asset) => (asset.type === "local" ? [asset.file] : [])),
+  ...plan.obsolete,
+];
 
 export const observePublicationFile = async (
   fileSystem: PublicationFileSystem,
@@ -93,12 +107,7 @@ export const preflightPublication = async (
   previous?: readonly ObservedPublicationFile[],
 ): Promise<ResolvedPublicationPlan> => {
   if (!plan.operationId.trim()) throw new Error("Publication operation ID is required");
-  const refs = [
-    ...(plan.video ? [plan.video.source, plan.video.target] : []),
-    ...plan.artifacts.map(({ target }) => target),
-    ...plan.assets.flatMap((asset) => (asset.type === "local" ? [asset.file] : [])),
-    ...plan.obsolete,
-  ];
+  const refs = planRefs(plan);
   const rootIds = [...new Set(refs.map((ref) => ref.rootId))];
   const roots = new Map(
     await Promise.all(rootIds.map(async (rootId) => [rootId, await options.resolveRoot(rootId)] as const)),
@@ -114,9 +123,11 @@ export const preflightPublication = async (
     }
   }
 
-  const targets = [...(plan.video ? [plan.video.target] : []), ...plan.artifacts.map(({ target }) => target)];
+  const moves = planMoves(plan);
+  const targets = [...moves.map((move) => move.target), ...plan.artifacts.map(({ target }) => target)];
   const targetKeys = targets.map(refKey);
   if (new Set(targetKeys).size !== targetKeys.length) throw new Error("Publication target collision within plan");
+  const replacing = new Set((plan.replaceExistingTargets ?? []).map(refKey));
   const observedByPath = new Map<string, ObservedPublicationFile>();
   const record = async (filePath: string): Promise<ObservedPublicationFile> => {
     const existing = observedByPath.get(filePath);
@@ -126,60 +137,67 @@ export const preflightPublication = async (
     return fact;
   };
 
-  if (plan.video) {
-    if (!Number.isSafeInteger(plan.video.size) || plan.video.size < 0)
-      throw new Error("Invalid publication video size");
-    const sourcePath = resolve(plan.video.source);
-    const targetPath = resolve(plan.video.target);
+  const requiredBytesByRoot = new Map<string, number>();
+  for (const move of moves) {
+    if (!Number.isSafeInteger(move.size) || move.size < 0) throw new Error("Invalid publication move size");
+    const sourcePath = resolve(move.source);
+    const targetPath = resolve(move.target);
     const source = await record(sourcePath);
     const target = await record(targetPath);
+    const content = move.content;
+    const targetHoldsResult =
+      target.exists &&
+      target.isFile &&
+      (content === undefined
+        ? target.size === move.size
+        : (await fileSystem.readFile(targetPath)).equals(Buffer.from(content)));
     if (source.exists) {
-      if (!source.isFile || source.size !== plan.video.size) {
-        throw new Error(
-          `Publication source size mismatch: ${plan.video.source.rootId}:${plan.video.source.relativePath}`,
-        );
+      if (!source.isFile || source.size !== move.size) {
+        throw new Error(`Publication source size mismatch: ${refLabel(move.source)}`);
       }
-    } else if (!target.exists || !target.isFile || target.size !== plan.video.size) {
-      throw new Error(`Publication source is missing: ${plan.video.source.rootId}:${plan.video.source.relativePath}`);
+    } else if (!targetHoldsResult) {
+      throw new Error(`Publication source is missing: ${refLabel(move.source)}`);
     }
-    const videoTarget = plan.video.target;
-    const replacing = plan.replaceExistingTargets?.some((ref) => refKey(ref) === refKey(videoTarget));
-    if (sourcePath !== targetPath && target.exists && target.size !== plan.video.size && !replacing) {
-      throw new Error(
-        `Publication target already exists: ${plan.video.target.rootId}:${plan.video.target.relativePath}`,
-      );
+    if (sourcePath !== targetPath && target.exists && !targetHoldsResult && !replacing.has(refKey(move.target))) {
+      throw new Error(`Publication target already exists: ${refLabel(move.target)}`);
     }
-
     if (sourcePath !== targetPath && !target.exists) {
-      const targetRoot = roots.get(plan.video.target.rootId);
-      if (!targetRoot) throw new Error(`Publication root not resolved: ${plan.video.target.rootId}`);
-      const capacity = await fileSystem.statfs(targetRoot.hostPath);
-      if (capacity.bavail * capacity.bsize < plan.video.size) {
-        throw new Error(`Insufficient space for publication target: ${path.dirname(targetPath)}`);
-      }
+      requiredBytesByRoot.set(move.target.rootId, (requiredBytesByRoot.get(move.target.rootId) ?? 0) + move.size);
+    }
+  }
+  for (const [rootId, requiredBytes] of requiredBytesByRoot) {
+    const targetRoot = roots.get(rootId);
+    if (!targetRoot) throw new Error(`Publication root not resolved: ${rootId}`);
+    const capacity = await fileSystem.statfs(targetRoot.hostPath);
+    if (capacity.bavail * capacity.bsize < requiredBytes) {
+      throw new Error(`Insufficient space for publication target: ${targetRoot.hostPath}`);
     }
   }
 
   for (const artifact of plan.artifacts) {
     const targetPath = resolve(artifact.target);
-    const replacing = plan.replaceExistingTargets?.some((ref) => refKey(ref) === refKey(artifact.target));
     const existing = await record(targetPath);
     if (!existing.exists) continue;
     if (artifact.content.kind === "download") {
-      throw new Error(`Publication target already exists: ${artifact.target.rootId}:${artifact.target.relativePath}`);
+      throw new Error(`Publication target already exists: ${refLabel(artifact.target)}`);
     }
     const expected = Buffer.from(artifact.content.data);
     const actual = await fileSystem.readFile(targetPath);
-    if (!actual.equals(expected) && !replacing) {
-      throw new Error(`Publication target already exists: ${artifact.target.rootId}:${artifact.target.relativePath}`);
+    if (!actual.equals(expected) && !replacing.has(refKey(artifact.target))) {
+      throw new Error(`Publication target already exists: ${refLabel(artifact.target)}`);
     }
   }
 
-  for (const ref of [
-    ...plan.obsolete,
-    ...plan.assets.flatMap((asset) => (asset.type === "local" ? [asset.file] : [])),
-  ]) {
+  for (const ref of plan.obsolete) {
     await record(resolve(ref));
+  }
+  const plannedTargets = new Set(targets.map((ref) => resolve(ref)));
+  for (const asset of plan.assets) {
+    if (asset.type !== "local") continue;
+    const assetPath = resolve(asset.file);
+    if (plannedTargets.has(assetPath)) continue;
+    const fact = await record(assetPath);
+    if (!fact.exists || !fact.isFile) throw new Error(`Publication asset is missing or not a file: ${assetPath}`);
   }
 
   return { roots, resolve, observed: [...observedByPath.values()] };

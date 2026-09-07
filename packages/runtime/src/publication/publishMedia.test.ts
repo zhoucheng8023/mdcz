@@ -208,6 +208,10 @@ describe("commitPublishedMedia", () => {
     const test = await fixture();
     const fileSystem = await defaultFileSystem();
     const original = fileSystem[method];
+    if (method === "copyFile")
+      fileSystem.rename = async () => {
+        throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+      };
     fileSystem[method] = vi.fn(async (...args: never[]) => {
       void original;
       void args;
@@ -225,8 +229,28 @@ describe("commitPublishedMedia", () => {
     await expect(residue(test.outputRoot, test.metadataRoot)).resolves.toEqual([]);
   });
 
-  it("restores the original target byte-for-byte when commit throws", async () => {
+  it.each([
+    false,
+    true,
+  ])("restores video, subtitles and original targets when commit throws (cross-device=%s)", async (crossDevice) => {
     const test = await fixture();
+    const subtitleSource = `${test.source}.zh.srt`;
+    const subtitleTarget = `${test.target}.zh.srt`;
+    await writeFile(subtitleSource, "subtitle");
+    test.plan.sidecars = [
+      {
+        source: { rootId: "input", relativePath: "movie.mp4.zh.srt" },
+        target: { rootId: "output", relativePath: "Movie/movie.mp4.zh.srt" },
+        size: 8,
+      },
+    ];
+    const fileSystem = await defaultFileSystem();
+    const rename = fileSystem.rename;
+    fileSystem.rename = async (source, target) => {
+      if (crossDevice && (source === test.source || source === subtitleSource))
+        throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+      await rename(source, target);
+    };
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
     test.plan.replaceExistingTargets = [{ rootId: "metadata", relativePath: "Movie/movie.nfo" }];
@@ -235,13 +259,16 @@ describe("commitPublishedMedia", () => {
       commitPublishedMedia(test.plan, {
         resolveRoot: test.resolveRoot,
         journal,
+        fileSystem,
         commit: () => {
-          throw new Error("database unavailable");
+          throw new AggregateError([new Error("constraint failed")], "database unavailable");
         },
       }),
     ).rejects.toThrow("database unavailable");
     await expect(readFile(test.nfo, "utf8")).resolves.toBe("original-nfo");
     await expect(readFile(test.source, "utf8")).resolves.toBe("video");
+    await expect(readFile(subtitleSource, "utf8")).resolves.toBe("subtitle");
+    await expect(stat(subtitleTarget)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(test.target)).rejects.toMatchObject({ code: "ENOENT" });
     expect(journal.listUnfinished()).toEqual([]);
     await expect(residue(test.outputRoot, test.metadataRoot)).resolves.toEqual([]);
@@ -255,6 +282,7 @@ describe("commitPublishedMedia", () => {
       target: { rootId: "metadata" as const, relativePath: `Movie/file-${index}.txt` },
       content: { kind: "text" as const, data: `content-${index}` },
     }));
+    test.plan.assets = [];
     const fileSystem = await defaultFileSystem();
     const originalRename = fileSystem.rename;
     let renames = 0;
@@ -354,6 +382,7 @@ describe("commitPublishedMedia", () => {
     const nfo = test.plan.artifacts[0];
     if (!nfo) throw new Error("fixture nfo artifact is required");
     test.plan.artifacts = [nfo];
+    test.plan.assets = [];
     test.plan.obsolete = [];
     const fileSystem = await defaultFileSystem();
     const originalRename = fileSystem.rename;
@@ -388,6 +417,11 @@ describe("commitPublishedMedia", () => {
     const test = await fixture();
     const fileSystem = await defaultFileSystem();
     const originalRm = fileSystem.rm;
+    const originalRename = fileSystem.rename;
+    fileSystem.rename = async (source, target) => {
+      if (source === test.source) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+      await originalRename(source, target);
+    };
     fileSystem.rm = async (filePath, options) => {
       if (filePath === test.source) throw new Error("source cleanup failed");
       await originalRm(filePath, options);
@@ -432,11 +466,11 @@ describe("commitPublishedMedia", () => {
     await expect(stat(test.target)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("retains sources and obsolete files until the database commit", async () => {
+  it("retains moved bytes at the target and obsolete assets until the database commit", async () => {
     const test = await fixture();
     const commit = vi.fn(() => {
-      expect(existsSync(test.source)).toBe(true);
-      expect(readFileSync(test.source, "utf8")).toBe("video");
+      expect(existsSync(test.source)).toBe(false);
+      expect(readFileSync(test.target, "utf8")).toBe("video");
       expect(readFileSync(test.obsolete, "utf8")).toBe("old");
       return "committed";
     });
@@ -565,6 +599,7 @@ describe("commitPublishedMedia", () => {
     const nfo = test.plan.artifacts[0];
     if (!nfo) throw new Error("fixture nfo artifact is required");
     test.plan.artifacts = [nfo];
+    test.plan.assets = [];
     test.plan.obsolete = [];
     const fileSystem = await defaultFileSystem();
     const originalRename = fileSystem.rename;

@@ -28,7 +28,7 @@ import type { AggregationResult, AggregationService, ManualScrapeOptions } from 
 import { canonicalizeCrawlerDataActorAliases } from "./canonicalizeActorAliases";
 import type { DownloadManager } from "./download";
 import { type FileOrganizer, resolveMetadataOutputDir } from "./FileOrganizer";
-import { isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "./media";
+import { buildSubtitleSidecarTargetPath, isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "./media";
 import type { NfoGenerator, NfoOptions } from "./nfo";
 import {
   downloadCrawlerAssets,
@@ -41,6 +41,7 @@ import type { TranslateService } from "./TranslateService";
 import { isAbortError, throwIfAborted } from "./utils/abort";
 import { classifyMovie, isLikelyUncensoredNumber } from "./utils/movieClassification";
 import { parseFileInfo } from "./utils/number";
+import { prepareMovedStrmContent } from "./utils/strm";
 
 export interface RuntimeScrapeSignalService {
   showFailedInfo(input: { fileInfo: FileInfo; error: string }): void;
@@ -351,13 +352,25 @@ export class FileScraper {
       this.setProgress(progress, 100);
       const classification = classifyMovie(fileInfo, crawlerData, existingNfoLocalState);
       const preparedPlan: PreparedPublicationPlan = {
-        video: { sourcePath: fileInfo.filePath, targetPath: outputVideoPath, size: sourceStats.size },
+        video: {
+          sourcePath: fileInfo.filePath,
+          targetPath: outputVideoPath,
+          size: sourceStats.size,
+          content: await prepareMovedStrmContent(fileInfo.filePath, outputVideoPath),
+        },
+        sidecars: await Promise.all(
+          (plan.subtitleSidecars ?? []).map(async (sidecar) => ({
+            sourcePath: sidecar.path,
+            targetPath: buildSubtitleSidecarTargetPath(sidecar, outputVideoPath),
+            size: (await stat(sidecar.path)).size,
+          })),
+        ),
         artifacts,
         assets: assetTargets,
         obsoletePaths: [],
         replaceExistingTargetPaths: options.replaceExistingTargets
           ? [outputVideoPath, ...artifacts.map((artifact) => artifact.targetPath)]
-          : undefined,
+          : [...nfoArtifacts.keys()],
       };
       const identity = toScrapeIdentity(fileId, fileInfo, options);
       const publicationPlan =

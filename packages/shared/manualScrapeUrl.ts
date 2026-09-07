@@ -6,6 +6,15 @@ export const MANUAL_SCRAPE_SUPPORTED_SITE_INVALID_MESSAGE = "请输入站点首�
 
 export type ManualScrapeUrlMode = "site" | "detail";
 
+export const resolveManualScrapeRoute = (
+  url?: string | null,
+): Pick<ManualScrapeUrlRoute, "site" | "detailUrl"> | undefined => {
+  if (!url?.trim()) return undefined;
+  const validation = validateManualScrapeUrl(url);
+  if (!validation.valid) throw new Error(validation.message);
+  return { site: validation.route.site, detailUrl: validation.route.detailUrl };
+};
+
 export interface ManualScrapeUrlRoute {
   site: Website;
   mode: ManualScrapeUrlMode;

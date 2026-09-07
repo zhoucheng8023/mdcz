@@ -7,7 +7,7 @@ import { createTempDirectory, type TempDirectoryHarness } from "../../../../../t
 
 const filesystemFaults = vi.hoisted(() => ({
   renameErrors: [] as NodeJS.ErrnoException[],
-  unlinkError: null as NodeJS.ErrnoException | null,
+  rmError: null as NodeJS.ErrnoException | null,
 }));
 
 vi.mock("node:fs/promises", async () => {
@@ -19,13 +19,13 @@ vi.mock("node:fs/promises", async () => {
       if (error) throw error;
       return await actual.rename(...args);
     },
-    unlink: async (...args: Parameters<typeof actual.unlink>) => {
-      if (filesystemFaults.unlinkError) {
-        const error = filesystemFaults.unlinkError;
-        filesystemFaults.unlinkError = null;
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      if (filesystemFaults.rmError) {
+        const error = filesystemFaults.rmError;
+        filesystemFaults.rmError = null;
         throw error;
       }
-      return await actual.unlink(...args);
+      return await actual.rm(...args);
     },
   };
 });
@@ -45,25 +45,33 @@ const createRoot = async (): Promise<string> => {
 
 afterEach(async () => {
   filesystemFaults.renameErrors.length = 0;
-  filesystemFaults.unlinkError = null;
+  filesystemFaults.rmError = null;
   await Promise.all(tempDirectories.splice(0).map((directory) => directory.cleanup()));
 });
 
 describe("moveFileSafely", () => {
-  it("preserves both complete copies after a verified cross-device copy", async () => {
+  it.each([
+    false,
+    true,
+  ])("completes a cross-device move or rolls back if source removal fails (%s)", async (removalFails) => {
     const root = await createRoot();
     const sourcePath = join(root, "source", "movie.mp4");
     const targetPath = join(root, "target", "movie.mp4");
     await mkdir(join(root, "source"), { recursive: true });
     await writeFile(sourcePath, "complete-video");
     filesystemFaults.renameErrors.push(createError("cross-device", "EXDEV"));
-    filesystemFaults.unlinkError = createError("source busy", "EBUSY");
+    if (removalFails) filesystemFaults.rmError = createError("source busy", "EBUSY");
 
-    await expect(moveFileSafely(sourcePath, targetPath)).resolves.toBe(targetPath);
-
-    await expect(readFile(sourcePath, "utf8")).resolves.toBe("complete-video");
-    await expect(readFile(targetPath, "utf8")).resolves.toBe("complete-video");
-    await expect(readdir(join(root, "target"))).resolves.toEqual(["movie.mp4"]);
+    if (removalFails) {
+      await expect(moveFileSafely(sourcePath, targetPath)).rejects.toThrow("source busy");
+      await expect(readFile(sourcePath, "utf8")).resolves.toBe("complete-video");
+      await expect(readdir(join(root, "target"))).resolves.toEqual([]);
+    } else {
+      await expect(moveFileSafely(sourcePath, targetPath)).resolves.toBe(targetPath);
+      await expect(readFile(sourcePath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(targetPath, "utf8")).resolves.toBe("complete-video");
+      await expect(readdir(join(root, "target"))).resolves.toEqual(["movie.mp4"]);
+    }
   });
 
   it("removes only its temporary part when cross-device publication fails", async () => {

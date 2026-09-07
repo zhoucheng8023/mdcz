@@ -8,10 +8,13 @@ import {
   assertPublicationFileUnchanged,
   type ObservedPublicationFile,
   observePublicationFile,
+  planMoves,
+  planRefs,
   preflightPublication,
   removeCommittedObsoleteFiles,
   toObsoleteObservation,
 } from "./preflight";
+import { restorePublicationFile } from "./restorePublicationFile";
 import {
   PublicationError,
   type PublicationFileSystem,
@@ -98,6 +101,7 @@ interface PlannedPublication {
   targetExisted: boolean;
   stage: () => Promise<void>;
   sourcePath?: string;
+  source?: RootFileRef;
 }
 
 export const commitPublishedMedia = async <TResult>(
@@ -105,12 +109,7 @@ export const commitPublishedMedia = async <TResult>(
   options: PublishMediaOptions<TResult>,
 ): Promise<TResult> => {
   const fileSystem = options.fileSystem ?? defaultFileSystem;
-  const lockRefs = uniqueRefs([
-    ...(plan.video ? [plan.video.source, plan.video.target] : []),
-    ...plan.artifacts.map(({ target }) => target),
-    ...plan.assets.flatMap((asset) => (asset.type === "local" ? [asset.file] : [])),
-    ...plan.obsolete,
-  ]);
+  const lockRefs = uniqueRefs(planRefs(plan));
   const logger = runtimeLoggerService.getLogger("Publication");
   const operationLabel = plan.operationId.slice(-8);
   const phaseCounts = new Map<string, number>();
@@ -145,26 +144,15 @@ export const commitPublishedMedia = async <TResult>(
 
   const rollback = async (error: unknown): Promise<never> => {
     const secondary: unknown[] = [];
-    for (const item of [...published].reverse()) {
+    for (const item of [...planned].reverse()) {
       try {
-        if (item.targetExisted && item.backupPath) await fileSystem.rename(item.backupPath, item.targetPath);
-        else await fileSystem.rm(item.targetPath, { force: true });
+        await restorePublicationFile(fileSystem, item, published.includes(item));
       } catch (restoreError) {
         secondary.push(restoreError);
         try {
           await recordRepair(plan, options.repairIssues, item.ref, restoreError);
         } catch (repairError) {
           secondary.push(repairError);
-        }
-      }
-    }
-    for (const item of planned) {
-      if (item.sourcePath) {
-        try {
-          await fileSystem.rename(item.temporaryPath, item.sourcePath);
-        } catch (restoreError) {
-          secondary.push(restoreError);
-          await recordRepair(plan, options.repairIssues, item.ref, restoreError);
         }
       }
     }
@@ -232,13 +220,18 @@ export const commitPublishedMedia = async <TResult>(
       });
     }
 
-    if (plan.video) {
-      const video = plan.video;
+    for (const video of planMoves(plan)) {
+      const content = video.content;
       const sourcePath = resolved.resolve(video.source);
       const targetPath = resolved.resolve(video.target);
       const targetFact = observedAt(resolved.observed, targetPath);
       const targetExisted = targetFact?.exists === true;
-      const targetSatisfied = targetFact?.exists === true && targetFact.isFile && targetFact.size === video.size;
+      const targetSatisfied =
+        targetFact?.exists === true &&
+        targetFact.isFile &&
+        (content === undefined
+          ? targetFact.size === video.size
+          : (await fileSystem.readFile(targetPath)).equals(Buffer.from(content)));
       if (sourcePath !== targetPath && (!targetSatisfied || replacing.has(refKey(video.target)))) {
         await fileSystem.mkdir(path.dirname(targetPath), { recursive: true });
         const temporaryPath = createTargetTemporaryPath(targetPath, plan.operationId);
@@ -248,7 +241,7 @@ export const commitPublishedMedia = async <TResult>(
           temporaryPath,
           backupPath: targetExisted ? createTargetBackupPath(targetPath, plan.operationId) : null,
           targetExisted,
-          sourcePath,
+          ...(content === undefined ? { sourcePath, source: video.source } : {}),
           stage: async () => {
             const sourceNow = await fileSystem.stat(sourcePath);
             const observed = observedAt(resolved.observed, sourcePath);
@@ -263,18 +256,22 @@ export const commitPublishedMedia = async <TResult>(
               );
             }
             const copyStartedAt = startPhase("video-copy");
-            try {
-              await fileSystem.rename(sourcePath, temporaryPath);
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
-              await fileSystem.copyFile(sourcePath, temporaryPath);
+            if (content !== undefined) {
+              await fileSystem.writeFile(temporaryPath, content);
+            } else {
+              try {
+                await fileSystem.rename(sourcePath, temporaryPath);
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+                await fileSystem.copyFile(sourcePath, temporaryPath);
+              }
             }
             recordPhase("video-copy", copyStartedAt);
             const flushStartedAt = startPhase("flush");
             await fileSystem.flush?.(temporaryPath);
             recordPhase("flush", flushStartedAt);
             const copied = await fileSystem.stat(temporaryPath);
-            if (!copied.isFile() || copied.size !== video.size) {
+            if (!copied.isFile() || copied.size !== (content === undefined ? video.size : expectedBytes(content))) {
               throw new Error(`Copied video size mismatch for ${video.target.rootId}:${video.target.relativePath}`);
             }
           },
@@ -284,9 +281,9 @@ export const commitPublishedMedia = async <TResult>(
 
     const obsolete = uniqueRefs([
       ...plan.obsolete,
-      ...(plan.video && resolved.resolve(plan.video.source) !== resolved.resolve(plan.video.target)
-        ? [plan.video.source]
-        : []),
+      ...planMoves(plan)
+        .filter((move) => resolved.resolve(move.source) !== resolved.resolve(move.target))
+        .map((move) => move.source),
     ]).map((ref) => {
       const obsoletePath = resolved.resolve(ref);
       const fact = observedAt(resolved.observed, obsoletePath);
@@ -300,6 +297,7 @@ export const commitPublishedMedia = async <TResult>(
         temporaryPath: `${item.ref.relativePath}.${operationFileToken(plan.operationId)}.part`,
         backupPath: item.backupPath ? `${item.ref.relativePath}.${operationFileToken(plan.operationId)}.bak` : null,
         targetExisted: item.targetExisted,
+        source: item.source,
       })),
       obsolete,
     };
@@ -352,7 +350,7 @@ export const commitPublishedMedia = async <TResult>(
         await fileSystem.rm(item.temporaryPath, { force: true });
       }
       for (const target of uniqueRefs([
-        ...(plan.video ? [plan.video.target] : []),
+        ...planMoves(plan).map((move) => move.target),
         ...plan.artifacts.map(({ target }) => target),
       ])) {
         await options.repairIssues?.resolve(plan.operationId, target.rootId, target.relativePath);
@@ -393,7 +391,6 @@ export const commitPublishedMedia = async <TResult>(
       }
       throw publicationError;
     }
-    if (error instanceof AggregateError) throw error;
     if (journalOpen) await rollback(error);
     throw error;
   } finally {

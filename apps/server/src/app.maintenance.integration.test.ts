@@ -273,6 +273,7 @@ describe("buildServer maintenance integration", () => {
   it("runs organize_files preview and apply through the authoritative session", async () => {
     const root = await createTempRoot("maintenance-organize-root");
     await writeMaintenanceInput(root, "ABC-125", "Local Title ABC-125");
+    await writeFile(join(root, "ABC-125.en.srt"), "subtitle");
     const { fastify } = await createTestServer();
     const token = await loginAsAdmin(fastify);
     const rootId = await syncMediaRootFromConfig(fastify, token, root);
@@ -311,6 +312,8 @@ describe("buildServer maintenance integration", () => {
     const organizedNfo = join(root, "JAV_output", "ABC-125", "ABC-125.nfo");
     await expect(access(organizedVideo)).resolves.toBeUndefined();
     await expect(access(organizedNfo)).resolves.toBeUndefined();
+    await expect(readFile(join(root, "JAV_output", "ABC-125", "ABC-125.en.srt"), "utf8")).resolves.toBe("subtitle");
+    await expect(access(join(root, "ABC-125.en.srt"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(access(join(root, "ABC-125.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 

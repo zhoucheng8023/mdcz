@@ -110,6 +110,17 @@ export const createDesktopDetailPort = (): DetailActionPort => ({
 });
 
 export const createDesktopScrapeActionPort = (): ScrapeActionPort => ({
+  rescrapeByUrl: async (targets, manualUrl) => {
+    const refs = targets.map((target) => target.ref);
+    const first = refs[0];
+    if (!first) throw new Error("请选择要刮削的文件");
+    const response = await ipc.scraper.start(
+      refs.length === 1
+        ? { mode: "single", ref: first, manualUrl }
+        : { mode: "selection", refs, outputRootId: first.rootId, manualUrl },
+    );
+    return { message: response.message };
+  },
   retryFailed: async (itemIds) => {
     const response = await retryScrapeSelection(itemIds);
     return {

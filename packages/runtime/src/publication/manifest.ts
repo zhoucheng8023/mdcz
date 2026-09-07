@@ -21,6 +21,7 @@ const publicationJournalManifestEntrySchema = rootFileRefSchema
     temporaryPath: wireRelativePath,
     backupPath: z.union([wireRelativePath, z.null()]),
     targetExisted: z.boolean(),
+    source: rootFileRefSchema.optional(),
   })
   .strict();
 
@@ -45,5 +46,6 @@ export const parsePublicationJournalManifest = (value: unknown): PublicationJour
 
 export const manifestRefs = (manifest: PublicationJournalManifest): RootFileRef[] => [
   ...manifest.entries,
+  ...manifest.entries.flatMap((entry) => (entry.source ? [entry.source] : [])),
   ...manifest.obsolete,
 ];

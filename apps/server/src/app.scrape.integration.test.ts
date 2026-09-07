@@ -167,6 +167,26 @@ describe("buildServer scrape integration", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     const scrapeResult = scrapeHistoryResponse.json().result.data.results[0];
+    const liveRuns = await services.scrape.liveRuns();
+    expect(liveRuns.runs).toEqual([]);
+    const terminalResponse = await fastify.inject({
+      method: "GET",
+      url: `/trpc/scrape.snapshot?input=${encodeURIComponent(JSON.stringify({ taskId }))}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(terminalResponse.statusCode).toBe(200);
+    expect(terminalResponse.json().result.data).toMatchObject({
+      task: { id: taskId, status: "completed", continuity: "final", successCount: 1, error: null },
+      progress: { percent: 100 },
+      items: [
+        expect.objectContaining({
+          resultId: scrapeResult.id,
+          status: "success",
+          crawlerData: scrapeResult.crawlerData,
+          assets: expect.arrayContaining([expect.objectContaining({ kind: "poster", type: "local" })]),
+        }),
+      ],
+    });
     expect(scrapeHistoryResponse.json().result.data.runs[0].executionMode).toBe("batch");
     const scrapeResultId = scrapeResult.id;
     const cropSessionResponse = await fastify.inject({
@@ -322,10 +342,13 @@ describe("buildServer scrape integration", () => {
     unsubscribeTaskEvents();
   });
 
-  it("writes an explicit nested output root directly instead of applying the global output folder again", async () => {
+  it.each(["mp4", "strm"])("publishes %s and subtitles into an explicit nested output directory", async (extension) => {
     const root = await createTempRoot("scrape-explicit-output-root");
     const outputPath = join(root, "custom-output");
-    await writeFile(join(root, "ABC-456.mp4"), "video");
+    const sourcePath = join(root, `ABC-456.${extension}`);
+    await writeFile(sourcePath, extension === "strm" ? "\uFEFF#KODIPROP:test=value\r\n ./real.mp4 \r\n" : "video");
+    await writeFile(join(root, "real.mp4"), "video");
+    await writeFile(join(root, "ABC-456.zh.srt"), "subtitle");
     await mkdir(outputPath);
     const imageServer = await startTestImageServer();
     const { fastify, services } = await createTestServer({
@@ -350,7 +373,7 @@ describe("buildServer scrape integration", () => {
       headers: { authorization: `Bearer ${token}` },
       payload: {
         executionMode: "batch",
-        refs: [{ rootId, relativePath: "ABC-456.mp4" }],
+        refs: [{ rootId, relativePath: `ABC-456.${extension}` }],
         outputRootId: outputRoot.id,
         outputRelativeDirectory: outputRoot.relativeDirectory,
       },
@@ -367,8 +390,28 @@ describe("buildServer scrape integration", () => {
     expect(outputRoot.id).toBe(rootId);
     expect(outputRoot.relativeDirectory).toBe("custom-output");
     expect(result.outputRootId).toBe(rootId);
-    expect(result.outputRelativePath).toMatch(/^custom-output\/Actor A\/ABC-456\/ABC-456\.mp4$/u);
-    await expect(readFile(join(root, result.outputRelativePath))).resolves.toEqual(Buffer.from("video"));
+    expect(result.outputRelativePath).toMatch(/^custom-output\/Actor A\//u);
+    expect(result.outputRelativePath.endsWith(`.${extension}`)).toBe(true);
+    await expect(readFile(join(root, result.outputRelativePath), "utf8")).resolves.toBe(
+      extension === "strm" ? `\uFEFF#KODIPROP:test=value\r\n ${join(root, "real.mp4")} \r\n` : "video",
+    );
+    await expect(readFile(join(root, result.outputRelativePath.replace(/\.[^.]+$/u, ".zh.srt")), "utf8")).resolves.toBe(
+      "subtitle",
+    );
+    await expect(readFile(sourcePath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(root, "ABC-456.zh.srt"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const nfoPath = join(root, result.nfoRelativePath);
+    await writeFile(nfoPath, "<movie><title>Old title</title></movie>");
+    await services.config.update({ download: { keepNfo: false } });
+    const rescrape = await services.scrape.start({
+      executionMode: "single",
+      refs: [{ rootId, relativePath: result.outputRelativePath }],
+    });
+    await waitForScrapeRunStatus(fastify, token, rescrape.task.id, "completed");
+    const refreshed = await services.scrape.snapshot({ taskId: rescrape.task.id });
+    expect(refreshed.task.status).toBe("completed");
+    expect(await readFile(nfoPath, "utf8")).not.toContain("Old title");
   });
 
   it("applies configured poster tag badges with the same runtime rendering used by desktop", async () => {

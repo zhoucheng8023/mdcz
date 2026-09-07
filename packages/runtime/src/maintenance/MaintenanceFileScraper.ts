@@ -26,8 +26,10 @@ import {
   writePreparedNfo,
 } from "../scrape";
 import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "../scrape/actorOutput";
+import { buildSubtitleSidecarTargetPath } from "../scrape/media";
 import { isAbortError, throwIfAborted } from "../scrape/utils/abort";
 import { pathExists } from "../scrape/utils/filesystem";
+import { prepareMovedStrmContent } from "../scrape/utils/strm";
 import { runtimeLoggerService } from "../shared";
 import {
   type CommittedMaintenanceFile,
@@ -239,7 +241,19 @@ export class MaintenanceFileScraper {
         unchangedFieldDiffs,
         pathDiff,
         publicationPlan: {
-          video: { sourcePath: fileInfo.filePath, targetPath: outputVideoPath, size: sourceStats.size },
+          video: {
+            sourcePath: fileInfo.filePath,
+            targetPath: outputVideoPath,
+            size: sourceStats.size,
+            content: await prepareMovedStrmContent(fileInfo.filePath, outputVideoPath),
+          },
+          sidecars: await Promise.all(
+            (plan?.subtitleSidecars ?? []).map(async (sidecar) => ({
+              sourcePath: sidecar.path,
+              targetPath: buildSubtitleSidecarTargetPath(sidecar, outputVideoPath),
+              size: (await stat(sidecar.path)).size,
+            })),
+          ),
           artifacts,
           assets: [
             ...(assets.thumb ? [{ kind: "thumb", targetPath: assets.thumb }] : []),

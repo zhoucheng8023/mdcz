@@ -5,8 +5,14 @@ import type { ScrapeRunSnapshotDto } from "../serverDtos";
 import type { UncensoredConfirmItem, UncensoredConfirmResponse } from "../types";
 
 export type ScraperStartInput =
-  | { mode: "selection"; refs: RootFileRef[]; outputRootId: string; outputRelativeDirectory?: string }
-  | { mode: "single"; ref: RootFileRef };
+  | {
+      mode: "selection";
+      refs: RootFileRef[];
+      outputRootId: string;
+      outputRelativeDirectory?: string;
+      manualUrl?: string;
+    }
+  | { mode: "single"; ref: RootFileRef; manualUrl?: string };
 
 export type ScraperIpcContract = {
   [IpcChannel.Scraper_Start]: IpcProcedure<

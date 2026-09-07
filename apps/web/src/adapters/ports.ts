@@ -184,6 +184,18 @@ export const createWebDetailPort = (): DetailActionPort => ({
 });
 
 export const createWebScrapeActionPort = (): ScrapeActionPort => ({
+  rescrapeByUrl: async (targets, manualUrl) => {
+    const refs = targets.map((target) => target.ref);
+    const first = refs[0];
+    if (!first) throw new Error("请选择要刮削的文件");
+    const snapshot = await api.scrape.start(
+      refs.length === 1
+        ? { executionMode: "single", refs, manualUrl }
+        : { executionMode: "batch", refs, outputRootId: first.rootId, manualUrl },
+    );
+    requestScrapeLiveRunsRefresh();
+    return { message: `按 URL 刮削任务已启动：${snapshot.runId}` };
+  },
   retryFailed: async (itemIds) => {
     const runId = selectScrapeTaskId(useScrapeStore.getState());
     if (!runId) throw new Error("没有可重试的刮削任务");

@@ -39,10 +39,12 @@ export const scraperStartInputSchema = z.discriminatedUnion("mode", [
     refs: z.array(rootFileRefSchema).min(1),
     outputRootId: z.string().trim().min(1),
     outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
+    manualUrl: z.string().trim().min(1).optional(),
   }),
   z.object({
     mode: z.literal("single"),
     ref: rootFileRefSchema,
+    manualUrl: z.string().trim().min(1).optional(),
   }),
 ]);
 export const scraperStartSinglePathInputSchema = z.object({ path: z.string().trim().min(1) });

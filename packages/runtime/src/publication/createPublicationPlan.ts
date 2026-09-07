@@ -1,6 +1,6 @@
 import { type MediaRoot, resolveRootFile } from "@mdcz/media-store";
 import type { AssetRef, RootFileRef } from "@mdcz/shared/mediaRef";
-import type { PreparedPublicationPlan, PublicationPlan } from "./types";
+import type { PreparedPublicationMove, PreparedPublicationPlan, PublicationMove, PublicationPlan } from "./types";
 
 export const toRootFileRef = (
   absolutePath: string,
@@ -17,6 +17,11 @@ export const createPublicationPlan = (
   roots: readonly Pick<MediaRoot, "id" | "hostPath">[],
 ): PublicationPlan => {
   const toRef = (absolutePath: string): RootFileRef => toRootFileRef(absolutePath, roots);
+  const toMove = (move: PreparedPublicationMove): PublicationMove => ({
+    source: toRef(move.sourcePath),
+    target: toRef(move.targetPath),
+    size: move.size,
+  });
   const assets: AssetRef[] = prepared.assets.flatMap((asset): AssetRef[] =>
     asset.targetPath
       ? [{ type: "local", kind: asset.kind, file: toRef(asset.targetPath) }]
@@ -29,11 +34,11 @@ export const createPublicationPlan = (
     operationType,
     video: prepared.video
       ? {
-          source: toRef(prepared.video.sourcePath),
-          target: toRef(prepared.video.targetPath),
-          size: prepared.video.size,
+          ...toMove(prepared.video),
+          content: prepared.video.content,
         }
       : undefined,
+    sidecars: (prepared.sidecars ?? []).map(toMove),
     artifacts: prepared.artifacts.map((artifact) => ({
       target: toRef(artifact.targetPath),
       content: artifact.content,

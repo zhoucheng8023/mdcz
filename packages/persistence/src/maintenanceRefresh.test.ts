@@ -60,8 +60,6 @@ describe("LibraryRepository maintenance refresh", () => {
     await writeFile(sourcePath, "video");
     await mkdir(path.dirname(posterPath), { recursive: true });
     await mkdir(path.dirname(actorPhotoPath), { recursive: true });
-    await writeFile(posterPath, "poster");
-    await writeFile(actorPhotoPath, "actor");
     const createdAt = new Date("2026-01-02T03:04:05.000Z");
     const original = await library.upsertEntry({
       id: "stable-library-id",
@@ -104,6 +102,8 @@ describe("LibraryRepository maintenance refresh", () => {
       assets: { poster: posterPath, sceneImages: [], actorPhotos: [actorPhotoPath] },
       refreshedAt,
     });
+    await writeFile(posterPath, "poster");
+    await writeFile(actorPhotoPath, "actor");
     database.sqlite.transaction(() => library.writeRefresh(refresh))();
 
     const updated = await library.getEntryById(original.id);

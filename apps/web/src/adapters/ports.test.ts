@@ -190,6 +190,23 @@ describe("web detail action port", () => {
 });
 
 describe("web scrape action port", () => {
+  it.each([1, 2])("starts a new manual URL run for exactly the %s selected targets", async (count) => {
+    const start = vi.spyOn(api.scrape, "start").mockResolvedValue({ runId: "manual-run" });
+    const retry = vi.spyOn(api.scrape, "retry");
+    const targets = ["ABC-001.mp4", "ABC-001-CD2.mp4"].slice(0, count).map((relativePath) => ({
+      filePath: relativePath,
+      ref: { rootId: "root-1", relativePath },
+    }));
+    const manualUrl = "https://javdb.com/v/abc123";
+    await createWebScrapeActionPort().rescrapeByUrl(targets, manualUrl);
+    expect(start).toHaveBeenCalledWith({
+      executionMode: count === 1 ? "single" : "batch",
+      refs: targets.map((target) => target.ref),
+      manualUrl,
+      ...(count === 2 ? { outputRootId: "root-1" } : {}),
+    });
+    expect(retry).not.toHaveBeenCalled();
+  });
   it("calls safe server delete for root-relative targets", async () => {
     const deleteFile = vi.spyOn(api.scrape, "deleteFile").mockResolvedValue({
       ok: true,

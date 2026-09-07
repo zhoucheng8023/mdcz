@@ -30,7 +30,7 @@ import {
   scanAmazonPosters,
   scanBatchNfoTranslations,
 } from "@mdcz/runtime/tools";
-import { validateManualScrapeUrl } from "@mdcz/shared/manualScrapeUrl";
+import { resolveManualScrapeRoute } from "@mdcz/shared/manualScrapeUrl";
 import type { ToolCatalogResponse, ToolExecuteInput, ToolExecuteResponse } from "@mdcz/shared/serverDtos";
 import { TOOL_DEFINITIONS } from "@mdcz/shared/toolCatalog";
 import type { ServerConfigService } from "./configService";
@@ -94,19 +94,11 @@ export class ToolsService {
       }
       case "crawler-tester": {
         const config = await this.config.get();
-        const manual = input.manualUrl ? validateManualScrapeUrl(input.manualUrl) : null;
-        if (manual && !manual.valid) {
-          return { toolId: input.toolId, ok: false, message: manual.message };
-        }
         const result = await this.aggregation.aggregate(
           input.number,
           config,
           undefined,
-          manual?.valid
-            ? { site: manual.route.site, detailUrl: manual.route.detailUrl }
-            : input.site
-              ? { site: input.site }
-              : undefined,
+          resolveManualScrapeRoute(input.manualUrl) ?? (input.site ? { site: input.site } : undefined),
         );
         if (!result) {
           return { toolId: input.toolId, ok: false, message: "未抓取到可聚合结果" };

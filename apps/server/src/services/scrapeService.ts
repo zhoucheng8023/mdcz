@@ -33,11 +33,12 @@ import {
   type ScrapeRunItemInitialState,
   type ScrapeRunSnapshot,
   type ScrapeWorkflowReporter,
+  toFinalizedScrapeRunSnapshot,
   toScrapeResultFromOutcome,
   toScrapeRunSnapshotDto,
 } from "@mdcz/runtime/tasks";
 import type { Configuration } from "@mdcz/shared/config";
-import { validateManualScrapeUrl } from "@mdcz/shared/manualScrapeUrl";
+import { resolveManualScrapeRoute } from "@mdcz/shared/manualScrapeUrl";
 import {
   type AmbiguousUncensoredItemDto,
   crawlerDataSchema,
@@ -212,6 +213,33 @@ export class ScrapeService {
       }
     }
     return { runs, results };
+  }
+
+  async snapshot(input: ScrapeTaskControlInput): Promise<ScrapeRunSnapshotDto> {
+    const live = this.workflow?.liveRuns().find(({ run }) => run.id === input.taskId);
+    if (live) return await this.liveRunSnapshotDto(live.run, live.snapshot, live.startedAt);
+    const state = await this.persistence.getState();
+    const manifest = await state.repositories.scrapeRuns.get(input.taskId);
+    const summary = state.repositories.scrapeRuns.summary(manifest);
+    const outcomes = await Promise.all(
+      state.repositories.scrapeRuns.latestOutcomes(manifest).map(async (outcome) => ({
+        ...outcome,
+        assets: (await state.repositories.library.getEntryBySourceOutcomeId(outcome.id))?.assets ?? [],
+      })),
+    );
+    return toScrapeRunSnapshotDto({
+      manifest,
+      snapshot: toFinalizedScrapeRunSnapshot({
+        id: manifest.id,
+        items: manifest.items,
+        outcomes,
+        disposition: summary?.disposition ?? "interrupted",
+        error: summary ? summary.error : SCRAPE_BACKEND_INTERRUPTED_MESSAGE,
+      }),
+      startedAt: summary?.startedAt ?? null,
+      completedAt: summary?.completedAt ?? manifest.createdAt,
+      rootDisplayName: await this.getRootDisplayName(manifest.rootId),
+    });
   }
 
   async result(id: string): Promise<ScrapeResultDetailResponse> {
@@ -675,7 +703,7 @@ export class ScrapeService {
         publicationRoots: Array.from(
           new Map([root, outputRoot, metadataRoot].map((entry) => [entry.id, entry])).values(),
         ),
-        manualScrape: this.resolveManualScrape(item.manualScrape?.manualUrl),
+        manualScrape: resolveManualScrapeRoute(item.manualScrape?.manualUrl),
         progress: {
           fileIndex: (manifest.items.find((candidate) => candidate.id === item.id)?.ordinal ?? 0) + 1,
           totalFiles: manifest.items.length,
@@ -915,16 +943,6 @@ export class ScrapeService {
       outputRootId: outcome.outputRootId,
       outputRelativePath: outcome.outputRelativePath,
     };
-  }
-
-  private resolveManualScrape(
-    manualUrl?: string | null,
-  ): Parameters<MountedRootScrapeRuntime["scrape"]>[0]["manualScrape"] {
-    const trimmed = manualUrl?.trim();
-    if (!trimmed) return undefined;
-    const validation = validateManualScrapeUrl(trimmed);
-    if (!validation.valid) throw new Error(validation.message);
-    return { site: validation.route.site, detailUrl: validation.route.detailUrl };
   }
 
   private async resolveMetadataRoot(primaryRoot: MediaRoot): Promise<MediaRoot> {

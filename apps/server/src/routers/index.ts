@@ -270,6 +270,9 @@ export const appRouter = t.router({
       .input(scrapeTaskControlInputSchema.optional())
       .query(async ({ ctx, input }) => await ctx.services.scrape.history(input)),
     liveRuns: protectedProcedure.query(async ({ ctx }) => await ctx.services.scrape.liveRuns()),
+    snapshot: protectedProcedure
+      .input(scrapeTaskControlInputSchema)
+      .query(async ({ ctx, input }) => await ctx.services.scrape.snapshot(input)),
     pendingUncensoredConfirmation: protectedProcedure.query(
       async ({ ctx }) => await ctx.services.scrape.pendingUncensoredConfirmation(),
     ),

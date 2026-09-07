@@ -37,6 +37,8 @@ import {
   toScrapeResultFromOutcome,
   toScrapeRunSnapshotDto,
 } from "@mdcz/runtime/tasks";
+import type { ScraperStartInput } from "@mdcz/shared/ipc-contracts/scraperContract";
+import { resolveManualScrapeRoute } from "@mdcz/shared/manualScrapeUrl";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { ScrapeRunSnapshotDto } from "@mdcz/shared/serverDtos";
 import type { ScrapeResult } from "@mdcz/shared/types";
@@ -59,7 +61,7 @@ interface DesktopScrapeStart {
   configuration: Configuration;
   outputRootId: string;
   outputRelativeDirectory?: string;
-  manualScrape?: ManualScrapeOptions;
+  manualUrl?: string;
 }
 
 export class ScraperService {
@@ -118,20 +120,17 @@ export class ScraperService {
     return taskId && this.terminalSnapshot?.task.id === taskId ? this.terminalSnapshot : null;
   }
 
-  async start(refs: RootFileRef[], outputRootId: string, outputRelativeDirectory?: string): Promise<StartScrapeResult> {
+  async start(input: ScraperStartInput): Promise<StartScrapeResult> {
     const configuration = await configManager.getValidated();
+    const refs = input.mode === "single" ? [input.ref] : input.refs;
     if (refs.length === 0) throw new ScraperServiceError("NO_FILES", "No files selected");
-    return await this.begin({ refs, mode: "batch", configuration, outputRootId, outputRelativeDirectory });
-  }
-
-  async startSingle(ref: RootFileRef): Promise<StartScrapeResult> {
-    const configuration = await configManager.getValidated();
     return await this.begin({
-      refs: [ref],
-      mode: "single",
+      refs,
+      manualUrl: input.manualUrl,
+      mode: input.mode === "single" ? "single" : "batch",
       configuration,
-      outputRootId: ref.rootId,
-      outputRelativeDirectory: "",
+      outputRootId: input.mode === "single" ? input.ref.rootId : input.outputRootId,
+      outputRelativeDirectory: input.mode === "single" ? "" : input.outputRelativeDirectory,
     });
   }
 
@@ -140,7 +139,10 @@ export class ScraperService {
     const filePath = files[0];
     if (!filePath) throw new ScraperServiceError("NO_FILES", "No files selected");
     const root = await this.mediaRoots.ensurePathRecord({ hostPath: dirname(filePath) });
-    return await this.startSingle({ rootId: root.id, relativePath: toRootRelativePath(root, filePath) });
+    return await this.start({
+      mode: "single",
+      ref: { rootId: root.id, relativePath: toRootRelativePath(root, filePath) },
+    });
   }
 
   async stop(): Promise<{ pendingCount: number }> {
@@ -264,6 +266,7 @@ export class ScraperService {
         ordinal,
         rootId: ref.rootId,
         relativePath: ref.relativePath,
+        manualUrl: input.manualUrl ?? null,
       })),
     });
   }
@@ -370,6 +373,7 @@ export class ScraperService {
           rootId: item.rootId,
           relativePath: item.relativePath,
           sourcePath,
+          manualScrape: resolveManualScrapeRoute(item.manualUrl),
           ...(executionSource ? { executionSource } : {}),
           ...(retrying ? { replaceExistingTargets: true } : {}),
           ...(retrying ? { outputBaseDirectory: resolveRootRelativePath(outputRoot, "") } : {}),

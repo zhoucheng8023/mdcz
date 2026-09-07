@@ -66,7 +66,11 @@ describe("ScraperService ref-native start", () => {
     await mkdir(scanRootPath, { recursive: true });
     const state = await persistence.getState();
     const scanRoot = await state.repositories.mediaRoots.ensurePath(scanRootPath);
-    const result = await service.start([{ rootId: scanRoot.id, relativePath: "ABC-001.mp4" }], scanRoot.id);
+    const result = await service.start({
+      mode: "selection",
+      refs: [{ rootId: scanRoot.id, relativePath: "ABC-001.mp4" }],
+      outputRootId: scanRoot.id,
+    });
     const run = await state.repositories.scrapeRuns.get(result.taskId);
     expect(run.rootId).toBe(scanRoot.id);
     expect(run.items).toEqual([expect.objectContaining({ rootId: scanRoot.id, relativePath: "ABC-001.mp4" })]);
@@ -81,13 +85,14 @@ describe("ScraperService ref-native start", () => {
     const second = await state.repositories.mediaRoots.upsert(
       createMediaRoot({ id: "root-b", displayName: "B", hostPath: join(directory, "b") }),
     );
-    const result = await service.start(
-      [
+    const result = await service.start({
+      mode: "selection",
+      refs: [
         { rootId: first.id, relativePath: "one.mp4" },
         { rootId: second.id, relativePath: "two.mp4" },
       ],
-      first.id,
-    );
+      outputRootId: first.id,
+    });
     const run = await state.repositories.scrapeRuns.get(result.taskId);
     expect(run.rootId).toBe(first.id);
     expect(run.items).toEqual(
@@ -107,7 +112,11 @@ describe("ScraperService ref-native start", () => {
     const state = await persistence.getState();
     const scanRoot = await state.repositories.mediaRoots.ensurePath(scanRootPath);
     const outputRoot = await state.repositories.mediaRoots.ensurePath(outputRootPath);
-    const result = await service.start([{ rootId: scanRoot.id, relativePath: "ABC-001.mp4" }], outputRoot.id);
+    const result = await service.start({
+      mode: "selection",
+      refs: [{ rootId: scanRoot.id, relativePath: "ABC-001.mp4" }],
+      outputRootId: outputRoot.id,
+    });
     const run = await state.repositories.scrapeRuns.get(result.taskId);
     expect(run.requestedOutputRootId).toBe(outputRoot.id);
     expect(run.rootId).toBe(scanRoot.id);
@@ -122,17 +131,21 @@ describe("ScraperService ref-native start", () => {
     const scanRoot = await state.repositories.mediaRoots.ensurePath(scanRootPath);
     const outputRoot = await state.repositories.mediaRoots.ensurePath(outputRootPath);
     expect(outputRoot.id).toBe(scanRoot.id);
-    const result = await service.start(
-      [{ rootId: scanRoot.id, relativePath: "ABC-001.mp4" }],
-      outputRoot.id,
-      "JAV_output",
-    );
+    const result = await service.start({
+      mode: "selection",
+      refs: [{ rootId: scanRoot.id, relativePath: "ABC-001.mp4" }],
+      outputRootId: outputRoot.id,
+      outputRelativeDirectory: "JAV_output",
+    });
     const run = await state.repositories.scrapeRuns.get(result.taskId);
     expect(run.requestedOutputRootId).toBe(scanRoot.id);
     expect(run.requestedOutputRelativeDirectory).toBe("JAV_output");
   });
 
-  it("uses only the source root for single-file video and metadata output", async () => {
+  it.each([
+    undefined,
+    "https://javdb.com/v/abc123",
+  ])("uses the source root and forwards a selected manual URL (%s)", async (manualUrl) => {
     const { directory, persistence, service } = await createHarness();
     const sourcePath = join(directory, "picked");
     const metadataPath = join(directory, "metadata");
@@ -148,13 +161,19 @@ describe("ScraperService ref-native start", () => {
     const state = await persistence.getState();
     const sourceRoot = await state.repositories.mediaRoots.ensurePath(sourcePath);
 
-    const result = await service.startSingle({ rootId: sourceRoot.id, relativePath: "ABC-001.mp4" });
+    const result = await service.start({
+      mode: "single",
+      ref: { rootId: sourceRoot.id, relativePath: "ABC-001.mp4" },
+      manualUrl,
+    });
     await service.waitForIdle();
 
     const run = await state.repositories.scrapeRuns.get(result.taskId);
     expect(run.requestedOutputRootId).toBe(sourceRoot.id);
     expect(run.requestedOutputRelativeDirectory).toBeNull();
     const options = vi.mocked(FileScraper.prototype.scrapeFile).mock.calls.at(-1)?.[3];
+    expect(run.items[0]?.manualUrl).toBe(manualUrl ?? null);
+    expect(options?.manualScrape?.detailUrl).toBe(manualUrl);
     expect(options?.roots).toEqual([expect.objectContaining({ id: sourceRoot.id, hostPath: sourcePath })]);
     await expect(state.repositories.mediaRoots.list()).resolves.not.toEqual(
       expect.arrayContaining([expect.objectContaining({ hostPath: metadataPath })]),
@@ -177,7 +196,11 @@ describe("ScraperService ref-native start", () => {
     const sourceRoot = await state.repositories.mediaRoots.ensurePath(sourcePath);
     const outputRoot = await state.repositories.mediaRoots.ensurePath(outputPath);
 
-    await service.start([{ rootId: sourceRoot.id, relativePath: "ABC-001.mp4" }], outputRoot.id);
+    await service.start({
+      mode: "selection",
+      refs: [{ rootId: sourceRoot.id, relativePath: "ABC-001.mp4" }],
+      outputRootId: outputRoot.id,
+    });
     await service.waitForIdle();
 
     const options = vi.mocked(FileScraper.prototype.scrapeFile).mock.calls.at(-1)?.[3];

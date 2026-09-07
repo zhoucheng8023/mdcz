@@ -1,14 +1,16 @@
-import { selectScrapeTaskId, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import { selectIsScraping, selectScrapeTaskId, useScrapeStore } from "@mdcz/views/state/scrapeStore";
 import { useUIStore } from "@mdcz/views/state/uiStore";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildFailedScrapeSnapshot,
   buildScrapeLiveItem,
   buildScrapeSnapshot,
 } from "../../../tests/unit/renderer/scrapeTestSupport";
-import { applyScrapeLiveRunsSnapshot, selectActiveLiveScrapeRun } from "./taskHydration";
+import { api } from "./client";
+import { applyScrapeLiveRunsSnapshot, readScrapeRunsSnapshot, selectActiveLiveScrapeRun } from "./taskHydration";
 
 describe("applyScrapeLiveRunsSnapshot", () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     useScrapeStore.getState().reset();
     useScrapeStore.setState({ retiredTaskIds: [] });
@@ -33,7 +35,8 @@ describe("applyScrapeLiveRunsSnapshot", () => {
     expect(useScrapeStore.getState().snapshot).toBeNull();
   });
 
-  it("follows a live run and keeps that id after it finishes", () => {
+  it("fetches and retains the terminal snapshot when the run leaves liveRuns", async () => {
+    const status = "failed";
     const running = buildScrapeSnapshot({
       task: { ...buildScrapeSnapshot().task, id: "live-1", status: "running", completedAt: null },
       items: [buildScrapeLiveItem({ status: "processing" })],
@@ -42,12 +45,19 @@ describe("applyScrapeLiveRunsSnapshot", () => {
     expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("live-1");
 
     const finished = buildFailedScrapeSnapshot({
-      task: { ...buildFailedScrapeSnapshot().task, id: "live-1" },
+      task: { ...buildFailedScrapeSnapshot().task, id: "live-1", status },
     });
-    applyScrapeLiveRunsSnapshot([finished]);
+    vi.spyOn(api.scrape, "liveRuns").mockResolvedValue({ runs: [] });
+    const readTerminal = vi.spyOn(api.scrape, "snapshot").mockResolvedValue(finished);
+    applyScrapeLiveRunsSnapshot((await readScrapeRunsSnapshot()).runs);
+    expect(readTerminal).toHaveBeenCalledWith({ taskId: "live-1" });
+    expect(selectIsScraping(useScrapeStore.getState())).toBe(false);
+    expect(useScrapeStore.getState().snapshot?.items).toEqual(finished.items);
+    await readScrapeRunsSnapshot();
+    expect(readTerminal).toHaveBeenCalledOnce();
     applyScrapeLiveRunsSnapshot([]);
     expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("live-1");
-    expect(useScrapeStore.getState().snapshot?.task.status).toBe("failed");
+    expect(useScrapeStore.getState().snapshot?.task.status).toBe(status);
   });
 });
 

@@ -59,6 +59,7 @@ const fixture = async () => {
     },
     artifacts: [
       { target: { rootId: "output", relativePath: "ABC-001/movie.nfo" }, content: { kind: "text", data: "<movie/>" } },
+      { target: { rootId: "output", relativePath: "ABC-001/poster.jpg" }, content: { kind: "text", data: "poster" } },
     ],
     assets: [
       { type: "local", kind: "poster", file: { rootId: "output", relativePath: "ABC-001/poster.jpg" } },
@@ -176,7 +177,10 @@ describe("commitScrapeTerminalResult", () => {
       copyFile: fs.copyFile,
       mkdir: fs.mkdir,
       readFile: fs.readFile,
-      rename: fs.rename,
+      rename: async (source, target) => {
+        if (source === test.source) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+        await fs.rename(source, target);
+      },
       rm: async (filePath, options) => {
         if (filePath === test.source) throw new Error("source cleanup failed");
         await fs.rm(filePath, options);

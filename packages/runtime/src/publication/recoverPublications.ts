@@ -2,7 +2,9 @@ import { copyFile, mkdir, readFile, rename, rm, stat, statfs, writeFile } from "
 import { type MediaRoot, resolveRootRelativePath } from "@mdcz/media-store";
 import { parseWireRelativePath, type RootFileRef } from "@mdcz/shared/mediaRef";
 import { PublicationJournalAdapter } from "./journalAdapter";
+import { manifestRefs } from "./manifest";
 import { removeCommittedObsoleteFiles } from "./preflight";
+import { restorePublicationFile } from "./restorePublicationFile";
 import type {
   PublicationFileSystem,
   PublicationJournalManifest,
@@ -70,7 +72,7 @@ const recordRepair = async (
 };
 
 const rootsOf = (manifest: PublicationJournalManifest): string[] => [
-  ...new Set([...manifest.entries, ...manifest.obsolete].map((ref) => ref.rootId)),
+  ...new Set(manifestRefs(manifest).map((ref) => ref.rootId)),
 ];
 
 const resolveAbsolute = async (
@@ -120,26 +122,13 @@ const recoverPending = async (
     const temporaryPath = await resolve(item.rootId, item.temporaryPath);
     const backupPath = item.backupPath ? await resolve(item.rootId, item.backupPath) : null;
     try {
-      const backupExists = backupPath ? await exists(fileSystem, backupPath) : false;
-      if (backupExists && backupPath) {
-        await fileSystem.rename(backupPath, targetPath);
-        await fileSystem.rm(temporaryPath, { force: true });
-        continue;
-      }
-      if (item.targetExisted) {
-        if (!(await exists(fileSystem, targetPath))) {
-          await recordRepair(
-            options,
-            entry,
-            item,
-            new Error(`Pending publication is missing both backup and target: ${item.rootId}:${item.relativePath}`),
-          );
-          return "retain";
-        }
-        await fileSystem.rm(temporaryPath, { force: true });
-        continue;
-      }
-      await fileSystem.rm(targetPath, { force: true });
+      await restorePublicationFile(fileSystem, {
+        targetPath,
+        temporaryPath,
+        backupPath,
+        targetExisted: item.targetExisted,
+        sourcePath: item.source ? await resolve(item.source.rootId, item.source.relativePath) : undefined,
+      });
       await fileSystem.rm(temporaryPath, { force: true });
     } catch (error) {
       if (isUnavailableError(error)) return "retain";
