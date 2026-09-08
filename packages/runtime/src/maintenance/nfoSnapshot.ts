@@ -194,7 +194,7 @@ export const parseNfoSnapshot = (xml: string): ParsedNfoSnapshot => {
       director: toStringValue(movieNode.director),
       publisher: toStringValue(movieNode.publisher),
       series: toStringValue(movieNode.set) ?? toStringValue(movieNode.series),
-      plot: plot ?? outline,
+      plot: toStringValue(mdczNode?.original_plot) ?? plot ?? outline,
       plot_zh: plot ?? outline,
       release_date: releaseDate,
       durationSeconds,

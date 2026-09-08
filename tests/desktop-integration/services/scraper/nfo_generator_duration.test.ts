@@ -363,7 +363,7 @@ describe("NfoGenerator", () => {
   it("merges editable fields without dropping unmanaged nodes or attributes", () => {
     const existingXml = `<?xml version="1.0"?><movie custom="keep"><title>Old</title><originaltitle>Old</originaltitle><uniqueid type="dmm" default="true">ABC-123</uniqueid><actor role="lead"><name>Actor A</name><thumb>actor.jpg</thumb></actor><fileinfo><streamdetails><video><width>1920</width></video></streamdetails></fileinfo><providerid source="local">keep-me</providerid><mdcz><custom keep="yes">value</custom></mdcz></movie>`;
     const merged = new NfoGenerator().mergeEditableXml(
-      existingXml,
+      existingXml.replace("<mdcz>", "<mdcz><original_plot>Old original plot</original_plot>"),
       createCrawlerData({ title: "New", actors: ["Actor A"] }),
     );
 
@@ -374,6 +374,7 @@ describe("NfoGenerator", () => {
     expect(merged).toContain('<custom keep="yes">value</custom>');
     expect(merged).toContain('<actor role="lead">');
     expect(merged).toContain("<name>Actor A</name>");
+    expect(merged).not.toContain("<original_plot>");
   });
   it("writes configurable director and trailer fields without coupling trailer downloads", () => {
     const data = createCrawlerData({
@@ -490,7 +491,7 @@ describe("NfoGenerator", () => {
 
     const optionalFieldTokens: Record<NfoField, string[]> = {
       num: ["<num>"],
-      plot: ["<plot>", "<outline>"],
+      plot: ["<plot>", "<outline>", "<original_plot>"],
       release: ["<premiered>", "<releasedate>", "<year>"],
       runtime: ["<runtime>"],
       fileinfo: ["<fileinfo>", "<streamdetails>"],
