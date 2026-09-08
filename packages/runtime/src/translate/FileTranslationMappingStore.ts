@@ -98,6 +98,6 @@ export class FileTranslationMappingStore implements TranslationMappingStore {
           ? entry.jp || entry.zh_cn
           : entry.zh_cn || entry.zh_tw;
     const cleaned = mapped.replaceAll("删除", "").trim();
-    return cleaned || null;
+    return category === "genre" ? cleaned : cleaned || null;
   }
 }

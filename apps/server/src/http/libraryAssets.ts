@@ -14,13 +14,15 @@ import sharp from "sharp";
 import type { ServerServices } from "../services";
 import { getBearerToken } from "./auth";
 
-const imageContentTypes: Record<string, string> = {
+const assetContentTypes: Record<string, string> = {
   ".avif": "image/avif",
   ".gif": "image/gif",
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
   ".png": "image/png",
   ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
 };
 
 const sharpFormats: Record<string, keyof sharp.FormatEnum> = {
@@ -235,7 +237,7 @@ export const registerLibraryAssets = (fastify: FastifyInstance, services: Server
     }
 
     const sourceExtension = path.extname(relativePath).toLowerCase();
-    const sourceContentType = imageContentTypes[sourceExtension];
+    const sourceContentType = assetContentTypes[sourceExtension];
     if (!sourceContentType) {
       return sendError(reply, 415, "Unsupported library asset type");
     }
@@ -247,6 +249,9 @@ export const registerLibraryAssets = (fastify: FastifyInstance, services: Server
         return sendError(reply, 415, "Library asset is not a file");
       }
       const query = request.query as Record<string, unknown>;
+      if (sourceContentType.startsWith("video/") && (query.w !== undefined || query.format !== undefined)) {
+        return sendError(reply, 400, "Video assets do not support image variants");
+      }
       const variant = parseVariant(query, sourceExtension);
       const sourcePath = resolveRootRelativePath(root, relativePath);
       if (!variant) {
@@ -268,7 +273,31 @@ export const registerLibraryAssets = (fastify: FastifyInstance, services: Server
         ) {
           return reply;
         }
-        return reply.send(createReadStream(sourcePath));
+        reply.header("accept-ranges", "bytes");
+        const ifRange = request.headers["if-range"];
+        const ifRangeMatches =
+          !ifRange ||
+          ifRange === etag ||
+          (typeof ifRange === "string" &&
+            Number.isFinite(Date.parse(ifRange)) &&
+            Math.floor(source.modifiedAt.getTime() / 1000) <= Math.floor(Date.parse(ifRange) / 1000));
+        const range =
+          request.method === "GET" && ifRangeMatches ? /^bytes=(\d*)-(\d*)$/u.exec(request.headers.range ?? "") : null;
+        if (range && (range[1] || range[2])) {
+          const first = Number(range[1]);
+          const last = Number(range[2]);
+          const start = range[1] ? first : Math.max(0, source.size - last);
+          const end = range[1] && range[2] ? Math.min(last, source.size - 1) : source.size - 1;
+          if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || start > end || start >= source.size) {
+            return reply.code(416).header("content-range", `bytes */${source.size}`).send();
+          }
+          return reply
+            .code(206)
+            .header("content-range", `bytes ${start}-${end}/${source.size}`)
+            .header("content-length", end - start + 1)
+            .send(createReadStream(sourcePath, { start, end }));
+        }
+        return reply.header("content-length", source.size).send(createReadStream(sourcePath));
       }
 
       const key = variantCacheKey({
@@ -288,7 +317,7 @@ export const registerLibraryAssets = (fastify: FastifyInstance, services: Server
       await ensureVariant(sourcePath, cachePath, variant.width, variant.format);
       scheduleCacheCleanup(cacheDirectory);
       const etag = `"${key}"`;
-      const contentType = imageContentTypes[variant.extension] ?? sourceContentType;
+      const contentType = assetContentTypes[variant.extension] ?? sourceContentType;
       if (setRepresentationHeaders(request, reply, { contentType, etag, modifiedAt: source.modifiedAt })) {
         return reply;
       }

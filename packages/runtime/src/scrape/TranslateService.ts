@@ -7,7 +7,7 @@ import { GoogleTranslator } from "./translate/engines/GoogleTranslator";
 import { LlmApiClient, type RuntimeNetworkJsonResponse } from "./translate/engines/LlmApiClient";
 import { type LlmMetadataTranslationResult, OpenAiTranslator } from "./translate/engines/OpenAiTranslator";
 import { GenreTranslator } from "./translate/GenreTranslator";
-import { ensureTargetChinese, normalizeNewlines, toTranslatedFieldValue } from "./translate/shared";
+import { ensureTargetChinese, normalizeNewlines } from "./translate/shared";
 import { type LanguageTarget, type TranslationMappingStore, toTarget } from "./translate/types";
 import { throwIfAborted } from "./utils/abort";
 
@@ -72,6 +72,10 @@ export class TranslateService {
       throwIfAborted(signal);
 
       const target = toTarget(config.translate.targetLanguage);
+      const startedAt = Date.now();
+      this.logger.info(
+        `[translation] number=${data.number} engine=${config.translate.engine} target=${target} model=${config.translate.engine === "google" ? "none" : config.translate.llmModelName} reasoning=${config.translate.engine === "google" ? "none" : config.translate.llmReasoningEffort} titleChars=${data.title.length} plotChars=${data.plot?.length ?? 0} genres=${data.genres?.length ?? 0}`,
+      );
 
       const mappedActors = await Promise.all(
         (data.actors ?? []).map((actor) => this.actorNameNormalizer.normalizeAlias(actor)),
@@ -79,19 +83,29 @@ export class TranslateService {
       const mappedActorProfiles = await Promise.all(
         (data.actor_profiles ?? []).map((profile) => this.actorNameNormalizer.normalizeProfile(profile)),
       );
-      let title_zh: string | undefined;
-      let plot_zh: string | undefined;
+      const prepareField = (input: string | undefined): { source: string | null; translated: string | undefined } => {
+        const text = normalizeNewlines(input ?? "").trim();
+        if (!text) return { source: null, translated: undefined };
+        const detected = detectLanguage(text);
+        if (detected === "zh_cn" || detected === "zh_tw") {
+          return { source: null, translated: ensureTargetChinese(text, target) };
+        }
+        return { source: text, translated: undefined };
+      };
+      const fields = { title: prepareField(data.title), plot: prepareField(data.plot) };
+      const metadataTranslation: { value: LlmMetadataTranslationResult | null } = { value: null };
       let mappedGenres: string[];
 
       if (config.translate.engine === "google") {
-        title_zh = toTranslatedFieldValue(
-          await this.translateText(data.title, target, config, signal, { field: "title", number: data.number }),
-        );
-        plot_zh = data.plot
-          ? toTranslatedFieldValue(
-              await this.translateText(data.plot, target, config, signal, { field: "plot", number: data.number }),
-            )
-          : undefined;
+        metadataTranslation.value = {
+          title: fields.title.source
+            ? await this.googleTranslator.translateText(fields.title.source, target, signal)
+            : null,
+          plot: fields.plot.source
+            ? await this.googleTranslator.translateText(fields.plot.source, target, signal)
+            : null,
+          genres: [],
+        };
         mappedGenres = await this.genreTranslator.translateTerms(
           data.genres ?? [],
           target,
@@ -101,20 +115,6 @@ export class TranslateService {
           signal,
         );
       } else {
-        const prepareField = (input: string | undefined) => {
-          const text = normalizeNewlines(input ?? "").trim();
-          if (!text) return { source: null, translated: undefined };
-          const detected = detectLanguage(text);
-          if (detected === target) return { source: null, translated: text };
-          if (detected === "zh_cn" || detected === "zh_tw") {
-            return { source: null, translated: ensureTargetChinese(text, target) };
-          }
-          return { source: text, translated: undefined };
-        };
-        const title = prepareField(data.title);
-        const plot = prepareField(data.plot);
-        const metadataTranslation: { value: LlmMetadataTranslationResult | null } = { value: null };
-
         mappedGenres = await this.genreTranslator.translateTerms(
           data.genres ?? [],
           target,
@@ -122,7 +122,7 @@ export class TranslateService {
           this.translateText.bind(this),
           async (genres) => {
             metadataTranslation.value = await this.openAiTranslator.translateMetadata(
-              { title: title.source, plot: plot.source, genres },
+              { title: fields.title.source, plot: fields.plot.source, genres },
               target,
               config,
               signal,
@@ -131,31 +131,27 @@ export class TranslateService {
           },
           signal,
         );
+      }
 
-        title_zh = title.translated;
-        plot_zh = plot.translated;
-        if (metadataTranslation.value) {
-          if (metadataTranslation.value.title) {
-            title_zh = toTranslatedFieldValue(ensureTargetChinese(metadataTranslation.value.title, target));
-          }
-          if (metadataTranslation.value.plot) {
-            plot_zh = toTranslatedFieldValue(ensureTargetChinese(metadataTranslation.value.plot, target));
-          }
-        } else {
-          for (const [field, source] of [
-            ["title", title.source],
-            ["plot", plot.source],
-          ] as const) {
-            if (source) {
-              this.logger.warn(
-                `Translation engine failed for ${field} (${data.number}), returning original text: engine returned no translation`,
-              );
-            }
-          }
+      for (const field of ["title", "plot"] as const) {
+        const prepared = fields[field];
+        if (!prepared.source) continue;
+        const returned = normalizeNewlines(metadataTranslation.value?.[field] ?? "").trim();
+        if (returned && returned !== prepared.source) {
+          prepared.translated = ensureTargetChinese(returned, target);
+          continue;
         }
+        this.logger.warn(
+          `Translation engine failed for ${field} (${data.number}), returning original text: ${returned ? "source echoed" : "engine returned no translation"}`,
+        );
       }
 
       throwIfAborted(signal);
+      const title_zh = fields.title.translated;
+      const plot_zh = fields.plot.translated;
+      this.logger.info(
+        `[translation] number=${data.number} durationMs=${Date.now() - startedAt} title=${title_zh ? "accepted" : "original"} plot=${!data.plot ? "absent" : plot_zh ? "accepted" : "original"} genresIn=${data.genres?.length ?? 0} genresOut=${mappedGenres.length} genresWithKana=${mappedGenres.filter((genre) => detectLanguage(genre) === "jp").length}`,
+      );
 
       return {
         ...data,

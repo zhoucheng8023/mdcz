@@ -42,7 +42,7 @@ export class GenreTranslator {
       if (unresolvedByKey.has(key)) continue;
 
       const mapped = await this.mappingStore?.findMappedGenreName(term, target);
-      if (mapped) {
+      if (mapped !== null && mapped !== undefined) {
         const normalized = ensureTargetChinese(mapped.trim(), target);
         this.cache.set(key, normalized);
         resolvedByKey.set(key, normalized);
@@ -72,9 +72,10 @@ export class GenreTranslator {
       }
     }
 
-    return normalizedTerms.map((term) => {
-      if (!term) return "";
-      return resolvedByKey.get(`${target}:${normalizeTermKey(term)}`) ?? term;
+    return normalizedTerms.flatMap((term) => {
+      if (!term) return [];
+      const translated = resolvedByKey.get(`${target}:${normalizeTermKey(term)}`) ?? term;
+      return translated ? [translated] : [];
     });
   }
 }

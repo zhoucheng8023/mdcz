@@ -5,6 +5,7 @@ export type ActorMappingLanguageTarget = LanguageTarget | "jp";
 
 export interface TranslationMappingStore {
   findMappedActorName(value: string, language?: ActorMappingLanguageTarget): Promise<string | null>;
+  // An empty mapping removes a genre; null means the term is unmapped.
   findMappedGenreName(value: string, language?: LanguageTarget): Promise<string | null>;
 }
 

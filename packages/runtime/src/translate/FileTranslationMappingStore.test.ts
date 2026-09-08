@@ -24,11 +24,14 @@ describe("FileTranslationMappingStore", () => {
     ]);
     await writeMappingFile(join(bundledDirectory, "mapping_info.json"), [
       { keywords: ["Drama"], zh_cn: "剧情", zh_tw: "劇情" },
+      { keywords: ["Sample"], zh_cn: "删除", zh_tw: "删除" },
     ]);
 
     const store = new FileTranslationMappingStore(bundledDirectory);
 
     await expect(store.findMappedActorName("alias", "jp")).resolves.toBe("Canonical Name");
     await expect(store.findMappedGenreName("drama", "zh_tw")).resolves.toBe("劇情");
+    await expect(store.findMappedGenreName("sample", "zh_cn")).resolves.toBe("");
+    await expect(store.findMappedGenreName("unknown", "zh_cn")).resolves.toBeNull();
   });
 });

@@ -6,7 +6,7 @@ export {
   normalizeLlmBaseUrl,
 } from "../scrape/translate/engines/LlmApiClient";
 export { cleanTranslationOutput, OpenAiTranslator } from "../scrape/translate/engines/OpenAiTranslator";
-export { ensureTargetChinese, normalizeNewlines, toTranslatedFieldValue } from "../scrape/translate/shared";
+export { ensureTargetChinese, normalizeNewlines } from "../scrape/translate/shared";
 export type { LanguageTarget, TranslationMappingStore } from "../scrape/translate/types";
 export { toTarget } from "../scrape/translate/types";
 export * from "./FileTranslationMappingStore";
