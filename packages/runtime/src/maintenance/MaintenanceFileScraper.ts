@@ -19,7 +19,6 @@ import {
   downloadCrawlerAssets,
   type FileOrganizer,
   type NfoGenerator,
-  organizePreparedVideo,
   prepareOutputCrawlerData,
   type TranslateService,
   updateBatchProgress,
@@ -138,11 +137,7 @@ export class MaintenanceFileScraper {
       );
       preparedCrawlerData = downloaded.crawlerData;
       throwIfAborted(signal);
-      const outputVideoPath = await organizePreparedVideo({
-        enabled: this.preset.steps.organize,
-        fileInfo,
-        plan,
-      });
+      const outputVideoPath = this.preset.steps.organize && plan ? plan.targetVideoPath : fileInfo.filePath;
       const publication = await preparePublicationPlan({
         sourceVideoPath: fileInfo.filePath,
         outputVideoPath,
@@ -153,7 +148,9 @@ export class MaintenanceFileScraper {
         actorPhotoPaths: preparedActorPhotoPaths,
         existingAssets: entry.assets,
         existingNfoPath: entry.nfoPath,
+        assetDecisions: committed?.assetDecisions,
         organizePlan: plan,
+        organizeFiles: this.preset.steps.organize,
         nfoNaming: config.download.nfoNaming,
         writeNfo: async (assets, writeFile) =>
           await writePreparedNfo({

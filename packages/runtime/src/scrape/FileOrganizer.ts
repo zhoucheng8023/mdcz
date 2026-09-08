@@ -3,14 +3,12 @@ import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
 import type { Configuration } from "@mdcz/shared/config";
 import type { CrawlerData, FileInfo, NamingPreviewItem, NfoLocalState } from "@mdcz/shared/types";
 import { noopRuntimeLogger, type RuntimeLogger } from "../shared";
-import { isGeneratedSidecarVideo, type SubtitleSidecarMatch } from "./media";
+import { findSubtitleSidecars, isGeneratedSidecarVideo, type SubtitleSidecarMatch } from "./media";
 import { FileMover } from "./organize/FileMover";
 import { NamingEngine } from "./organize/NamingEngine";
-import { PathPlanner } from "./organize/PathPlanner";
 import { SidecarResolver } from "./organize/SidecarResolver";
 import { ensureParentDirectory, isPathInside, listVideoFiles } from "./utils/filesystem";
 import { parseFileInfo } from "./utils/number";
-import { inspectStrmTarget, isStrmFile, writeStrmTarget } from "./utils/strm";
 
 export interface OrganizePlan {
   outputDir: string;
@@ -47,8 +45,6 @@ export class FileOrganizer {
   private readonly sidecarResolver = new SidecarResolver();
 
   private readonly namingEngine = new NamingEngine();
-
-  private readonly pathPlanner = new PathPlanner(this.sidecarResolver);
 
   private readonly fileMover: FileMover;
 
@@ -98,10 +94,6 @@ export class FileOrganizer {
     return this.namingEngine.buildPreview(config);
   }
 
-  async ensureOutputReady(plan: OrganizePlan, sourceFilePath: string): Promise<OrganizePlan> {
-    return this.resolveOutputPlan(plan, sourceFilePath, { createDirectories: true });
-  }
-
   async resolveOutputPlan(
     plan: OrganizePlan,
     sourceFilePath: string,
@@ -128,7 +120,7 @@ export class FileOrganizer {
         }
 
         const siblingFileInfo = parseFileInfo(filePath);
-        if (sourceFileInfo.number === siblingFileInfo.number && (sourceFileInfo.part || siblingFileInfo.part)) {
+        if (sourceFileInfo.number && sourceFileInfo.number === siblingFileInfo.number) {
           return false;
         }
 
@@ -140,57 +132,10 @@ export class FileOrganizer {
       }
     }
 
-    const resolvedPlan = await this.pathPlanner.resolveBundledTargetPaths({
-      sourceVideoPath: sourceFilePath,
-      targetVideoPath: plan.targetVideoPath,
-      nfoPath: plan.nfoPath,
-      subtitleSidecars: plan.subtitleSidecars,
-    });
-
-    const metadataDir = plan.metadataDir ?? dirname(resolvedPlan.nfoPath ?? plan.nfoPath);
     return {
-      outputDir: dirname(resolvedPlan.targetVideoPath),
-      metadataDir,
-      targetVideoPath: resolvedPlan.targetVideoPath,
-      nfoPath: resolvedPlan.nfoPath ?? plan.nfoPath,
-      strmPath: plan.strmPath ? join(metadataDir, `${parse(resolvedPlan.targetVideoPath).name}.strm`) : undefined,
-      subtitleSidecars: resolvedPlan.subtitleSidecars,
+      ...plan,
+      subtitleSidecars: plan.subtitleSidecars ?? (await findSubtitleSidecars(sourceFilePath)),
     };
-  }
-
-  async organizeVideo(
-    fileInfo: FileInfo,
-    plan: OrganizePlan,
-    config: Configuration,
-    sourceRootPath: string,
-  ): Promise<string> {
-    let organizedPath: string;
-    if (!config.behavior.successFileMove) {
-      if (!config.behavior.successFileRename) {
-        this.logger.info(`successFileMove disabled; leaving file at ${fileInfo.filePath}`);
-        organizedPath = fileInfo.filePath;
-      } else {
-        organizedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, plan.targetVideoPath, {
-          subtitleSidecars: plan.subtitleSidecars,
-          sharedMovieBaseName: parse(plan.nfoPath).name,
-        });
-      }
-    } else {
-      organizedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, plan.targetVideoPath, {
-        subtitleSidecars: plan.subtitleSidecars,
-        sharedMovieBaseName: parse(plan.nfoPath).name,
-      });
-
-      if (config.behavior.deleteEmptyFolder) {
-        await this.cleanupEmptySourceDirectories(fileInfo.filePath, sourceRootPath);
-      }
-    }
-
-    if (plan.strmPath) {
-      await this.writeMetadataStrm(plan.strmPath, organizedPath);
-    }
-
-    return organizedPath;
   }
 
   createScrapeFileTransitions(options: ScrapeFileTransitionOptions) {
@@ -214,14 +159,9 @@ export class FileOrganizer {
   async moveToFailedFolder(sourcePath: string, failureRootPath: string, config: Configuration): Promise<string> {
     const fileInfo = parseFileInfo(sourcePath, config.scrape.filenameIgnoreTokens);
     const failedDir = resolve(failureRootPath, config.paths.failedOutputFolder.trim());
-    const resolvedPaths = await this.pathPlanner.resolveBundledTargetPaths({
-      sourceVideoPath: fileInfo.filePath,
-      targetVideoPath: join(failedDir, fileInfo.fileName + fileInfo.extension),
-    });
-
-    await ensureParentDirectory(resolvedPaths.targetVideoPath);
-    const movedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, resolvedPaths.targetVideoPath, {
-      subtitleSidecars: resolvedPaths.subtitleSidecars,
+    const targetVideoPath = join(failedDir, fileInfo.fileName + fileInfo.extension);
+    await ensureParentDirectory(targetVideoPath);
+    const movedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, targetVideoPath, {
       sharedMovieBaseName: fileInfo.number,
     });
     this.logger.info(`Moved failed file to ${failedDir}: ${fileInfo.fileName}`);
@@ -260,19 +200,6 @@ export class FileOrganizer {
     }
 
     return resolve(metadataRoot, outputRelativePath);
-  }
-
-  private async writeMetadataStrm(strmPath: string, organizedVideoPath: string): Promise<void> {
-    let target = resolve(organizedVideoPath);
-    if (isStrmFile(organizedVideoPath)) {
-      const sourceTarget = await inspectStrmTarget(organizedVideoPath);
-      if (!sourceTarget) {
-        throw new Error(`STRM 文件不包含有效目标：${organizedVideoPath}`);
-      }
-      target = sourceTarget.kind === "url" ? sourceTarget.target : (sourceTarget.resolvedPath ?? sourceTarget.target);
-    }
-
-    await writeStrmTarget(strmPath, target);
   }
 }
 

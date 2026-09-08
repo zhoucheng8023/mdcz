@@ -3,7 +3,6 @@ import type { CrawlerData, DownloadedAssets, FileInfo, NfoLocalState, VideoMeta 
 import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "../actorOutput";
 import type { ImageAlternatives, SourceMap } from "../aggregation";
 import type { DownloadCallbacks, DownloadManager } from "../download";
-import type { OrganizePlan } from "../FileOrganizer";
 import { type NfoGenerator, type NfoOptions, nfoIgnoreFieldsToEnabledFields } from "../nfo";
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
@@ -137,22 +136,4 @@ export const writePreparedNfo = async (input: {
     videoMeta,
     writeFile: input.writeFile,
   });
-};
-
-export const organizePreparedVideo = async (input: {
-  enabled: boolean;
-  fileInfo: FileInfo;
-  plan?: OrganizePlan;
-  onLog?: (message: string) => void;
-  startLogLabel?: string;
-}): Promise<string> => {
-  if (!(input.enabled && input.plan)) {
-    return input.fileInfo.filePath;
-  }
-
-  if (input.startLogLabel) {
-    input.onLog?.(input.startLogLabel);
-  }
-
-  return input.plan.targetVideoPath;
 };

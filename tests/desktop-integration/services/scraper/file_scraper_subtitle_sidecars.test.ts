@@ -99,8 +99,6 @@ describe("FileScraper subtitle sidecars", () => {
       fileOrganizer: {
         plan: vi.fn((_fileInfo: FileInfo) => plan),
         resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-        ensureOutputReady: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-        organizeVideo: vi.fn(async (_fileInfo: FileInfo, nextPlan: OrganizePlan) => nextPlan.targetVideoPath),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
     });

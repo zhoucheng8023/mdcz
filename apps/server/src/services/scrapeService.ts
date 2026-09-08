@@ -6,12 +6,12 @@ import type { ScrapeItemOutcomeRecord, ScrapeRunItemRecord, ScrapeRunManifest } 
 import type { PersistentCooldownStore } from "@mdcz/runtime/cooldown";
 import { mediaPathOwnership, toLibraryAssets } from "@mdcz/runtime/library";
 import { buildMovieTags, LocalScanService } from "@mdcz/runtime/maintenance";
-import { MaintenanceArtifactResolver } from "@mdcz/runtime/maintenance/MaintenanceArtifactResolver";
 import type { NetworkClient } from "@mdcz/runtime/network";
 import {
   commitPublishedMedia,
-  commitRegisteredPublication,
   commitScrapeTerminalResult,
+  createPublicationPlan,
+  publishWithConflictResolution,
   type ScrapeFileTransitions,
   type ScrapeSuccessPublicationFacts,
 } from "@mdcz/runtime/publication";
@@ -332,7 +332,6 @@ export class ScrapeService {
       })),
       configuration,
       {
-        artifactResolver: new MaintenanceArtifactResolver(),
         fileOrganizer: this.fileOrganizer,
         localScanService: new LocalScanService(),
         logger: runtimeLoggerService.getLogger(`scrape-confirm:${manifest.id}`),
@@ -347,30 +346,20 @@ export class ScrapeService {
           await stat(filePath)
             .then((value) => value.isFile())
             .catch(() => false),
-        publish: async ({
-          operationId,
-          sourceVideoPath,
-          targetVideoPath,
-          artifacts,
-          obsoletePaths,
-          replaceExistingArtifacts,
-        }) => {
-          await commitRegisteredPublication(
-            {
-              operationId,
-              operationType: "maintenance",
-              sourceVideoPath,
-              targetVideoPath,
-              artifacts,
-              obsoletePaths,
-              replaceExistingArtifacts,
-            },
-            {
+        publish: async ({ operationId, plan }) => {
+          const publicationPlan = createPublicationPlan(operationId, "maintenance", plan, [...roots.values()]);
+          await publishWithConflictResolution(operationId, async () => {
+            await commitPublishedMedia(publicationPlan, {
               journal: state.repositories.publicationJournal,
               repairIssues: state.repositories.libraryRepairIssues,
-              roots: [...roots.values()],
-            },
-          );
+              resolveRoot: async (rootId) => {
+                const root = roots.get(rootId);
+                if (!root) throw new Error(`Publication root not found: ${rootId}`);
+                return root;
+              },
+              commit: () => undefined,
+            });
+          });
         },
       },
     );
@@ -705,7 +694,7 @@ export class ScrapeService {
     let success: ScrapeSuccessPublicationFacts | undefined;
     if (result.status === "success") {
       if (!publication) throw new Error(`Missing successful scrape publication for item ${item.id}`);
-      const outputRef = publication.plan.video?.target;
+      const outputRef = publication.plan.videos?.[0]?.target;
       if (!outputRef) throw new Error(`Successful scrape has no video publication target: ${item.id}`);
       const outputRoot = await this.mediaRoots.get(outputRef.rootId);
       const metadataRoot =

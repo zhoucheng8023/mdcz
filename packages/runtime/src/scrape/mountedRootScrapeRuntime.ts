@@ -215,8 +215,8 @@ export class MountedRootScrapeRuntime {
           error: result.error ?? "刮削失败",
         };
       }
-      if (!result.publicationPlan?.video) throw new Error("Successful scrape did not produce a publication plan");
-      const video = result.publicationPlan.video;
+      const video = result.publicationPlan?.videos?.[0];
+      if (!video) throw new Error("Successful scrape did not produce a publication plan");
       return {
         status: "success",
         result,

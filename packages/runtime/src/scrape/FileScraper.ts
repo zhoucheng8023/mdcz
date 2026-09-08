@@ -27,7 +27,6 @@ import { isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "./media";
 import { findExistingNfoPath, type NfoGenerator, type NfoOptions } from "./nfo";
 import {
   downloadCrawlerAssets,
-  organizePreparedVideo,
   prepareOutputCrawlerData,
   updateBatchProgress,
   writePreparedNfo,
@@ -250,7 +249,7 @@ export class FileScraper {
       throwIfAborted(signal);
       this.setProgress(progress, 75);
 
-      const outputVideoPath = await organizePreparedVideo({ enabled: true, fileInfo, plan });
+      const outputVideoPath = plan.targetVideoPath;
       const preservedNfoPath = configuration.download.keepNfo
         ? await findExistingNfoPath(plan.nfoPath, configuration.download.nfoNaming, pathExists)
         : undefined;
@@ -290,20 +289,23 @@ export class FileScraper {
       const preparedPlan = publication.plan;
       const classification = classifyMovie(fileInfo, crawlerData, existingNfoLocalState);
       const identity = toScrapeIdentity(fileId, fileInfo, options);
-      if (!options.roots?.length) throw new Error("Scrape publication requires registered media roots");
+      const roots = options.roots;
+      if (!roots?.length) throw new Error("Scrape publication requires registered media roots");
       const publicationPlan = createPublicationPlan(
         options.operationId ?? `${options.scrapeSessionId ?? "scrape"}:${identity.relativePath}`,
         "scrape",
         preparedPlan,
-        options.roots,
+        roots,
       );
-      const toRef = (absolutePath: string) => toRootFileRef(absolutePath, options.roots!);
+      const toRef = (absolutePath: string) => toRootFileRef(absolutePath, roots);
+      const video = publicationPlan.videos?.[0];
+      if (!video) throw new Error("Scrape publication plan is missing its main video");
       const result: FileScrapeResult = {
         ...identity,
         status: "success",
         crawlerData,
         videoMeta,
-        output: publicationPlan.video!.target,
+        output: video.target,
         ...(savedNfoPath ? { nfo: toRef(savedNfoPath) } : {}),
         assets: publicationPlan.assets,
         sources: aggregationResult.sources,

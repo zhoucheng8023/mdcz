@@ -239,7 +239,7 @@ export const commitPublishedMedia = async <TResult>(
           temporaryPath,
           backupPath: targetExisted ? createTargetBackupPath(targetPath, plan.operationId) : null,
           targetExisted,
-          ...(content === undefined ? { sourcePath, source: video.source } : {}),
+          ...(content === undefined && !video.preserveSource ? { sourcePath, source: video.source } : {}),
           stage: async () => {
             const sourceNow = await fileSystem.stat(sourcePath);
             const observed = observedAt(resolved.observed, sourcePath);
@@ -254,12 +254,13 @@ export const commitPublishedMedia = async <TResult>(
               );
             }
             const copyStartedAt = startPhase("video-copy");
-            if (content !== undefined) {
+            if (content !== undefined || video.preserveSource) {
               const capacity = await fileSystem.statfs(path.dirname(targetPath));
-              if (capacity.bavail * capacity.bsize < expectedBytes(content)) {
+              if (capacity.bavail * capacity.bsize < (content === undefined ? video.size : expectedBytes(content))) {
                 throw new Error(`Insufficient space for publication target: ${targetPath}`);
               }
-              await fileSystem.writeFile(temporaryPath, content);
+              if (content === undefined) await fileSystem.copyFile(sourcePath, temporaryPath);
+              else await fileSystem.writeFile(temporaryPath, content);
             } else {
               try {
                 await fileSystem.rename(sourcePath, temporaryPath);
@@ -288,7 +289,7 @@ export const commitPublishedMedia = async <TResult>(
     const obsolete = uniqueRefs([
       ...plan.obsolete,
       ...planMoves(plan)
-        .filter((move) => resolved.resolve(move.source) !== resolved.resolve(move.target))
+        .filter((move) => !move.preserveSource && resolved.resolve(move.source) !== resolved.resolve(move.target))
         .map((move) => move.source),
     ]).map((ref) => {
       const obsoletePath = resolved.resolve(ref);
@@ -385,7 +386,7 @@ export const commitPublishedMedia = async <TResult>(
               { cause: error },
             );
       try {
-        const target = plan.video?.target ?? plan.artifacts[0]?.target ?? plan.obsolete[0];
+        const target = plan.videos?.[0]?.target ?? plan.artifacts[0]?.target ?? plan.obsolete[0];
         await recordRepair(plan, options.repairIssues, target, error);
       } catch (repairError) {
         throw new PublicationError(

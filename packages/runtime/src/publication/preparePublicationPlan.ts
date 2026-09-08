@@ -1,23 +1,33 @@
 import { readFile, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
-import type { CrawlerData, DiscoveredAssets, DownloadedAssets } from "@mdcz/shared/types";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import type { CrawlerData, DiscoveredAssets, DownloadedAssets, MaintenanceAssetDecisions } from "@mdcz/shared/types";
 import type { OrganizePlan } from "../scrape/FileOrganizer";
-import { buildSubtitleSidecarTargetPath } from "../scrape/media";
+import {
+  buildGeneratedVideoSidecarTargetPath,
+  buildSubtitleSidecarTargetPath,
+  findGeneratedVideoSidecars,
+  isGeneratedSidecarVideo,
+} from "../scrape/media";
 import { getNfoWritePaths } from "../scrape/nfo";
-import { prepareMovedStrmContent, prepareStrmMirrorContent } from "../scrape/utils/strm";
+import { listVideoFiles } from "../scrape/utils/filesystem";
+import { isStrmFile, prepareMovedStrmContent, prepareStrmMirrorContent } from "../scrape/utils/strm";
 import type { PreparedPublicationPlan } from "./types";
 
 export const preparePublicationPlan = async (input: {
   sourceVideoPath: string;
   outputVideoPath: string;
-  stagingDir: string;
+  stagingDir?: string;
   existingAssetDir: string;
   metadataOutputDir: string;
   downloadedAssets: DownloadedAssets;
   actorPhotoPaths: string[];
   existingAssets?: DiscoveredAssets;
   existingNfoPath?: string;
+  existingStrmPath?: string;
+  movingVideoPaths?: readonly string[];
+  assetDecisions?: MaintenanceAssetDecisions;
   organizePlan?: OrganizePlan;
+  organizeFiles?: boolean;
   nfoNaming: "both" | "movie" | "filename";
   remoteData?: CrawlerData;
   writeNfo(
@@ -32,6 +42,29 @@ export const preparePublicationPlan = async (input: {
   const mapped = new Map<string, string>();
   const existing = input.existingAssets;
   const downloaded = input.downloadedAssets;
+  const organizeFiles = input.organizeFiles !== false;
+  const moving = new Set((input.movingVideoPaths ?? [input.sourceVideoPath]).map((path) => resolve(path)));
+  const preserveSharedSources =
+    organizeFiles &&
+    input.organizePlan &&
+    (await listVideoFiles(dirname(input.sourceVideoPath), false)).some(
+      (path) => !moving.has(resolve(path)) && !isGeneratedSidecarVideo(path),
+    );
+  const protectedSources = new Set<string>();
+  if (preserveSharedSources) {
+    for (const path of [
+      input.existingNfoPath,
+      input.existingNfoPath && join(dirname(input.existingNfoPath), "movie.nfo"),
+      existing?.thumb,
+      existing?.poster,
+      existing?.fanart,
+      existing?.trailer,
+      ...(existing?.sceneImages ?? []),
+      ...(existing?.actorPhotos ?? []),
+    ]) {
+      if (path) protectedSources.add(path);
+    }
+  }
   const assets: DiscoveredAssets = { sceneImages: [], actorPhotos: [] };
   const within = (directory: string, filePath: string): string | undefined => {
     const name = relative(directory, filePath);
@@ -46,7 +79,13 @@ export const preparePublicationPlan = async (input: {
     { key: "thumb" as const, paths: [downloaded.thumb ?? existing?.thumb], old: [existing?.thumb] },
     { key: "poster" as const, paths: [downloaded.poster ?? existing?.poster], old: [existing?.poster] },
     { key: "fanart" as const, paths: [downloaded.fanart ?? existing?.fanart], old: [existing?.fanart] },
-    { key: "trailer" as const, paths: [downloaded.trailer ?? existing?.trailer], old: [existing?.trailer] },
+    {
+      key: "trailer" as const,
+      paths: [
+        input.assetDecisions?.trailer === "replace" ? downloaded.trailer : (downloaded.trailer ?? existing?.trailer),
+      ],
+      old: [existing?.trailer],
+    },
     {
       key: "sceneImages" as const,
       paths: downloaded.sceneImages.length ? downloaded.sceneImages : (existing?.sceneImages ?? []),
@@ -64,20 +103,28 @@ export const preparePublicationPlan = async (input: {
       if (!sourcePath) continue;
       let targetPath = mapped.get(sourcePath);
       if (!targetPath) {
-        const stagedName = within(input.stagingDir, sourcePath);
+        const stagedName = input.stagingDir ? within(input.stagingDir, sourcePath) : undefined;
         const existingName = within(input.existingAssetDir, sourcePath);
         const collection = group.key === "sceneImages" || group.key === "actorPhotos";
-        targetPath = join(
-          input.metadataOutputDir,
-          stagedName ??
-            existingName ??
-            (collection ? join(basename(dirname(sourcePath)), basename(sourcePath)) : basename(sourcePath)),
-        );
+        targetPath =
+          !organizeFiles && !stagedName
+            ? sourcePath
+            : join(
+                input.metadataOutputDir,
+                stagedName ??
+                  existingName ??
+                  (collection ? join(basename(dirname(sourcePath)), basename(sourcePath)) : basename(sourcePath)),
+              );
         if (stagedName) {
           artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(sourcePath) } });
           replacements.add(targetPath);
         } else if (sourcePath !== targetPath) {
-          sidecars.push({ sourcePath, targetPath, size: (await stat(sourcePath)).size });
+          sidecars.push({
+            sourcePath,
+            targetPath,
+            size: (await stat(sourcePath)).size,
+            preserveSource: protectedSources.has(sourcePath),
+          });
         }
         mapped.set(sourcePath, targetPath);
       }
@@ -85,7 +132,10 @@ export const preparePublicationPlan = async (input: {
     }
     if (group.key === "sceneImages" || group.key === "actorPhotos") assets[group.key] = [...new Set(targets)];
     else assets[group.key] = targets[0];
-    if (group.paths.some((source) => source && within(input.stagingDir, source))) {
+    if (
+      group.paths.some((source) => source && !group.old.includes(source)) ||
+      (group.key === "trailer" && input.assetDecisions?.trailer === "replace")
+    ) {
       for (const old of group.old) if (old && !targets.includes(old)) obsolete.add(old);
     }
   }
@@ -97,23 +147,44 @@ export const preparePublicationPlan = async (input: {
     const paths = getNfoWritePaths(input.organizePlan?.nfoPath ?? input.existingNfoPath, input.nfoNaming);
     nfoPath = paths.canonicalPath;
     for (const targetPath of paths.requiredPaths) {
-      if (targetPath === input.existingNfoPath) continue;
       artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(input.existingNfoPath) } });
     }
   }
   if (input.existingNfoPath && nfoPath && input.existingNfoPath !== nfoPath) obsolete.add(input.existingNfoPath);
+  if (input.organizePlan && nfoPath) {
+    for (const path of getNfoWritePaths(input.organizePlan.nfoPath, input.nfoNaming).stalePaths) obsolete.add(path);
+    if (input.existingNfoPath && dirname(input.existingNfoPath) !== input.metadataOutputDir) {
+      obsolete.add(join(dirname(input.existingNfoPath), "movie.nfo"));
+    }
+  }
   if (input.organizePlan?.strmPath) {
     artifacts.push({
       targetPath: input.organizePlan.strmPath,
       content: { kind: "text", data: await prepareStrmMirrorContent(input.sourceVideoPath, input.outputVideoPath) },
     });
+    if (input.existingStrmPath && input.existingStrmPath !== input.organizePlan.strmPath)
+      obsolete.add(input.existingStrmPath);
   }
-  for (const sidecar of input.organizePlan?.subtitleSidecars ?? []) {
-    sidecars.push({
-      sourcePath: sidecar.path,
-      targetPath: buildSubtitleSidecarTargetPath(sidecar, input.outputVideoPath),
-      size: (await stat(sidecar.path)).size,
-    });
+  if (input.organizePlan && organizeFiles) {
+    for (const sidecar of input.organizePlan.subtitleSidecars ?? []) {
+      sidecars.push({
+        sourcePath: sidecar.path,
+        targetPath: buildSubtitleSidecarTargetPath(sidecar, input.outputVideoPath),
+        size: (await stat(sidecar.path)).size,
+      });
+    }
+    for (const sidecar of await findGeneratedVideoSidecars(input.sourceVideoPath)) {
+      sidecars.push({
+        sourcePath: sidecar.path,
+        targetPath: buildGeneratedVideoSidecarTargetPath(
+          sidecar,
+          dirname(input.outputVideoPath),
+          parse(input.organizePlan.nfoPath).name,
+        ),
+        size: (await stat(sidecar.path)).size,
+        shared: true,
+      });
+    }
   }
   const assetRefs: PreparedPublicationPlan["assets"] = [];
   for (const kind of ["thumb", "poster", "fanart", "trailer"] as const) {
@@ -136,17 +207,43 @@ export const preparePublicationPlan = async (input: {
     assets,
     nfoPath,
     plan: {
-      video: {
-        sourcePath: input.sourceVideoPath,
-        targetPath: input.outputVideoPath,
-        size: (await stat(input.sourceVideoPath)).size,
-        content: await prepareMovedStrmContent(input.sourceVideoPath, input.outputVideoPath),
-      },
+      videos:
+        input.organizePlan && organizeFiles
+          ? [
+              {
+                sourcePath: input.sourceVideoPath,
+                targetPath: input.outputVideoPath,
+                size: (await stat(input.sourceVideoPath)).size,
+                content: await prepareMovedStrmContent(input.sourceVideoPath, input.outputVideoPath),
+                nameTargetPaths: [...artifacts, ...sidecars]
+                  .map(({ targetPath }) => targetPath)
+                  .filter((targetPath) => {
+                    const name = basename(targetPath);
+                    const videoName = parse(input.outputVideoPath).name;
+                    return (
+                      name !== "movie.nfo" &&
+                      name.startsWith(videoName) &&
+                      /^[.\-_\s]/u.test(name.slice(videoName.length))
+                    );
+                  }),
+                referenceTargetPaths:
+                  input.organizePlan.strmPath && !isStrmFile(input.sourceVideoPath)
+                    ? [input.organizePlan.strmPath]
+                    : [],
+              },
+            ]
+          : [],
       sidecars,
       artifacts,
       assets: assetRefs,
-      obsoletePaths: [...obsolete].filter((filePath) => !retained.has(filePath)),
-      replaceExistingTargetPaths: [...replacements],
+      obsoletePaths: [...obsolete].filter((filePath) => !retained.has(filePath) && !protectedSources.has(filePath)),
+      replaceExistingTargetPaths: [
+        ...new Set([
+          ...replacements,
+          ...artifacts.map(({ targetPath }) => targetPath),
+          ...sidecars.map(({ targetPath }) => targetPath),
+        ]),
+      ],
     },
   };
 };

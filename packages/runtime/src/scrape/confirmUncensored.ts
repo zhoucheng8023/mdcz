@@ -13,8 +13,8 @@ import type {
   UncensoredConfirmResultItem,
 } from "@mdcz/shared/types";
 import type { LocalScanService } from "../maintenance/LocalScanService";
-import type { MaintenanceArtifactResolver } from "../maintenance/MaintenanceArtifactResolver";
 import { buildMovieTags } from "../maintenance/movieTags";
+import { type PreparedPublicationPlan, preparePublicationPlan } from "../publication";
 import type { RuntimeLogger } from "../shared";
 import type { FileOrganizer, OrganizePlan } from "./FileOrganizer";
 import { type NfoGenerator, nfoIgnoreFieldsToEnabledFields } from "./nfo";
@@ -49,20 +49,12 @@ interface PreparedUncensoredConfirmItem {
 }
 
 export interface UncensoredConfirmDependencies {
-  artifactResolver: Pick<MaintenanceArtifactResolver, "resolve">;
   fileOrganizer: Pick<FileOrganizer, "plan" | "resolveOutputPlan">;
   localScanService: Pick<LocalScanService, "scanVideo">;
   logger: Pick<RuntimeLogger, "info" | "warn">;
   nfoGenerator: Pick<NfoGenerator, "writeNfo">;
   pathExists: (filePath: string) => Promise<boolean>;
-  publish(input: {
-    operationId: string;
-    sourceVideoPath: string;
-    targetVideoPath: string;
-    artifacts: Array<{ targetPath: string; content: { kind: "bytes"; data: Buffer } | { kind: "text"; data: string } }>;
-    obsoletePaths: string[];
-    replaceExistingArtifacts?: boolean;
-  }): Promise<void>;
+  publish(input: { operationId: string; plan: PreparedPublicationPlan }): Promise<void>;
 }
 
 const buildBatchKey = (nfoPath: string, choice: UncensoredChoice): string => `${nfoPath.trim()}::${choice}`;
@@ -182,6 +174,10 @@ export const confirmUncensoredOutputs = async (
       }
     }
     if (processedItems.length === 0) continue;
+    if (processedItems.length !== batchItems.length) {
+      for (const processed of processedItems) fail(processed.item, "Cannot partially reorganize videos sharing an NFO");
+      continue;
+    }
 
     let savedNfoPath: string;
     const nfoArtifacts = new Map<string, string>();
@@ -211,59 +207,77 @@ export const confirmUncensoredOutputs = async (
       continue;
     }
 
-    const finalizedItems: Array<{
-      processed: (typeof processedItems)[number];
-      artifacts: Awaited<ReturnType<UncensoredConfirmDependencies["artifactResolver"]["resolve"]>>;
-    }> = [];
-    for (const processed of processedItems) {
-      try {
-        const artifacts = await dependencies.artifactResolver.resolve({
-          entry: { ...processed.entry, nfoLocalState: processed.nextLocalState },
-          plan: processed.plan,
-          outputVideoPath: processed.outputVideoPath,
-          savedNfoPath,
-          nfoNaming: config.download.nfoNaming,
-        });
-        finalizedItems.push({ processed, artifacts });
-      } catch (error) {
-        fail(processed.item, `Failed to finalize ${processed.item.videoPath}: ${toErrorMessage(error)}`);
-      }
-    }
-
-    for (const { processed, artifacts } of finalizedItems) {
-      try {
-        await dependencies.publish({
-          operationId: `uncensored-confirm:${processed.item.fileId}`,
+    try {
+      const finalizedItems = [];
+      for (const processed of processedItems) {
+        const publication = await preparePublicationPlan({
           sourceVideoPath: processed.item.videoPath,
-          targetVideoPath: processed.outputVideoPath,
-          artifacts: [
-            ...[...nfoArtifacts].map(([targetPath, data]) => ({
-              targetPath,
-              content: { kind: "text" as const, data },
-            })),
-            ...artifacts.publicationArtifacts.map(({ targetPath, data }) => ({
-              targetPath,
-              content: { kind: "bytes" as const, data },
-            })),
-          ],
-          obsoletePaths: artifacts.obsoletePaths,
-          replaceExistingArtifacts: true,
+          outputVideoPath: processed.outputVideoPath,
+          existingAssetDir: dirname(processed.effectiveNfoPath),
+          metadataOutputDir: processed.plan.metadataDir ?? processed.plan.outputDir,
+          downloadedAssets: { downloaded: [], sceneImages: [] },
+          actorPhotoPaths: [],
+          existingAssets: processed.entry.assets,
+          existingNfoPath: processed.effectiveNfoPath,
+          existingStrmPath: processed.item.metadataVideoPath,
+          movingVideoPaths: processedItems.map(({ item }) => item.videoPath),
+          organizePlan: processed.plan,
+          nfoNaming: config.download.nfoNaming,
+          writeNfo: async (_assets, writeFile) => {
+            for (const [targetPath, content] of nfoArtifacts) await writeFile(targetPath, content);
+            return savedNfoPath;
+          },
         });
+        finalizedItems.push({ processed, publication });
+      }
+      const plans = finalizedItems.map(({ publication }) => publication.plan);
+      const moves = new Map<string, NonNullable<PreparedPublicationPlan["sidecars"]>[number]>();
+      const artifacts = new Map<string, PreparedPublicationPlan["artifacts"][number]>();
+      for (const plan of plans) {
+        for (const move of plan.sidecars ?? []) {
+          const previous = moves.get(move.targetPath);
+          if (previous && previous.sourcePath !== move.sourcePath)
+            throw new Error(`Conflicting batch sources: ${move.targetPath}`);
+          moves.set(move.targetPath, move);
+        }
+        for (const artifact of plan.artifacts) {
+          const previous = artifacts.get(artifact.targetPath);
+          if (previous && !Buffer.from(previous.content.data).equals(Buffer.from(artifact.content.data)))
+            throw new Error(`Conflicting batch artifacts: ${artifact.targetPath}`);
+          artifacts.set(artifact.targetPath, artifact);
+        }
+      }
+      const retained = new Set([...moves.keys(), ...artifacts.keys()]);
+      await dependencies.publish({
+        operationId: `uncensored-confirm:${processedItems.map(({ item }) => item.fileId).join(":")}`,
+        plan: {
+          videos: plans.flatMap((plan) => plan.videos ?? []),
+          sidecars: [...moves.values()],
+          artifacts: [...artifacts.values()],
+          assets: plans.flatMap((plan) => plan.assets),
+          obsoletePaths: [...new Set(plans.flatMap((plan) => plan.obsoletePaths))].filter(
+            (path) => !retained.has(path),
+          ),
+          replaceExistingTargetPaths: [...new Set(plans.flatMap((plan) => plan.replaceExistingTargetPaths ?? []))],
+        },
+      });
+      for (const { processed, publication } of finalizedItems) {
         updatedItems.push({
           fileId: processed.item.fileId,
           sourceVideoPath: processed.item.videoPath,
           sourceNfoPath: processed.effectiveNfoPath,
           targetVideoPath: processed.outputVideoPath,
-          targetNfoPath: artifacts.nfoPath,
+          targetNfoPath: publication.nfoPath,
           choice: processed.item.choice,
-          assets: artifacts.assets,
+          assets: publication.assets,
         });
         dependencies.logger.info(
           `Updated uncensored choice to "${processed.item.choice}" for ${processed.item.videoPath}`,
         );
-      } catch (error) {
-        fail(processed.item, `Failed to finalize ${processed.item.videoPath}: ${toErrorMessage(error)}`);
       }
+    } catch (error) {
+      for (const processed of processedItems)
+        fail(processed.item, `Failed to finalize ${processed.item.videoPath}: ${toErrorMessage(error)}`);
     }
   }
 

@@ -97,7 +97,7 @@ export function PublicationConflictDialog({
               {conflict.targetSize} 字节 · {new Date(conflict.targetModifiedAt).toLocaleString()}
             </p>
             <p>保留两份时，新文件保存为：{conflict.keepBothPath}</p>
-            <p>字幕与元数据不会跟随视频重命名；若存在冲突将单独处理。</p>
+            <p>对应字幕和 STRM 将跟随所选视频，共享 NFO、图片和花絮保持番号级文件名。</p>
             {error && (
               <p role="alert" className="text-destructive">
                 {error}

@@ -26,11 +26,12 @@ export const createMaintenanceLibraryPort = <TPrepared>(deps: {
     const roots = await state.mediaRoots.list();
     input.resolvedPlan ??= createPublicationPlan(input.operationId, "maintenance", input.plan, roots);
     const plan = input.resolvedPlan;
-    if (plan.video) {
-      const root = roots.find((root) => root.id === plan.video?.target.rootId);
+    const video = plan.videos?.[0];
+    if (video) {
+      const root = roots.find((root) => root.id === video.target.rootId);
       if (!root) throw new Error("Maintenance output root disappeared");
-      input.refresh.targetAbsolutePath = resolveRootRelativePath(root, plan.video.target.relativePath);
-      input.refresh.size = plan.video.size;
+      input.refresh.targetAbsolutePath = resolveRootRelativePath(root, video.target.relativePath);
+      input.refresh.size = video.size;
     }
     const refresh = await state.library.prepareRefresh(input.refresh);
     return await commitPublishedMedia(plan, {

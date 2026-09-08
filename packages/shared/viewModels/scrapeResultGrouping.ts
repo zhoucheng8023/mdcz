@@ -28,6 +28,20 @@ const scrapeResultPath = (result: ScrapeResult): string => result.output?.relati
 const scrapeResultNumber = (result: ScrapeResult): string =>
   result.crawlerData?.number ?? result.fileName.replace(/\.[^.]+$/u, "");
 const scrapeResultNfoPath = (result: ScrapeResult): string | undefined => result.nfo?.relativePath;
+const metadataVideoPath = (result: ScrapeResult): string | undefined => {
+  const nfo = result.nfo;
+  const output = result.output;
+  if (!nfo || !output) return undefined;
+  const nfoPath = nfo.relativePath;
+  const videoPath = output.relativePath;
+  const separatorIndex = Math.max(nfoPath.lastIndexOf("/"), nfoPath.lastIndexOf("\\"));
+  const videoSeparatorIndex = Math.max(videoPath.lastIndexOf("/"), videoPath.lastIndexOf("\\"));
+  if (nfo.rootId === output.rootId && nfoPath.slice(0, separatorIndex) === videoPath.slice(0, videoSeparatorIndex))
+    return undefined;
+  const videoName = videoPath.slice(Math.max(videoPath.lastIndexOf("/"), videoPath.lastIndexOf("\\")) + 1);
+  const extensionIndex = videoName.lastIndexOf(".");
+  return `${nfoPath.slice(0, separatorIndex + 1)}${extensionIndex > 0 ? videoName.slice(0, extensionIndex) : videoName}.strm`;
+};
 
 const scrapeResultMultipartSelectors = {
   getDirectory: (result: ScrapeResult) => deriveGroupingDirectoryFromPath(scrapeResultPath(result)),
@@ -196,6 +210,7 @@ export const buildUncensoredConfirmItemsForScrapeGroups = (
       fileId: item.fileId,
       nfoPath: item.nfoPath,
       videoPath: scrapeResultPath(item),
+      metadataVideoPath: metadataVideoPath(item),
       choice: choicesByGroupId[group.id] ?? "uncensored",
     })),
   );

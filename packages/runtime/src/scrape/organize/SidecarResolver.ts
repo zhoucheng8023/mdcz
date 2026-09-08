@@ -17,11 +17,4 @@ export class SidecarResolver {
       generatedVideoSidecars: await findGeneratedVideoSidecars(sourceVideoPath),
     };
   }
-
-  async resolveSubtitleSidecars(
-    sourceVideoPath: string,
-    subtitleSidecars?: SubtitleSidecarMatch[],
-  ): Promise<SubtitleSidecarMatch[]> {
-    return subtitleSidecars ?? (await findSubtitleSidecars(sourceVideoPath));
-  }
 }

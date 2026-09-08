@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { dirname, extname, join, parse } from "node:path";
 import type { SubtitleTag } from "@mdcz/shared/types";
+import { DEFAULT_VIDEO_EXTENSIONS } from "../utils/filesystem";
 import { parseFileInfo } from "../utils/number";
 import {
   detectSubtitleTagFromSidecarSuffix,
@@ -8,6 +9,7 @@ import {
   preferSubtitleTag,
   SUBTITLE_EXTENSIONS,
 } from "../utils/subtitles";
+import { isGeneratedSidecarVideo } from "./generatedSidecarVideos";
 
 const SIDE_NAME_SEPARATOR = /^[-_.\s]/u;
 
@@ -16,7 +18,7 @@ const buildVideoBaseCandidates = (videoPath: string): string[] => {
   const fileInfo = parseFileInfo(videoPath);
   const candidates = [video.name];
 
-  if (!fileInfo.part && fileInfo.number && fileInfo.number !== video.name) {
+  if (!fileInfo.part && fileInfo.number && fileInfo.number !== video.name && !/\(\d+\)$/u.test(video.name)) {
     candidates.push(fileInfo.number);
   }
 
@@ -47,7 +49,7 @@ const matchSidecarBase = (
     }
 
     const suffix = normalizedSidecarBase.slice(normalizedVideoBase.length);
-    if (!suffix || !SIDE_NAME_SEPARATOR.test(suffix)) {
+    if (!suffix || !SIDE_NAME_SEPARATOR.test(suffix) || /^\s*\(\d+\)/u.test(suffix)) {
       continue;
     }
 
@@ -73,6 +75,15 @@ export const findSubtitleSidecars = async (videoPath: string): Promise<SubtitleS
   const video = parse(videoPath);
   const videoBaseCandidates = buildVideoBaseCandidates(videoPath);
   const entries = await readdir(video.dir, { withFileTypes: true }).catch(() => []);
+  const siblingVideos = entries.filter(
+    (entry) =>
+      (entry.isFile() || entry.isSymbolicLink()) &&
+      DEFAULT_VIDEO_EXTENSIONS.has(extname(entry.name).toLowerCase()) &&
+      entry.name !== video.base &&
+      !isGeneratedSidecarVideo(entry.name),
+  );
+  const number = parseFileInfo(videoPath).number;
+  if (siblingVideos.some((entry) => parseFileInfo(entry.name).number === number)) videoBaseCandidates.splice(1);
   const matches = await Promise.all(
     entries.map(async (entry) => {
       if (!SUBTITLE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
@@ -90,6 +101,11 @@ export const findSubtitleSidecars = async (videoPath: string): Promise<SubtitleS
       }
 
       const sidecarBaseName = parse(entry.name).name;
+      const ownedBySibling = siblingVideos.some((sibling) => {
+        const siblingName = parse(sibling.name).name;
+        return siblingName.length > video.name.length && matchSidecarBase(sidecarBaseName, [siblingName]).matched;
+      });
+      if (ownedBySibling) return null;
       const matched = matchSidecarBase(sidecarBaseName, videoBaseCandidates);
       return matched.matched
         ? {

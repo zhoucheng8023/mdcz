@@ -21,6 +21,9 @@ export const createPublicationPlan = (
     source: toRef(move.sourcePath),
     target: toRef(move.targetPath),
     size: move.size,
+    content: move.content,
+    preserveSource: move.preserveSource,
+    shared: move.shared,
   });
   const assets: AssetRef[] = prepared.assets.flatMap((asset): AssetRef[] =>
     asset.targetPath
@@ -32,12 +35,11 @@ export const createPublicationPlan = (
   return {
     operationId,
     operationType,
-    video: prepared.video
-      ? {
-          ...toMove(prepared.video),
-          content: prepared.video.content,
-        }
-      : undefined,
+    videos: prepared.videos?.map((video) => ({
+      ...toMove(video),
+      nameTargets: video.nameTargetPaths?.map(toRef),
+      referenceTargets: video.referenceTargetPaths?.map(toRef),
+    })),
     sidecars: (prepared.sidecars ?? []).map(toMove),
     artifacts: prepared.artifacts.map((artifact) => ({
       target: toRef(artifact.targetPath),

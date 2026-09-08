@@ -126,6 +126,7 @@ export interface UncensoredConfirmItem {
   fileId: FileId;
   nfoPath: string;
   videoPath: string;
+  metadataVideoPath?: string;
   choice: UncensoredChoice;
 }
 

@@ -4,11 +4,9 @@ import type { CrawlerData, DownloadedAssets, FileInfo } from "@mdcz/shared/types
 import { describe, expect, it, vi } from "vitest";
 import type { RuntimeActorImageService } from "../actorOutput";
 import type { DownloadCallbacks, DownloadManager } from "../download";
-import type { OrganizePlan } from "../FileOrganizer";
 import type { NfoGenerator, NfoOptions } from "../nfo";
 import {
   downloadCrawlerAssets,
-  organizePreparedVideo,
   prepareOutputCrawlerData,
   updateBatchProgress,
   writePreparedNfo,
@@ -164,18 +162,5 @@ describe("shared output steps", () => {
       }),
     );
     expect(logs).toEqual(["Generating NFO"]);
-  });
-
-  it("returns the planned target without performing file work", async () => {
-    const fileInfo = createFileInfo();
-    const plan: OrganizePlan = {
-      nfoPath: "/output/ABC-123.nfo",
-      outputDir: "/output",
-      targetVideoPath: "/output/ABC-123.mp4",
-    };
-
-    await expect(organizePreparedVideo({ enabled: false, fileInfo, plan })).resolves.toBe(fileInfo.filePath);
-    await expect(organizePreparedVideo({ enabled: true, fileInfo })).resolves.toBe(fileInfo.filePath);
-    await expect(organizePreparedVideo({ enabled: true, fileInfo, plan })).resolves.toBe(plan.targetVideoPath);
   });
 });

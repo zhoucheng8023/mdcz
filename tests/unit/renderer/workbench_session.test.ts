@@ -1,4 +1,8 @@
 import { MaintenanceSession } from "@mdcz/runtime/maintenance";
+import {
+  buildScrapeResultGroups,
+  buildUncensoredConfirmItemsForScrapeGroups,
+} from "@mdcz/shared/viewModels/scrapeResultGrouping";
 import { getWorkbenchSessionSnapshot, resetScrapeWorkbenchToSetup } from "@mdcz/views/adapters/workbenchSession";
 import {
   changeMaintenancePreset,
@@ -107,5 +111,35 @@ describe("workbench session scrape setup", () => {
     useMaintenanceStore.getState().setSnapshot(completed);
     expect(useMaintenanceStore.getState().snapshot).toBeNull();
     expect(useMaintenanceStore.getState().presetId).toBe("organize_files");
+  });
+});
+
+describe("desktop uncensored confirmation items", () => {
+  it.each([1, 2])("includes the old metadata STRM path for %s video part(s)", (partCount) => {
+    const results = Array.from({ length: partCount }, (_, index) => {
+      const part = index + 1;
+      const base = partCount === 1 ? "FC2-123456" : `FC2-123456-CD${part}`;
+      return {
+        fileId: base,
+        rootId: "input",
+        relativePath: `${base}.mp4`,
+        fileName: base,
+        status: "success" as const,
+        output: { rootId: "media", relativePath: `organized/FC2-123456/${base}.mp4` },
+        nfo: { rootId: "metadata", relativePath: "organized/FC2-123456/FC2-123456.nfo" },
+        assets: [],
+        uncensoredAmbiguous: true,
+        ...(partCount > 1 ? { part: { number: part, suffix: `-CD${part}` } } : {}),
+      };
+    });
+
+    const groups = buildScrapeResultGroups(results);
+    const group = groups[0];
+    if (!group) throw new Error("Expected an uncensored scrape group");
+    const items = buildUncensoredConfirmItemsForScrapeGroups(groups, { [group.id]: "leak" });
+
+    expect(items.map(({ metadataVideoPath }) => metadataVideoPath)).toEqual(
+      results.map(({ fileName }) => `organized/FC2-123456/${fileName}.strm`),
+    );
   });
 });

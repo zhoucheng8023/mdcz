@@ -541,11 +541,13 @@ export class MaintenanceSessionCoordinator {
               signal: context.signal,
             });
             if (applied.status === "failed") return { result: { status: "failed", error: applied.error } };
-            if (!applied.plan?.video) return { result: { status: "failed", error: "维护应用未生成视频发布计划" } };
+            const plan = applied.plan;
+            if (!plan) return { result: { status: "failed", error: "维护应用未生成发布计划" } };
+            const video = plan.videos?.[0];
             const outputRelativePath = applied.outputRelativePath || active.preview.relativePath;
             let file: Awaited<ReturnType<typeof stat>>;
             try {
-              file = await stat(applied.plan.video.sourcePath);
+              file = await stat(video?.sourcePath ?? sourceAbsolutePath);
             } catch (error) {
               return { result: libraryCommitFailure(error) };
             }
@@ -565,12 +567,12 @@ export class MaintenanceSessionCoordinator {
               publication: {
                 operationId: `${sessionId}:${active.preview.id}`,
                 ownershipToken: sessionId,
-                plan: applied.plan,
+                plan,
                 refresh: {
                   librarySource: active.preview.librarySource,
                   sourceAbsolutePath,
-                  targetAbsolutePath: applied.plan.video.targetPath,
-                  size: applied.plan.video.size,
+                  targetAbsolutePath: video?.targetPath ?? sourceAbsolutePath,
+                  size: video?.size ?? file.size,
                   modifiedAt: file.mtime,
                   crawlerData,
                   fallbackNumber: applied.entry.fileInfo.number,

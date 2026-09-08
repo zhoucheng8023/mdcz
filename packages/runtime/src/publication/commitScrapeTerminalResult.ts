@@ -139,8 +139,9 @@ export const commitScrapeTerminalResult = async (input: {
   if (result.status !== "success") {
     throw new Error(`Cannot commit non-terminal scrape result: ${result.status}`);
   }
-  const output = input.success?.plan.video?.target;
-  if (!input.success || !output) {
+  const video = input.success?.plan.videos?.[0];
+  const output = video?.target;
+  if (!input.success || !video || !output) {
     throw new Error(`Successful scrape has no publication plan: ${input.itemPath}`);
   }
   const success = input.success;
@@ -148,10 +149,10 @@ export const commitScrapeTerminalResult = async (input: {
     if (success.nfo?.rootId === change.from.rootId && success.nfo.relativePath === change.from.relativePath)
       success.nfo = change.to;
   }
-  const source = success.plan.video!.source;
+  const source = video.source;
   const sourcePath = resolveRootRelativePath(await input.resolveRoot(source.rootId), source.relativePath);
   const sourceStats = await (input.fileSystem?.stat ?? stat)(sourcePath);
-  success.size = success.plan.video!.size;
+  success.size = video.size;
   success.modifiedAt = sourceStats.mtime;
   const crawlerData = success.crawlerData;
   if (!crawlerData) {

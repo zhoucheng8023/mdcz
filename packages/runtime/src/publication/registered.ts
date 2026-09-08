@@ -40,13 +40,15 @@ export const commitRegisteredPublication = async <TResult>(
     input.operationId,
     input.operationType,
     {
-      video:
+      videos:
         sourceVideoPath && targetVideoPath && sourceVideoPath !== targetVideoPath
-          ? {
-              sourcePath: sourceVideoPath,
-              targetPath: targetVideoPath,
-              size: (await stat(sourceVideoPath)).size,
-            }
+          ? [
+              {
+                sourcePath: sourceVideoPath,
+                targetPath: targetVideoPath,
+                size: (await stat(sourceVideoPath)).size,
+              },
+            ]
           : undefined,
       artifacts: input.artifacts ?? [],
       assets: [],

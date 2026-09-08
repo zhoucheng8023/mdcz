@@ -105,8 +105,6 @@ const createScraper = ({
     fileOrganizer: {
       plan: vi.fn().mockReturnValue(plan),
       resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-      ensureOutputReady: vi.fn().mockResolvedValue(plan),
-      organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
     } as unknown as FileOrganizer,
     signalService: new SignalService(null),
     localScanService,
@@ -225,8 +223,6 @@ describe("FileScraper .strm support", () => {
     const fileOrganizer = {
       plan: vi.fn().mockReturnValue(plan),
       resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-      ensureOutputReady: vi.fn().mockResolvedValue(plan),
-      organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
     } as unknown as FileOrganizer;
     const scanVideoMock = vi.fn().mockResolvedValue({
       nfoLocalState: {

@@ -6,7 +6,9 @@ import type {
   PublicationConflictResolution,
   PublicationConflictSnapshot,
 } from "@mdcz/shared/publicationConflicts";
+import { SUBTITLE_EXTENSIONS } from "../scrape/utils/subtitles";
 import { assertPublicationFileUnchanged, type ObservedPublicationFile, observePublicationFile } from "./preflight";
+import { planVideoTargetChanges, retargetPublicationVideo } from "./retargetVideo";
 import type { PublicationFileSystem, PublicationPlan } from "./types";
 
 export class PublicationConflictError extends Error {
@@ -21,25 +23,34 @@ export class PublicationConflictError extends Error {
 export const createPublicationConflict = async (input: {
   plan: PublicationPlan;
   target: RootFileRef;
-  source?: RootFileRef;
+  source: RootFileRef;
   sourceSize: number;
   resolve(ref: RootFileRef): string;
   fileSystem: PublicationFileSystem;
 }): Promise<PublicationConflictError> => {
   const { plan, target, fileSystem } = input;
+  const video = plan.videos?.find((candidate) => candidate.target === target);
+  if (!video) throw new Error("Only the main video supports interactive publication conflicts");
   const targetPath = input.resolve(target);
-  const sourcePath = input.source ? input.resolve(input.source) : null;
+  const sourcePath = input.resolve(input.source);
   const targetFact = await observePublicationFile(fileSystem, targetPath);
   if (!targetFact.exists || !targetFact.isFile) throw new Error(`Publication target is not a file: ${targetPath}`);
-  const sourceFact = sourcePath ? await observePublicationFile(fileSystem, sourcePath) : undefined;
+  const sourceFact = await observePublicationFile(fileSystem, sourcePath);
   const extension = extname(targetPath);
   let candidate: string;
+  let changes: ReturnType<typeof planVideoTargetChanges>;
+  let vacantTargets: ObservedPublicationFile[];
   for (let index = 1; ; index += 1) {
     candidate = join(dirname(targetPath), `${basename(targetPath, extension)} (${index})${extension}`);
-    if (!(await observePublicationFile(fileSystem, candidate)).exists) break;
+    changes = planVideoTargetChanges(video, {
+      rootId: target.rootId,
+      relativePath: join(dirname(target.relativePath), basename(candidate)).replaceAll("\\", "/"),
+    });
+    vacantTargets = await Promise.all(changes.map(({ to }) => observePublicationFile(fileSystem, input.resolve(to))));
+    if (vacantTargets.every((fact) => !fact.exists)) break;
   }
   const keepBothPath = candidate;
-  const facts = [targetFact, ...(sourceFact ? [sourceFact] : [])];
+  const facts = [targetFact, sourceFact];
   return new PublicationConflictError(
     {
       id: randomUUID(),
@@ -56,30 +67,26 @@ export const createPublicationConflict = async (input: {
       for (const fact of facts)
         assertPublicationFileUnchanged(fact, await observePublicationFile(fileSystem, fact.path));
       const oldRef = { ...target };
-      const same = (ref: RootFileRef) => ref.rootId === oldRef.rootId && ref.relativePath === oldRef.relativePath;
       if (choice === "keep_new") {
         plan.replaceExistingTargets = [...(plan.replaceExistingTargets ?? []), oldRef];
       } else if (choice === "keep_both") {
-        const vacant: ObservedPublicationFile = { path: keepBothPath, exists: false };
-        assertPublicationFileUnchanged(vacant, await observePublicationFile(fileSystem, keepBothPath));
-        const newRef = {
-          rootId: target.rootId,
-          relativePath: join(dirname(target.relativePath), basename(keepBothPath)).replaceAll("\\", "/"),
-        };
-        plan.targetChanges = [...(plan.targetChanges ?? []), { from: oldRef, to: newRef }];
-        for (const asset of plan.assets) if (asset.type === "local" && same(asset.file)) asset.file = { ...newRef };
-        Object.assign(target, newRef);
-        facts.push(vacant);
+        for (const vacant of vacantTargets)
+          assertPublicationFileUnchanged(vacant, await observePublicationFile(fileSystem, vacant.path));
+        retargetPublicationVideo(plan, video, changes, input.resolve);
+        facts.push(...vacantTargets);
       } else {
-        const move = [plan.video, ...(plan.sidecars ?? [])].find((move) => move && same(move.target));
-        if (move) {
-          plan.obsolete.push({ ...move.source });
-          move.source = oldRef;
-          move.size = targetFact.size;
-          move.content = undefined;
-        } else {
-          plan.artifacts = plan.artifacts.filter((artifact) => !same(artifact.target));
-        }
+        plan.obsolete.push({ ...video.source });
+        video.source = oldRef;
+        video.size = targetFact.size;
+        video.content = undefined;
+        const discardedSubtitleTargets = new Set(
+          (video.nameTargets ?? [])
+            .filter((target) => SUBTITLE_EXTENSIONS.has(extname(target.relativePath).toLowerCase()))
+            .map((target) => `${target.rootId}\0${target.relativePath}`),
+        );
+        plan.sidecars = plan.sidecars?.filter(
+          (sidecar) => !discardedSubtitleTargets.has(`${sidecar.target.rootId}\0${sidecar.target.relativePath}`),
+        );
       }
       plan.expectedFiles = [...(plan.expectedFiles ?? []), ...facts];
     },
@@ -124,3 +131,20 @@ export const publicationConflicts = {
     }
   },
 };
+
+export const publishWithConflictResolution = (operationId: string, publish: () => Promise<void>): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    const attempt = async (): Promise<void> => {
+      try {
+        await publish();
+        resolve();
+      } catch (error) {
+        if (!(error instanceof PublicationConflictError)) {
+          reject(error);
+          return;
+        }
+        publicationConflicts.register(operationId, operationId, error, attempt);
+      }
+    };
+    void attempt();
+  });

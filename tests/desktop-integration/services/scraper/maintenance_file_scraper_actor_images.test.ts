@@ -84,7 +84,6 @@ const createScraperHarness = (root: string, downloadAll: ReturnType<typeof vi.fn
       fileOrganizer: {
         plan: vi.fn().mockReturnValue(plan),
         resolveOutputPlan: vi.fn().mockImplementation(async (nextPlan: OrganizePlan) => nextPlan),
-        organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
       } as unknown as FileOrganizer,
       signalService: new SignalService(null),
       actorImageService: {
@@ -132,7 +131,7 @@ describe("MaintenanceFileScraper asset replacement", () => {
   it.each([
     "preserve",
     "replace",
-  ] as const)("retains the local trailer when %s produces no replacement", async (decision) => {
+  ] as const)("honors the %s trailer decision when no replacement is produced", async (decision) => {
     const root = await createTempDir();
     const oldTrailerPath = join(root, "trailer.mp4");
     await writeFile(oldTrailerPath, "old-trailer", "utf8");
@@ -156,13 +155,15 @@ describe("MaintenanceFileScraper asset replacement", () => {
     );
 
     expect(result.status).toBe("success");
-    expect(result.updatedEntry?.assets.trailer).toBe(join(root, "output", "ABC-123", "trailer.mp4"));
-    expect(result.publicationPlan?.obsoletePaths).not.toContain(oldTrailerPath);
-    expect(result.publicationPlan?.sidecars).toContainEqual({
-      sourcePath: oldTrailerPath,
-      targetPath: join(root, "output", "ABC-123", "trailer.mp4"),
-      size: 11,
-    });
+    if (decision === "replace") {
+      expect(result.updatedEntry?.assets.trailer).toBeUndefined();
+      expect(result.publicationPlan?.obsoletePaths).toContain(oldTrailerPath);
+      expect(result.publicationPlan?.sidecars?.some(({ sourcePath }) => sourcePath === oldTrailerPath)).toBe(false);
+    } else {
+      expect(result.updatedEntry?.assets.trailer).toBe(oldTrailerPath);
+      expect(result.publicationPlan?.obsoletePaths).not.toContain(oldTrailerPath);
+      expect(result.publicationPlan?.sidecars?.some(({ sourcePath }) => sourcePath === oldTrailerPath)).toBe(false);
+    }
     expect(result.publicationPlan?.replaceExistingTargetPaths).toBeDefined();
     expect(result.publicationPlan?.replaceExistingTargetPaths).not.toContain(
       join(root, "output", "ABC-123", "ABC-123.mp4"),

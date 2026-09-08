@@ -13,7 +13,6 @@ export * from "./mountedRootScrapeRuntime";
 export * from "./nfo";
 export * from "./organize/FileMover";
 export * from "./organize/NamingEngine";
-export * from "./organize/PathPlanner";
 export * from "./organize/SidecarResolver";
 export * from "./output/applyPosterTagBadges";
 export * from "./output/executeOutputSteps";

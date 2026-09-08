@@ -52,11 +52,13 @@ const fixture = async () => {
   const plan: PublicationPlan = {
     operationId: "run:attempt",
     operationType: "scrape",
-    video: {
-      source: { rootId: "input", relativePath: "movie.mp4" },
-      target: { rootId: "output", relativePath: "ABC-001/movie.mp4" },
-      size: 5,
-    },
+    videos: [
+      {
+        source: { rootId: "input", relativePath: "movie.mp4" },
+        target: { rootId: "output", relativePath: "ABC-001/movie.mp4" },
+        size: 5,
+      },
+    ],
     artifacts: [
       { target: { rootId: "output", relativePath: "ABC-001/movie.nfo" }, content: { kind: "text", data: "<movie/>" } },
       { target: { rootId: "output", relativePath: "ABC-001/poster.jpg" }, content: { kind: "text", data: "poster" } },

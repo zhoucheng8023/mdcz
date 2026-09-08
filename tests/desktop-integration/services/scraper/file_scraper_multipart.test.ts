@@ -1,9 +1,11 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
+import { commitPublishedMedia } from "@mdcz/runtime/publication";
+import { createMemoryPublicationJournal } from "@mdcz/runtime/publication/memoryJournal";
 import type {
   AggregationService,
   DownloadManager,
@@ -80,11 +82,10 @@ const createScraper = (
   aggregate: ReturnType<typeof vi.fn>,
   overrides: {
     downloadAll?: ReturnType<typeof vi.fn>;
-    ensureOutputReady?: ReturnType<typeof vi.fn>;
     resolveOutputPlan?: ReturnType<typeof vi.fn>;
-    organizeVideo?: ReturnType<typeof vi.fn>;
     moveToFailedFolder?: ReturnType<typeof vi.fn>;
     signalService?: SignalService;
+    plan?: ReturnType<typeof vi.fn>;
   } = {},
 ) => {
   mockConfigManager(config);
@@ -94,10 +95,7 @@ const createScraper = (
       downloaded: [],
       sceneImages: [],
     });
-  const ensureOutputReady = overrides.ensureOutputReady ?? vi.fn(async (plan: OrganizePlan) => plan);
   const resolveOutputPlan = overrides.resolveOutputPlan ?? vi.fn(async (plan: OrganizePlan) => plan);
-  const organizeVideo =
-    overrides.organizeVideo ?? vi.fn(async (_fileInfo: FileInfo, plan: OrganizePlan) => plan.targetVideoPath);
   const moveToFailedFolder = overrides.moveToFailedFolder ?? vi.fn(async (fileInfo: FileInfo) => fileInfo.filePath);
   const signalService = overrides.signalService ?? new SignalService(null);
   const scraper = createFileScraper({
@@ -114,10 +112,8 @@ const createScraper = (
       downloadAll,
     } as unknown as DownloadManager,
     fileOrganizer: {
-      plan: vi.fn((fileInfo: FileInfo) => createPlan(fileInfo)),
+      plan: overrides.plan ?? vi.fn((fileInfo: FileInfo) => createPlan(fileInfo)),
       resolveOutputPlan,
-      ensureOutputReady,
-      organizeVideo,
       moveToFailedFolder,
     } as unknown as FileOrganizer,
     signalService,
@@ -127,8 +123,7 @@ const createScraper = (
     scraper,
     mocks: {
       downloadAll,
-      ensureOutputReady,
-      organizeVideo,
+      resolveOutputPlan,
       signalService,
       moveToFailedFolder,
     },
@@ -307,6 +302,43 @@ describe("FileScraper multipart aggregation cache", () => {
     expect(first.status).toBe("success");
     expect(second.status).toBe("success");
     expect(resolveOutputPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes each multipart video and consumes one number-level feature exactly once", async () => {
+    const root = await createTempDir();
+    const output = join(root, "output", "FC2-123456");
+    const names = ["FC2-123456-CD1.mp4", "FC2-123456-CD2.mp4", "FC2-123456-CD3.mp4"];
+    const paths = names.map((name) => join(root, name));
+    const featurePath = join(root, "FC2-123456-花絮.mp4");
+    await Promise.all([...paths.map((filePath) => writeFile(filePath, filePath)), writeFile(featurePath, "feature")]);
+    const aggregate = vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData({ number: "FC2-123456" })));
+    const plan = vi.fn(
+      (fileInfo: FileInfo): OrganizePlan => ({
+        outputDir: output,
+        targetVideoPath: join(output, `${fileInfo.fileName}${fileInfo.extension}`),
+        nfoPath: join(output, "FC2-123456.nfo"),
+      }),
+    );
+    const { scraper } = createScraper(aggregate, { plan });
+    const mediaRoot = { id: "root", hostPath: root };
+    const journal = createMemoryPublicationJournal();
+
+    for (const [index, filePath] of paths.entries()) {
+      const result = await scraper.scrapeFile(filePath, { fileIndex: index + 1, totalFiles: paths.length }, undefined, {
+        roots: [mediaRoot],
+      });
+      expect(result.status).toBe("success");
+      if (result.status !== "success") continue;
+      await commitPublishedMedia(result.publicationPlan, {
+        resolveRoot: async () => mediaRoot,
+        journal,
+        commit: () => undefined,
+      });
+    }
+
+    for (const name of names) await expect(access(join(output, name))).resolves.toBeUndefined();
+    await expect(readFile(join(output, "FC2-123456-花絮.mp4"), "utf8")).resolves.toBe("feature");
+    await expect(access(featurePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("emits a processing result before the terminal result", async () => {

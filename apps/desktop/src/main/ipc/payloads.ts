@@ -60,6 +60,7 @@ export const scraperConfirmUncensoredInputSchema = z.object({
         fileId: z.string().min(1),
         nfoPath: z.string().min(1),
         videoPath: z.string().min(1),
+        metadataVideoPath: z.string().min(1).optional(),
         choice: z.enum(["umr", "leak", "uncensored"]),
       }),
     )

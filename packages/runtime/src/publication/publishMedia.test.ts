@@ -35,11 +35,13 @@ const fixture = async () => {
   const plan: PublicationPlan = {
     operationId: "run:item",
     operationType: "scrape",
-    video: {
-      source: { rootId: "input", relativePath: "movie.mp4" },
-      target: { rootId: "output", relativePath: "Movie/movie.mp4" },
-      size: 5,
-    },
+    videos: [
+      {
+        source: { rootId: "input", relativePath: "movie.mp4" },
+        target: { rootId: "output", relativePath: "Movie/movie.mp4" },
+        size: 5,
+      },
+    ],
     artifacts: [
       { target: { rootId: "metadata", relativePath: "Movie/movie.nfo" }, content: { kind: "text", data: "<movie/>" } },
       {
@@ -98,10 +100,55 @@ const residue = async (...roots: string[]): Promise<string[]> => {
 
 describe("commitPublishedMedia", () => {
   it.each([
-    "keep_both",
-    "keep_new",
-    "keep_existing",
-  ] as const)("resolves same-size subtitle conflicts only after choosing %s", async (choice) => {
+    "previous_success",
+    "previous_failure",
+    "target_exists",
+  ] as const)("consumes a shared feature once when %s", async (scenario) => {
+    const test = await fixture();
+    test.plan.videos = [];
+    test.plan.artifacts = [];
+    test.plan.assets = [];
+    test.plan.obsolete = [];
+    const featureSource = path.join(path.dirname(test.source), "FC2-123456-花絮.mp4");
+    const featureTarget = path.join(test.outputRoot, "Movie", "FC2-123456-花絮.mp4");
+    await writeFile(featureSource, "feature");
+    await mkdir(path.dirname(featureTarget), { recursive: true });
+    const featureMove = {
+      source: { rootId: "input", relativePath: "FC2-123456-花絮.mp4" },
+      target: { rootId: "output", relativePath: "Movie/FC2-123456-花絮.mp4" },
+      size: 7,
+      shared: true,
+    };
+    const createPlan = (operationId: string): PublicationPlan => ({
+      ...test.plan,
+      operationId,
+      sidecars: [featureMove],
+      replaceExistingTargets: [featureMove.target],
+    });
+    const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit: vi.fn() };
+
+    if (scenario === "previous_success") {
+      await commitPublishedMedia(createPlan("feature:first"), options);
+    } else if (scenario === "previous_failure") {
+      await expect(
+        commitPublishedMedia(createPlan("feature:failed"), {
+          ...options,
+          commit: () => {
+            throw new Error("commit failed");
+          },
+        }),
+      ).rejects.toThrow("commit failed");
+      await expect(readFile(featureSource, "utf8")).resolves.toBe("feature");
+    } else {
+      await writeFile(featureTarget, "old");
+    }
+
+    await commitPublishedMedia(createPlan("feature:last"), options);
+    await expect(readFile(featureTarget, "utf8")).resolves.toBe("feature");
+    await expect(readFile(featureSource)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("requires a planned subtitle replacement without offering a video conflict choice", async () => {
     const test = await fixture();
     const source = path.join(path.dirname(test.source), "movie.srt");
     const target = path.join(path.dirname(test.target), "movie.srt");
@@ -118,14 +165,14 @@ describe("commitPublishedMedia", () => {
     const commit = vi.fn(() => "committed");
     const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit };
     const conflict = await commitPublishedMedia(test.plan, options).catch((error) => error);
-    expect(conflict).toBeInstanceOf(PublicationConflictError);
+    expect(conflict).not.toBeInstanceOf(PublicationConflictError);
+    expect(conflict.message).toContain("sidecar replacement was not planned");
     expect(commit).not.toHaveBeenCalled();
     expect(await readFile(source, "utf8")).toBe("NEW");
     expect(await readFile(target, "utf8")).toBe("OLD");
-    await conflict.applyChoice(choice);
+    test.plan.replaceExistingTargets = [test.plan.sidecars[0].target];
     await expect(commitPublishedMedia(test.plan, options)).resolves.toBe("committed");
-    expect(await readFile(target, "utf8")).toBe(choice === "keep_new" ? "NEW" : "OLD");
-    if (choice === "keep_both") expect(await readFile(conflict.snapshot.keepBothPath, "utf8")).toBe("NEW");
+    expect(await readFile(target, "utf8")).toBe("NEW");
     expect(existsSync(source)).toBe(false);
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -340,7 +387,7 @@ describe("commitPublishedMedia", () => {
 
   it("rolls back files 1-2 when file 3 of 5 fails", async () => {
     const test = await fixture();
-    test.plan.video = undefined;
+    test.plan.videos = [];
     test.plan.obsolete = [];
     test.plan.artifacts = [1, 2, 3, 4, 5].map((index) => ({
       target: { rootId: "metadata" as const, relativePath: `Movie/file-${index}.txt` },
@@ -373,7 +420,7 @@ describe("commitPublishedMedia", () => {
 
   it("revalidates each target immediately before its rename", async () => {
     const test = await fixture();
-    test.plan.video = undefined;
+    test.plan.videos = [];
     test.plan.assets = [];
     test.plan.obsolete = [];
     test.plan.artifacts = [1, 2].map((index) => ({
@@ -404,7 +451,7 @@ describe("commitPublishedMedia", () => {
 
   it("restores a replaced target when the part rename fails after the backup", async () => {
     const test = await fixture();
-    test.plan.video = undefined;
+    test.plan.videos = [];
     test.plan.obsolete = [];
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
@@ -442,7 +489,7 @@ describe("commitPublishedMedia", () => {
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
     test.plan.replaceExistingTargets = [{ rootId: "metadata", relativePath: "Movie/movie.nfo" }];
-    test.plan.video = undefined;
+    test.plan.videos = [];
     const nfo = test.plan.artifacts[0];
     if (!nfo) throw new Error("fixture nfo artifact is required");
     test.plan.artifacts = [nfo];
@@ -659,7 +706,7 @@ describe("commitPublishedMedia", () => {
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
     test.plan.replaceExistingTargets = [{ rootId: "metadata", relativePath: "Movie/movie.nfo" }];
-    test.plan.video = undefined;
+    test.plan.videos = [];
     const nfo = test.plan.artifacts[0];
     if (!nfo) throw new Error("fixture nfo artifact is required");
     test.plan.artifacts = [nfo];

@@ -413,7 +413,7 @@ export class ScraperService {
               crawlerData: result.crawlerData,
               identity: result.crawlerData?.number || result.fileName,
               nfo: result.nfo ?? null,
-              size: plan.video?.size ?? 0,
+              size: plan.videos?.[0]?.size ?? 0,
               modifiedAt: null,
               uncensoredAmbiguous: result.uncensoredAmbiguous === true,
             }

@@ -235,7 +235,7 @@ describe("MaintenanceSessionCoordinator", () => {
           entry: { ...entry, fileInfo: { ...entry.fileInfo, filePath: outputPath } },
           outputRelativePath: "one.mp4",
           plan: {
-            video: { sourcePath: outputPath, targetPath: outputPath, size: 1 },
+            videos: [{ sourcePath: outputPath, targetPath: outputPath, size: 1 }],
             artifacts: [],
             assets: [],
             obsoletePaths: [],
@@ -452,7 +452,7 @@ describe("MaintenanceSessionCoordinator", () => {
           entry: { ...entry, fileInfo: { ...entry.fileInfo, filePath: outputPath } },
           outputRelativePath: "one.mp4",
           plan: {
-            video: { sourcePath: outputPath, targetPath: outputPath, size: 1 },
+            videos: [{ sourcePath: outputPath, targetPath: outputPath, size: 1 }],
             artifacts: [],
             assets: [],
             obsoletePaths: [],
@@ -528,7 +528,7 @@ describe("MaintenanceSessionCoordinator", () => {
               entry,
               outputRelativePath: "owned.mp4",
               plan: {
-                video: { sourcePath: outputPath, targetPath: outputPath, size: 1 },
+                videos: [{ sourcePath: outputPath, targetPath: outputPath, size: 1 }],
                 artifacts: [],
                 assets: [],
                 obsoletePaths: [],

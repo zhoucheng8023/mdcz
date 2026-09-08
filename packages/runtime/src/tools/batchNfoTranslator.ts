@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { Configuration } from "@mdcz/shared/config";
 import type { BatchTranslateApplyResultItem, BatchTranslateField, BatchTranslateScanItem } from "@mdcz/shared/ipcTypes";
 import type { CrawlerData, FileInfo, LocalScanEntry, NfoLocalState } from "@mdcz/shared/types";
+import { commitRegisteredPublication, type RegisteredPublicationContext } from "../publication";
 import {
   ensureTargetChinese,
   getTargetLanguageLabel,
@@ -13,7 +14,7 @@ import {
   normalizeNewlines,
   toTarget,
 } from "../scrape";
-import { NfoGenerator, nfoIgnoreFieldsToEnabledFields } from "../scrape/nfo";
+import { getNfoWritePaths, NfoGenerator, nfoIgnoreFieldsToEnabledFields } from "../scrape/nfo";
 import type { RuntimeLogger } from "../shared";
 import { detectLanguage, toErrorMessage } from "../shared";
 
@@ -65,6 +66,7 @@ type PendingTranslationResult = {
 };
 
 export interface BatchNfoTranslatorDependencies {
+  publication?: RegisteredPublicationContext;
   localScanService?: BatchTranslateLocalScanService;
   llmApiClient?: Pick<LlmApiClient, "generateText">;
   nfoGenerator?: NfoGenerator;
@@ -359,6 +361,8 @@ export const applyBatchNfoTranslations = async (
   if (!dependencies.llmApiClient) {
     throw new Error("Batch NFO translation apply requires an llmApiClient dependency");
   }
+  const publication = dependencies.publication;
+  if (!publication) throw new Error("Batch NFO translation requires a publication context");
 
   assertLlmConfiguration(config);
 
@@ -367,6 +371,7 @@ export const applyBatchNfoTranslations = async (
   const writeNfo = dependencies.writeNfo ?? defaultWriteNfo;
   const target = toTarget(config.translate.targetLanguage);
   const plans: BatchTranslationPlanItem[] = [];
+  const nfoPaths = new Set<string>();
   const pendingByKey = new Map<string, PendingTranslation>();
 
   for (const item of items) {
@@ -375,6 +380,9 @@ export const applyBatchNfoTranslations = async (
       plans.push({ entry });
       continue;
     }
+    const nfoKey = resolve(entry.nfoPath);
+    if (nfoPaths.has(nfoKey)) continue;
+    nfoPaths.add(nfoKey);
 
     const titleAction = item.pendingFields.includes("title")
       ? buildFieldAction("title", entry.crawlerData.title, entry.crawlerData.title_zh, target)
@@ -458,6 +466,7 @@ export const applyBatchNfoTranslations = async (
 
     try {
       const detectedNfoNaming = await resolveExistingNfoNaming(entry.nfoPath);
+      const artifacts = new Map<string, string>();
       const savedNfoPath = await writeNfo({
         assets: {
           downloaded: [],
@@ -478,7 +487,22 @@ export const applyBatchNfoTranslations = async (
         nfoGenerator,
         nfoPath: entry.nfoPath,
         sourceVideoPath: entry.fileInfo.filePath,
+        writeFile: async (path, content) => {
+          artifacts.set(path, content);
+        },
       });
+      await commitRegisteredPublication(
+        {
+          operationId: `batch-nfo-translation:${entry.nfoPath}`,
+          operationType: "maintenance",
+          artifacts: [...artifacts].map(([targetPath, data]) => ({ targetPath, content: { kind: "text", data } })),
+          obsoletePaths: getNfoWritePaths(entry.nfoPath, detectedNfoNaming).stalePaths.filter(
+            (path) => !artifacts.has(path),
+          ),
+          replaceExistingArtifacts: true,
+        },
+        publication,
+      );
 
       results.push({
         ...baseResult,

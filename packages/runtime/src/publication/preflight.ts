@@ -25,7 +25,7 @@ const refKey = (ref: RootFileRef): string => `${ref.rootId}\0${parseWireRelative
 const refLabel = (ref: RootFileRef): string => `${ref.rootId}:${ref.relativePath}`;
 
 export const planMoves = (plan: PublicationPlan): PublicationMove[] => [
-  ...(plan.video ? [plan.video] : []),
+  ...(plan.videos ?? []),
   ...(plan.sidecars ?? []),
 ];
 
@@ -147,6 +147,11 @@ export const preflightPublication = async (
     const targetPath = resolve(move.target);
     const source = await record(sourcePath);
     const target = await record(targetPath);
+    if (target.exists && !target.isFile) throw new Error(`Publication target is not a file: ${targetPath}`);
+    if (move.shared && target.exists && !source.exists) {
+      plan.sidecars = plan.sidecars?.filter((candidate) => candidate !== move);
+      continue;
+    }
     if (source.exists) {
       if (!source.isFile || source.size !== move.size) {
         throw new Error(`Publication source size mismatch: ${refLabel(move.source)}`);
@@ -154,7 +159,12 @@ export const preflightPublication = async (
     } else {
       throw new Error(`Publication source is missing: ${refLabel(move.source)}`);
     }
-    if (sourcePath !== targetPath && target.exists && !replacing.has(refKey(move.target))) {
+    if (
+      plan.videos?.includes(move) &&
+      sourcePath !== targetPath &&
+      target.exists &&
+      !replacing.has(refKey(move.target))
+    ) {
       throw await createPublicationConflict({
         plan,
         target: move.target,
@@ -164,26 +174,27 @@ export const preflightPublication = async (
         fileSystem,
       });
     }
+    if (
+      !plan.videos?.includes(move) &&
+      sourcePath !== targetPath &&
+      target.exists &&
+      !replacing.has(refKey(move.target))
+    )
+      throw new Error(`Publication sidecar replacement was not planned: ${refLabel(move.target)}`);
   }
 
   for (const artifact of plan.artifacts) {
     const targetPath = resolve(artifact.target);
     const existing = await record(targetPath);
     if (!existing.exists) continue;
+    if (!existing.isFile) throw new Error(`Publication target is not a file: ${targetPath}`);
     if (artifact.content.kind === "download") {
       throw new Error(`Publication target already exists: ${refLabel(artifact.target)}`);
     }
     const expected = Buffer.from(artifact.content.data);
     const actual = await fileSystem.readFile(targetPath);
-    if (!actual.equals(expected) && !replacing.has(refKey(artifact.target))) {
-      throw await createPublicationConflict({
-        plan,
-        target: artifact.target,
-        sourceSize: expected.length,
-        resolve,
-        fileSystem,
-      });
-    }
+    if (!actual.equals(expected) && !replacing.has(refKey(artifact.target)))
+      throw new Error(`Publication artifact replacement was not planned: ${refLabel(artifact.target)}`);
   }
 
   for (const ref of plan.obsolete) {

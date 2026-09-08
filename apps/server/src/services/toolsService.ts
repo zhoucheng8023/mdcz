@@ -12,15 +12,7 @@ import {
   probeMediaServer,
 } from "@mdcz/runtime/mediaserver";
 import type { NetworkClient } from "@mdcz/runtime/network";
-import { commitRegisteredPublication } from "@mdcz/runtime/publication";
-import {
-  AggregationService,
-  getNfoWritePaths,
-  LlmApiClient,
-  NfoGenerator,
-  TranslateService,
-  toTarget,
-} from "@mdcz/runtime/scrape";
+import { AggregationService, LlmApiClient, NfoGenerator, TranslateService, toTarget } from "@mdcz/runtime/scrape";
 import { runtimeLoggerService } from "@mdcz/runtime/shared";
 import {
   applyAmazonPosters,
@@ -161,6 +153,7 @@ export class ToolsService {
               hostPath: resolveDesktopInputRootPath(items.map((item) => item.nfoPath)),
             });
           }
+          const state = await this.persistence.getState();
           const results = await applyBatchNfoTranslations(
             items,
             config,
@@ -168,31 +161,11 @@ export class ToolsService {
               llmApiClient: this.llmApiClient,
               localScanService: this.localScanService,
               nfoGenerator: this.nfoGenerator,
-              writeNfo: async (writeInput) => {
-                const artifacts: Array<{ targetPath: string; content: { kind: "text"; data: string } }> = [];
-                const savedNfoPath = await writePreparedNfo({
-                  ...writeInput,
-                  writeFile: async (targetPath, content) => {
-                    artifacts.push({ targetPath, content: { kind: "text", data: content } });
-                  },
-                });
-                const state = await this.persistence.getState();
-                await commitRegisteredPublication(
-                  {
-                    operationId: `batch-nfo-translation:${writeInput.fileInfo.filePath}`,
-                    operationType: "maintenance",
-                    artifacts,
-                    obsoletePaths: getNfoWritePaths(writeInput.nfoPath, writeInput.config.download.nfoNaming)
-                      .stalePaths,
-                    replaceExistingArtifacts: true,
-                  },
-                  {
-                    journal: state.repositories.publicationJournal,
-                    repairIssues: state.repositories.libraryRepairIssues,
-                    roots: await this.mediaRoots.listRoots(),
-                  },
-                );
-                return savedNfoPath;
+              writeNfo: writePreparedNfo,
+              publication: {
+                journal: state.repositories.publicationJournal,
+                repairIssues: state.repositories.libraryRepairIssues,
+                roots: await this.mediaRoots.listRoots(),
               },
             },
             {
