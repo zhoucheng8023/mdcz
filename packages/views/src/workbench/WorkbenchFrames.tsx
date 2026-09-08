@@ -12,7 +12,6 @@ export interface ScrapeWorkbenchFrameProps {
   progress: number;
   showCompletedActions: boolean;
   failedCount: number;
-  conflictAction?: ReactNode;
   onPauseScrape: () => void;
   onResumeScrape: () => void;
   onStopScrape: () => void;
@@ -28,7 +27,6 @@ export function ScrapeWorkbenchFrame({
   progress,
   showCompletedActions,
   failedCount,
-  conflictAction,
   onPauseScrape,
   onResumeScrape,
   onStopScrape,
@@ -102,7 +100,6 @@ export function ScrapeWorkbenchFrame({
               >
                 <StopCircle className="h-4 w-4" />
               </Button>
-              {conflictAction}
             </>
           ) : null}
 

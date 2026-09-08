@@ -289,16 +289,6 @@ export class MaintenanceSession {
     return { item: this.cloneBatchItem(current), preview: this.preview(item.selection.previewId) };
   }
 
-  markConflict(generation: number, item: MaintenanceBatchItem): void {
-    this.assertGeneration(generation, ["running", "paused"]);
-    const current = this.currentBatch?.items.get(item.selection.previewId);
-    if (!current || current.id !== item.id)
-      throw new StaleMaintenanceGenerationError(`Stale maintenance item: ${item.id}`);
-    current.status = "waiting_conflict";
-    current.error = "文件冲突，等待选择";
-    this.touch();
-  }
-
   commitItem(generation: number, item: MaintenanceBatchItem, result: MaintenanceApplyItemResult): boolean {
     this.assertGeneration(generation, ["running", "paused", "stopping"]);
     const current = this.currentBatch?.items.get(item.selection.previewId);

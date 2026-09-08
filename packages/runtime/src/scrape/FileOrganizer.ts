@@ -25,12 +25,30 @@ interface ResolveOutputPlanOptions {
   createDirectories?: boolean;
 }
 
-interface PlanOptions {
+export interface OrganizePlanOptions {
   executionMode?: ScrapeExecutionMode;
   outputBaseDirectory?: string;
 }
 
 export type ScrapeExecutionMode = "single" | "batch";
+
+export const resolveOrganizeDirectory = (
+  sourcePath: string,
+  config: Configuration,
+  options: OrganizePlanOptions = {},
+): { directory: string; useFolderTemplate: boolean } => {
+  const sourceDir = resolve(dirname(sourcePath));
+  if (options.executionMode === "single" || !config.behavior.successFileMove) {
+    return { directory: sourceDir, useFolderTemplate: false };
+  }
+  if (options.outputBaseDirectory) {
+    return { directory: resolve(options.outputBaseDirectory), useFolderTemplate: true };
+  }
+  const base = resolve(config.paths.mediaPath.trim() || sourceDir, config.paths.successOutputFolder.trim());
+  return isPathInside(base, sourceDir) && sourceDir !== base
+    ? { directory: sourceDir, useFolderTemplate: false }
+    : { directory: base, useFolderTemplate: true };
+};
 
 interface ScrapeFileTransitionOptions {
   configuration: Configuration;
@@ -58,23 +76,11 @@ export class FileOrganizer {
     data: CrawlerData,
     config: Configuration,
     localState?: NfoLocalState,
-    options: PlanOptions = {},
+    options: OrganizePlanOptions = {},
   ): OrganizePlan {
-    const sourceVideo = parse(fileInfo.filePath);
     const layout = this.namingEngine.buildLayout(fileInfo, data, config, localState);
-
-    let outputDir: string;
-    if (options.executionMode === "single" || !config.behavior.successFileMove) {
-      outputDir = sourceVideo.dir;
-    } else if (options.outputBaseDirectory) {
-      outputDir = join(resolve(options.outputBaseDirectory), layout.folderRelativePath);
-    } else {
-      const baseOutput = this.resolveBaseOutput(fileInfo, config);
-      const sourceDir = resolve(sourceVideo.dir);
-      const resolvedBase = resolve(baseOutput);
-      const isAlreadyInOutput = isPathInside(resolvedBase, sourceDir) && sourceDir !== resolvedBase;
-      outputDir = isAlreadyInOutput ? sourceDir : join(baseOutput, layout.folderRelativePath);
-    }
+    const { directory, useFolderTemplate } = resolveOrganizeDirectory(fileInfo.filePath, config, options);
+    const outputDir = useFolderTemplate ? join(directory, layout.folderRelativePath) : directory;
 
     const targetVideoPath = join(outputDir, layout.targetVideoFileName);
     const metadataDir = options.executionMode === "single" ? outputDir : this.resolveMetadataDir(outputDir, config);
@@ -166,12 +172,6 @@ export class FileOrganizer {
     });
     this.logger.info(`Moved failed file to ${failedDir}: ${fileInfo.fileName}`);
     return movedPath;
-  }
-
-  private resolveBaseOutput(fileInfo: FileInfo, config: Configuration): string {
-    const mediaRoot = config.paths.mediaPath.trim();
-    const base = mediaRoot.length > 0 ? mediaRoot : dirname(fileInfo.filePath);
-    return resolve(base, config.paths.successOutputFolder.trim());
   }
 
   private resolveMetadataDir(outputDir: string, config: Configuration): string {

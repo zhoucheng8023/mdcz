@@ -10,7 +10,7 @@ import {
 } from "../scrape/media";
 import { getNfoWritePaths } from "../scrape/nfo";
 import { listVideoFiles } from "../scrape/utils/filesystem";
-import { isStrmFile, prepareMovedStrmContent, prepareStrmMirrorContent } from "../scrape/utils/strm";
+import { prepareMovedStrmContent, prepareStrmMirrorContent } from "../scrape/utils/strm";
 import type { PreparedPublicationPlan } from "./types";
 
 export const preparePublicationPlan = async (input: {
@@ -38,7 +38,6 @@ export const preparePublicationPlan = async (input: {
   const artifacts: PreparedPublicationPlan["artifacts"] = [];
   const sidecars: NonNullable<PreparedPublicationPlan["sidecars"]> = [];
   const obsolete = new Set<string>();
-  const replacements = new Set<string>();
   const mapped = new Map<string, string>();
   const existing = input.existingAssets;
   const downloaded = input.downloadedAssets;
@@ -117,7 +116,6 @@ export const preparePublicationPlan = async (input: {
               );
         if (stagedName) {
           artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(sourcePath) } });
-          replacements.add(targetPath);
         } else if (sourcePath !== targetPath) {
           sidecars.push({
             sourcePath,
@@ -139,10 +137,12 @@ export const preparePublicationPlan = async (input: {
       for (const old of group.old) if (old && !targets.includes(old)) obsolete.add(old);
     }
   }
-  let nfoPath = await input.writeNfo({ ...assets, downloaded: [...replacements] }, async (targetPath, data) => {
-    artifacts.push({ targetPath, content: { kind: "text", data } });
-    replacements.add(targetPath);
-  });
+  let nfoPath = await input.writeNfo(
+    { ...assets, downloaded: [...new Set(artifacts.map(({ targetPath }) => targetPath))] },
+    async (targetPath, data) => {
+      artifacts.push({ targetPath, content: { kind: "text", data } });
+    },
+  );
   if (!nfoPath && input.existingNfoPath) {
     const paths = getNfoWritePaths(input.organizePlan?.nfoPath ?? input.existingNfoPath, input.nfoNaming);
     nfoPath = paths.canonicalPath;
@@ -215,21 +215,6 @@ export const preparePublicationPlan = async (input: {
                 targetPath: input.outputVideoPath,
                 size: (await stat(input.sourceVideoPath)).size,
                 content: await prepareMovedStrmContent(input.sourceVideoPath, input.outputVideoPath),
-                nameTargetPaths: [...artifacts, ...sidecars]
-                  .map(({ targetPath }) => targetPath)
-                  .filter((targetPath) => {
-                    const name = basename(targetPath);
-                    const videoName = parse(input.outputVideoPath).name;
-                    return (
-                      name !== "movie.nfo" &&
-                      name.startsWith(videoName) &&
-                      /^[.\-_\s]/u.test(name.slice(videoName.length))
-                    );
-                  }),
-                referenceTargetPaths:
-                  input.organizePlan.strmPath && !isStrmFile(input.sourceVideoPath)
-                    ? [input.organizePlan.strmPath]
-                    : [],
               },
             ]
           : [],
@@ -238,11 +223,7 @@ export const preparePublicationPlan = async (input: {
       assets: assetRefs,
       obsoletePaths: [...obsolete].filter((filePath) => !retained.has(filePath) && !protectedSources.has(filePath)),
       replaceExistingTargetPaths: [
-        ...new Set([
-          ...replacements,
-          ...artifacts.map(({ targetPath }) => targetPath),
-          ...sidecars.map(({ targetPath }) => targetPath),
-        ]),
+        ...new Set([...artifacts.map(({ targetPath }) => targetPath), ...sidecars.map(({ targetPath }) => targetPath)]),
       ],
     },
   };

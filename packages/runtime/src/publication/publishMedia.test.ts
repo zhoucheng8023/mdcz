@@ -673,7 +673,7 @@ describe("commitPublishedMedia", () => {
           return () => undefined;
         },
       }),
-    ).rejects.toThrow("changed before mutation");
+    ).rejects.toBeInstanceOf(PublicationConflictError);
     await expect(readFile(test.source, "utf8")).resolves.toBe("video");
   });
 
@@ -696,7 +696,7 @@ describe("commitPublishedMedia", () => {
         commit,
         fileSystem,
       }),
-    ).rejects.toThrow("changed before mutation");
+    ).rejects.toBeInstanceOf(PublicationConflictError);
     expect(commit).not.toHaveBeenCalled();
     await expect(readFile(test.source, "utf8")).resolves.toBe("video");
   });

@@ -6,7 +6,6 @@ import { LocalScanService } from "@mdcz/runtime/maintenance";
 import {
   commitPublishedMedia,
   createPublicationPlan,
-  publishWithConflictResolution,
   type RegisteredPublicationContext,
 } from "@mdcz/runtime/publication";
 import { confirmUncensoredOutputs, nfoGenerator, type UncensoredConfirmDependencies } from "@mdcz/runtime/scrape";
@@ -24,16 +23,14 @@ export const createUncensoredConfirmDependencies = (
   pathExists,
   publish: async ({ operationId, plan }) => {
     const publicationPlan = createPublicationPlan(operationId, "maintenance", plan, publication.roots);
-    await publishWithConflictResolution(operationId, async () => {
-      await commitPublishedMedia(publicationPlan, {
-        ...publication,
-        resolveRoot: async (rootId) => {
-          const root = publication.roots.find((root) => root.id === rootId);
-          if (!root) throw new Error(`Publication root not found: ${rootId}`);
-          return root;
-        },
-        commit: () => undefined,
-      });
+    await commitPublishedMedia(publicationPlan, {
+      ...publication,
+      resolveRoot: async (rootId) => {
+        const root = publication.roots.find((root) => root.id === rootId);
+        if (!root) throw new Error(`Publication root not found: ${rootId}`);
+        return root;
+      },
+      commit: () => undefined,
     });
   },
 });

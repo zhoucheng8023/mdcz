@@ -11,7 +11,6 @@ import {
   commitPublishedMedia,
   commitScrapeTerminalResult,
   createPublicationPlan,
-  publishWithConflictResolution,
   type ScrapeFileTransitions,
   type ScrapeSuccessPublicationFacts,
 } from "@mdcz/runtime/publication";
@@ -24,9 +23,11 @@ import {
   type MountedRootScrapeRuntimeItemSuccess,
   NfoGenerator,
   PosterCropService,
+  preflightScrapeTask,
 } from "@mdcz/runtime/scrape";
 import { runtimeLoggerService } from "@mdcz/runtime/shared";
 import {
+  preflightScrapeRetry,
   resolveScrapeAttempts,
   resolveScrapeRetry,
   ScrapeCoordinator,
@@ -147,6 +148,15 @@ export class ScrapeService {
     );
     this.host = {
       create: async (input) => await this.createRun(input),
+      preflightRetry: async (runId, itemIds) => {
+        const state = await this.persistence.getState();
+        await preflightScrapeRetry({
+          manifest: await state.repositories.scrapeRuns.get(runId),
+          itemIds,
+          configuration: await this.config.get(),
+          resolveRoot: async (id) => await this.mediaRoots.get(id),
+        });
+      },
       runId: (run) => run.id,
       createExecution: async (run, reporter) => await this.createExecution(run, reporter),
       onInvalidate: () => this.scheduleScrapeInvalidation(),
@@ -348,17 +358,15 @@ export class ScrapeService {
             .catch(() => false),
         publish: async ({ operationId, plan }) => {
           const publicationPlan = createPublicationPlan(operationId, "maintenance", plan, [...roots.values()]);
-          await publishWithConflictResolution(operationId, async () => {
-            await commitPublishedMedia(publicationPlan, {
-              journal: state.repositories.publicationJournal,
-              repairIssues: state.repositories.libraryRepairIssues,
-              resolveRoot: async (rootId) => {
-                const root = roots.get(rootId);
-                if (!root) throw new Error(`Publication root not found: ${rootId}`);
-                return root;
-              },
-              commit: () => undefined,
-            });
+          await commitPublishedMedia(publicationPlan, {
+            journal: state.repositories.publicationJournal,
+            repairIssues: state.repositories.libraryRepairIssues,
+            resolveRoot: async (rootId) => {
+              const root = roots.get(rootId);
+              if (!root) throw new Error(`Publication root not found: ${rootId}`);
+              return root;
+            },
+            commit: () => undefined,
           });
         },
       },
@@ -504,7 +512,24 @@ export class ScrapeService {
     const refs = await this.mediaRoots.canonicalizeFileRefs(input.refs);
     const rootId = refs[0]?.rootId;
     if (!rootId) throw new Error("Scrape run requires at least one file");
-    if (input.outputRootId) await this.mediaRoots.get(input.outputRootId);
+    const outputRoot = await this.mediaRoots.get(input.outputRootId ?? rootId);
+    const configuration = await this.config.get();
+    await preflightScrapeTask({
+      files: await Promise.all(
+        refs.map(async (ref) => ({
+          sourcePath: resolveRootRelativePath(await this.mediaRoots.get(ref.rootId), ref.relativePath),
+        })),
+      ),
+      executionMode: input.executionMode,
+      configuration: {
+        ...configuration,
+        paths: {
+          ...configuration.paths,
+          mediaPath: outputRoot.hostPath,
+          ...(input.outputRootId ? { successOutputFolder: input.outputRelativeDirectory ?? "" } : {}),
+        },
+      },
+    });
     return await (await this.persistence.getState()).repositories.scrapeRuns.create({
       rootId,
       outputRootId: input.outputRootId ?? null,
@@ -575,6 +600,21 @@ export class ScrapeService {
       items,
       initialItems,
       concurrency: manifest.executionMode === "single" ? 1 : policy.concurrency,
+      preflight: async (pending: readonly ScrapeRunItem<ServerManualScrape>[]) => {
+        const outputRoot = requestedOutputRoot ?? (await this.mediaRoots.get(manifest.rootId));
+        await preflightScrapeTask({
+          files: pending,
+          executionMode: manifest.executionMode,
+          configuration: {
+            ...configuration,
+            paths: {
+              ...configuration.paths,
+              mediaPath: outputRoot.hostPath,
+              ...(requestedOutputRoot ? { successOutputFolder: manifest.requestedOutputRelativeDirectory ?? "" } : {}),
+            },
+          },
+        });
+      },
       admitItem: async (item: ScrapeRunItem<ServerManualScrape>) => {
         const existing = openAttemptByItemId.get(item.id);
         if (existing) return existing;
@@ -654,7 +694,6 @@ export class ScrapeService {
         localState: item.manualScrape?.uncensoredChoice
           ? { uncensoredChoice: item.manualScrape.uncensoredChoice }
           : undefined,
-        replaceExistingTargets: item.replaceExistingTargets,
         outputBaseDirectory: item.outputBaseDirectory,
         signal,
         onEvent: (type, message) => {

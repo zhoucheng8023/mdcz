@@ -88,7 +88,6 @@ export type FileScrapeOptions = {
   source?: RootFileRef;
   roots?: readonly Pick<MediaRoot, "id" | "hostPath">[];
   operationId?: string;
-  replaceExistingTargets?: boolean;
   outputBaseDirectory?: string;
 };
 

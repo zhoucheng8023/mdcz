@@ -18,7 +18,6 @@ import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry, MaintenancePresetId } from "@mdcz/shared/types";
 import { mediaPathOwnership } from "../library/mediaPathOwnership";
 import { type PreparedPublicationPlan, PublicationError, type PublicationPlan } from "../publication";
-import { PublicationConflictError, publicationConflicts } from "../publication/conflicts";
 import { isAbortError } from "../scrape/utils/abort";
 import { TaskExecutor, type TaskExecutorContext } from "../tasks";
 import {
@@ -194,7 +193,6 @@ export class MaintenanceSessionCoordinator {
   private session: MaintenanceSession | null = null;
   private active: ActiveExecution | null = null;
   private executionPromise: Promise<void> | null = null;
-  private readonly conflictRuns = new Set<Promise<void>>();
   private stopOperation?: { sessionId: string; generation: number; promise: Promise<MaintenanceSessionSnapshot> };
   private readonly changeWaiters = new Map<string, Set<() => void>>();
   private revision = 0;
@@ -332,7 +330,6 @@ export class MaintenanceSessionCoordinator {
     const current = this.require(sessionId);
     if (current.status === "completed" || current.status === "failed") return current.statusSnapshot();
     const generation = current.beginStopping(STOPPED);
-    publicationConflicts.cancelTask(sessionId);
     await this.publishStatus(current, "stopping", "Stopping maintenance session");
     this.active?.executor.stop();
     await this.awaitCurrentExecution();
@@ -377,7 +374,6 @@ export class MaintenanceSessionCoordinator {
     if (this.closing) return;
     this.closing = true;
     const session = this.session;
-    if (session) publicationConflicts.cancelTask(session.id);
     if (!session?.isActive()) {
       session?.invalidate();
       this.releasePaths();
@@ -639,30 +635,6 @@ export class MaintenanceSessionCoordinator {
         result.outputSize = execution.publication.refresh.size;
       } catch (error) {
         if (!this.isCurrent(sessionId, generation)) throw error;
-        if (error instanceof PublicationConflictError && this.require(sessionId).status !== "stopping") {
-          this.require(sessionId).markConflict(generation, item);
-          publicationConflicts.register(sessionId, item.id, error, async () => {
-            const run = this.applyPublication(sessionId, generation, item, execution);
-            this.conflictRuns.add(run);
-            try {
-              await run;
-            } finally {
-              this.conflictRuns.delete(run);
-            }
-            const session = this.require(sessionId);
-            const progress = session.progress();
-            if (session.status === "running" && progress.completedEntries === progress.totalEntries) {
-              await this.finishSession(
-                sessionId,
-                generation,
-                progress.failedCount === progress.totalEntries ? "failed" : "completed",
-                null,
-              );
-            }
-          });
-          await this.publishChanged(this.require(sessionId));
-          return;
-        }
         result =
           error instanceof PublicationError && error.committed
             ? { ...result, error: errorMessage(error) }
@@ -850,7 +822,6 @@ export class MaintenanceSessionCoordinator {
   }
 
   private async awaitCurrentExecution(): Promise<void> {
-    await Promise.all(this.conflictRuns);
     for (;;) {
       const current = this.executionPromise;
       if (!current) return;

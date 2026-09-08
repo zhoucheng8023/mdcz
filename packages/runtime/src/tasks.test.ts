@@ -134,6 +134,7 @@ describe("scrape run session", () => {
       runId: "fixture-context",
       items,
       concurrency: 2,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => {
         await Promise.resolve();
@@ -175,6 +176,7 @@ describe("scrape run session", () => {
       runId: "run-1",
       items,
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => {
         executed.push(item.id);
@@ -254,6 +256,7 @@ describe("scrape run session", () => {
       runId: "run-mixed",
       items,
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => terminalResult(item, item.id === "one" ? "success" : "failed"),
       commitItem: async (_item, result) => result,
@@ -282,6 +285,7 @@ describe("scrape run session", () => {
       runId: `run-resume-${concurrency}`,
       items,
       concurrency,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => {
         const index = ids.indexOf(item.id);
@@ -315,6 +319,7 @@ describe("scrape run session", () => {
       runId: "run-progress",
       items,
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => {
         if (item.id === "one") {
@@ -346,6 +351,7 @@ describe("scrape run session", () => {
       runId: "run-progress-terminal",
       items,
       concurrency: 2,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => terminalResult(item, "success"),
       commitItem: async (_item, result) => result,
@@ -368,6 +374,7 @@ describe("scrape run session", () => {
       runId: "run-1",
       items,
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item, signal) => {
         executed.push(item.id);
@@ -413,6 +420,7 @@ describe("scrape run session", () => {
       runId: "run-1",
       items,
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item) => terminalResult(item, "success"),
       commitItem: async (item, result) => {
@@ -450,6 +458,7 @@ describe("scrape run session", () => {
       runId: "run-1",
       items: [runItem("one"), runItem("two")],
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async (item, signal) => {
         started.resolve();
@@ -480,6 +489,7 @@ describe("scrape run session", () => {
       runId: "run-persistence-failure",
       items: [runItem("one")],
       concurrency: 1,
+      preflight: async () => undefined,
       admitItem,
       executeItem: async () => {
         throw new Error("crawler crashed");

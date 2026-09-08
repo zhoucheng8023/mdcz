@@ -15,11 +15,7 @@ import {
   startMaintenanceFlow,
   useWorkbenchSessionSnapshot,
 } from "@mdcz/views/adapters";
-import {
-  PublicationConflictDialog,
-  UncensoredConfirmDialog,
-  type UncensoredConfirmSelection,
-} from "@mdcz/views/scrape";
+import { ScrapeStartErrorDialog, UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
 import { selectMaintenanceExecutionStatus, useMaintenanceStore } from "@mdcz/views/state/maintenanceStore";
 import {
   selectIsScraping,
@@ -50,6 +46,7 @@ export const Route = createFileRoute("/workbench")({
 export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintenance" }) {
   const queryClient = useQueryClient();
   const [uncensoredDialogOpen, setUncensoredDialogOpen] = useState(false);
+  const [startError, setStartError] = useState<unknown>(null);
   const configQ = useCurrentConfig();
   const workbenchPorts = useMemo(() => createDesktopWorkbenchPorts(), []);
 
@@ -142,7 +139,7 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
         return;
       }
 
-      toast.error(`启动失败: ${errorMessage}`);
+      setStartError(error);
     }
   };
 
@@ -210,7 +207,7 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
       activateRetryScrapeTask();
       toast.success(result.data.message);
     } catch (error) {
-      toast.error(`重试失败: ${toErrorMessage(error)}`);
+      setStartError(error);
     }
   };
 
@@ -263,9 +260,6 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
           ) : workbenchMode === "scrape" ? (
             <ScrapeWorkbenchAdapter
               ports={workbenchPorts}
-              conflictAction={
-                <PublicationConflictDialog list={ipc.scraper.conflicts} resolve={ipc.scraper.resolveConflict} />
-              }
               onPauseScrape={handlePauseScrape}
               onResumeScrape={handleResumeScrape}
               onStopScrape={handleStopScrape}
@@ -278,6 +272,7 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
         </Suspense>
       </div>
 
+      <ScrapeStartErrorDialog error={startError} onClose={() => setStartError(null)} />
       <UncensoredConfirmDialog
         open={uncensoredDialogOpen && ambiguousDialogItems.length > 0}
         onOpenChange={setUncensoredDialogOpen}

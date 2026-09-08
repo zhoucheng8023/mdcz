@@ -2,7 +2,6 @@ import { basename } from "node:path";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { ScrapeResult, ScrapeResultStatus } from "@mdcz/shared/types";
 import { runWithScrapeItem } from "../../network/networkExecution";
-import { PublicationConflictError, publicationConflicts } from "../../publication/conflicts";
 import { TaskExecutor } from "../executor";
 
 export const MAX_LIVE_SCRAPE_LOGS = 200;
@@ -16,7 +15,7 @@ export type ScrapeRunLiveStatus =
   | "failed"
   | "stopped"
   | "interrupted";
-export type ScrapeRunItemStatus = "pending" | "processing" | "waiting_conflict" | "success" | "failed" | "skipped";
+export type ScrapeRunItemStatus = "pending" | "processing" | "success" | "failed" | "skipped";
 
 export interface ScrapeRunItem<TManualScrape = unknown> {
   id: string;
@@ -25,7 +24,6 @@ export interface ScrapeRunItem<TManualScrape = unknown> {
   sourcePath: string;
   manualScrape?: TManualScrape;
   executionSource?: RootFileRef;
-  replaceExistingTargets?: boolean;
   outputBaseDirectory?: string;
   caseId?: string;
 }
@@ -80,12 +78,12 @@ export interface ScrapeRunSessionOptions<TManualScrape = unknown> {
   items: readonly ScrapeRunItem<TManualScrape>[];
   initialItems?: readonly ScrapeRunItemInitialState<TManualScrape>[];
   concurrency: number;
+  preflight(items: readonly ScrapeRunItem<TManualScrape>[]): Promise<void>;
   acquireItem?: (item: ScrapeRunItem<TManualScrape>) => () => void;
   admitItem: (item: ScrapeRunItem<TManualScrape>) => Promise<string>;
   executeItem: (item: ScrapeRunItem<TManualScrape>, signal: AbortSignal, attemptId: string) => Promise<ScrapeResult>;
   commitItem: (item: ScrapeRunItem<TManualScrape>, result: ScrapeResult, attemptId: string) => Promise<ScrapeResult>;
   onSnapshot: (snapshot: ScrapeRunSnapshot<TManualScrape>) => void;
-  onConflictResolved?: () => Promise<void>;
 }
 
 interface MutableScrapeRunItem<TManualScrape> extends ScrapeRunItem<TManualScrape> {
@@ -132,7 +130,6 @@ export class ScrapeRunSession<TManualScrape = unknown> {
   private executor: TaskExecutor<MutableScrapeRunItem<TManualScrape>, ScrapeExecution> | null = null;
   private runPromise: Promise<void> | null = null;
   private stopPromise: Promise<ScrapeRunSnapshot<TManualScrape>> | null = null;
-  private readonly conflictRuns = new Set<Promise<void>>();
 
   constructor(private readonly options: ScrapeRunSessionOptions<TManualScrape>) {
     if (!options.runId.trim()) throw new Error("Scrape run ID must not be empty");
@@ -199,7 +196,6 @@ export class ScrapeRunSession<TManualScrape = unknown> {
   private async finishStop(): Promise<ScrapeRunSnapshot<TManualScrape>> {
     if (this.isTerminalStatus()) return this.snapshot();
     this.setStatus("stopping");
-    publicationConflicts.cancelTask(this.options.runId);
     this.executor?.stop();
     await this.waitForIdle();
     this.generation += 1;
@@ -230,12 +226,10 @@ export class ScrapeRunSession<TManualScrape = unknown> {
 
   async waitForIdle(): Promise<void> {
     while (this.runPromise) await this.runPromise;
-    await Promise.all(this.conflictRuns);
   }
   async abortForShutdown(): Promise<void> {
     if (this.isTerminalStatus()) return;
     this.setStatus("stopping");
-    publicationConflicts.cancelTask(this.options.runId);
     this.generation += 1;
     this.emitSnapshot();
     this.shutdownController.abort(new Error("Scrape run interrupted by shutdown"));
@@ -337,6 +331,8 @@ export class ScrapeRunSession<TManualScrape = unknown> {
         this.completeLiveRunIfSettled(generation);
         return;
       }
+      await this.options.preflight(pending);
+      this.assertCurrent(generation, ["running"]);
 
       const executor = new TaskExecutor<MutableScrapeRunItem<TManualScrape>, ScrapeExecution>({
         concurrency: this.options.concurrency,
@@ -375,9 +371,6 @@ export class ScrapeRunSession<TManualScrape = unknown> {
             const committed = await this.options.commitItem(item, execution.result, attemptId);
             this.assertCurrent(generation, ["running", "paused", "stopping"]);
             this.applyCommittedResult(item, committed);
-          } catch (error) {
-            if (!(error instanceof PublicationConflictError)) throw error;
-            this.waitForConflict(item, execution.result, error);
           } finally {
             execution.release();
           }
@@ -398,48 +391,7 @@ export class ScrapeRunSession<TManualScrape = unknown> {
     item.error = result.error?.trim() || null;
     item.result = result;
     this.emitSnapshot();
-    if (this.runPromise === null && this.conflictRuns.size === 0 && this.status === "running") this.startDrain();
-  }
-
-  private waitForConflict(
-    item: MutableScrapeRunItem<TManualScrape>,
-    result: ScrapeResult,
-    error: PublicationConflictError,
-  ): void {
-    if (this.status === "stopping" || this.isTerminalStatus()) return;
-    item.status = "waiting_conflict";
-    item.result = result;
-    item.error = "文件冲突，等待选择";
-    publicationConflicts.register(this.options.runId, item.id, error, async () => {
-      this.assertCurrent(this.generation, ["running", "paused"]);
-      const attemptId = this.attemptIdByItemId.get(item.id);
-      if (!attemptId) throw new Error(`Scrape item was not admitted: ${item.id}`);
-      const run = (async () => {
-        const release = this.options.acquireItem?.(item) ?? (() => undefined);
-        try {
-          item.status = "processing";
-          this.emitSnapshot();
-          const committed = await this.options.commitItem(item, result, attemptId);
-          this.applyCommittedResult(item, committed);
-        } catch (error) {
-          if (!(error instanceof PublicationConflictError)) throw error;
-          this.waitForConflict(item, result, error);
-        } finally {
-          release();
-        }
-      })();
-      this.conflictRuns.add(run);
-      try {
-        await run;
-      } finally {
-        this.conflictRuns.delete(run);
-      }
-      if (this.status === "running" && this.items.every((item) => isTerminalItemStatus(item.status))) {
-        this.completeLiveRunIfSettled(this.generation);
-        await this.options.onConflictResolved?.();
-      }
-    });
-    this.emitSnapshot();
+    if (this.runPromise === null && this.status === "running") this.startDrain();
   }
 
   private completeLiveRunIfSettled(generation: number): void {

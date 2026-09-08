@@ -1,11 +1,26 @@
 import { MAINTENANCE_PRESET_OPTIONS } from "@mdcz/shared/maintenancePresets";
 import type { MaintenancePresetId } from "@mdcz/shared/types";
 import { MediaBrowserList } from "@mdcz/views/common";
+import { ScrapeStartErrorDialog } from "@mdcz/views/scrape";
 import { WorkbenchSetupView } from "@mdcz/views/workbench";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 const rootDir = "/media";
+
+test("shows the complete startup rejection in one dialog", async () => {
+  const onClose = vi.fn();
+  const error = new Error(
+    "整个任务未启动\n\nABF-981\n冲突文件：/output/ABF-981.mp4\n\nABC-123\n冲突文件：/output/ABC-123.mp4",
+  );
+  const screen = await render(<ScrapeStartErrorDialog error={error} onClose={onClose} />);
+  await expect.element(screen.getByRole("dialog", { name: "无法启动本次任务" })).toBeVisible();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("/output/ABF-981.mp4");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("/output/ABC-123.mp4");
+  await expect.element(screen.getByRole("button", { name: "保留两份" })).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: "返回检查" }).click();
+  expect(onClose).toHaveBeenCalledOnce();
+});
 
 test("server workbench setup hides browse buttons and keeps path autocomplete", async () => {
   const screen = await render(

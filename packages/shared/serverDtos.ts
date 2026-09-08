@@ -413,7 +413,7 @@ export const scrapeLiveItemSchema = z.object({
   rootId: z.string(),
   relativePath: z.string(),
   fileName: z.string(),
-  status: z.enum(["pending", "processing", "waiting_conflict", "success", "failed", "skipped"]),
+  status: z.enum(["pending", "processing", "success", "failed", "skipped"]),
   error: z.string().nullable(),
   crawlerData: crawlerDataSchema.nullable(),
   nfoRootId: z.string().nullable(),

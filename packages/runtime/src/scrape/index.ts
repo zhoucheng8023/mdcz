@@ -22,6 +22,7 @@ export * from "./output/prepareImageAlternativesForDownload";
 export * from "./PosterCropService";
 export * from "./PosterWatermarkService";
 export * from "./posterBadges";
+export * from "./preflightScrapeTask";
 export * from "./restGate";
 export * from "./TranslateService";
 export * from "./translate/engines/LlmApiClient";

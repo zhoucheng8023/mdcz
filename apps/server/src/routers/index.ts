@@ -1,5 +1,3 @@
-import { publicationConflicts } from "@mdcz/runtime/publication";
-import { publicationConflictResolutionSchema } from "@mdcz/shared/publicationConflicts";
 import type { HealthResponse } from "@mdcz/shared/serverDtos";
 import {
   authLoginInputSchema,
@@ -42,6 +40,14 @@ import { TRPCError } from "@trpc/server";
 import { createHealthPayload } from "../http/health";
 import { decorateTaskLog } from "../services/runtimeLogService";
 import { mapConfigError, protectedProcedure, setupProcedure, t } from "./context";
+
+const scrapeLaunchProcedure = protectedProcedure.use(async ({ next }) => {
+  const result = await next();
+  if (!result.ok && result.error.cause instanceof ScrapeTargetConflictError) {
+    throw new TRPCError({ code: "CONFLICT", message: result.error.cause.message, cause: result.error.cause });
+  }
+  return result;
+});
 
 export const appRouter = t.router({
   auth: t.router({
@@ -299,7 +305,7 @@ export const appRouter = t.router({
     resume: protectedProcedure
       .input(scrapeTaskControlInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: await ctx.services.scrape.resume(input) })),
-    retry: protectedProcedure
+    retry: scrapeLaunchProcedure
       .input(scrapeTaskControlInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: (await ctx.services.scrape.retry(input)).task.id })),
     confirmUncensored: protectedProcedure.input(scrapeConfirmUncensoredInputSchema).mutation(async ({ ctx, input }) => {
@@ -313,19 +319,12 @@ export const appRouter = t.router({
         });
       }
     }),
-    start: protectedProcedure
+    start: scrapeLaunchProcedure
       .input(scrapeStartInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: (await ctx.services.scrape.start(input)).task.id })),
     stop: protectedProcedure
       .input(scrapeTaskControlInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: await ctx.services.scrape.stop(input) })),
-  }),
-  publication: t.router({
-    conflicts: protectedProcedure.query(() => publicationConflicts.list()),
-    resolveConflict: protectedProcedure.input(publicationConflictResolutionSchema).mutation(async ({ input }) => {
-      await publicationConflicts.resolve(input);
-      return { success: true as const };
-    }),
   }),
   setup: t.router({
     complete: setupProcedure.input(setupCompleteInputSchema).mutation(async ({ ctx, input }) => {
@@ -352,3 +351,5 @@ export const appRouter = t.router({
 });
 
 export type AppRouter = typeof appRouter;
+
+import { ScrapeTargetConflictError } from "@mdcz/runtime/scrape/preflightScrapeTask";

@@ -1,7 +1,6 @@
 import { IpcChannel } from "../IpcChannel";
 import type { IpcProcedure } from "../ipcTypes";
 import type { RootFileRef } from "../mediaRef";
-import type { PublicationConflictResolution, PublicationConflictSnapshot } from "../publicationConflicts";
 import type { ScrapeRunSnapshotDto } from "../serverDtos";
 import type { UncensoredConfirmItem, UncensoredConfirmResponse } from "../types";
 
@@ -16,8 +15,6 @@ export type ScraperStartInput =
   | { mode: "single"; ref: RootFileRef; manualUrl?: string };
 
 export type ScraperIpcContract = {
-  [IpcChannel.Publication_Conflicts]: IpcProcedure<void, PublicationConflictSnapshot[]>;
-  [IpcChannel.Publication_ResolveConflict]: IpcProcedure<PublicationConflictResolution, void>;
   [IpcChannel.Scraper_Start]: IpcProcedure<
     ScraperStartInput,
     { taskId: string; totalFiles: number; message: string; snapshot: ScrapeRunSnapshotDto }

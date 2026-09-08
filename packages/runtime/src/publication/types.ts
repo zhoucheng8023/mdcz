@@ -17,17 +17,10 @@ export interface PublicationMove {
   content?: string;
 }
 
-export interface PublicationVideo extends PublicationMove {
-  nameTargets?: RootFileRef[];
-  referenceTargets?: RootFileRef[];
-}
-
 export interface PublicationPlan {
-  expectedFiles?: import("./preflight").ObservedPublicationFile[];
-  targetChanges?: Array<{ from: RootFileRef; to: RootFileRef }>;
   operationId: string;
   operationType: "scrape" | "maintenance";
-  videos?: PublicationVideo[];
+  videos?: PublicationMove[];
   sidecars?: PublicationMove[];
   artifacts: Array<{ target: RootFileRef; content: PublicationContent }>;
   assets: AssetRef[];
@@ -44,13 +37,8 @@ export interface PreparedPublicationMove {
   content?: string;
 }
 
-export interface PreparedPublicationVideo extends PreparedPublicationMove {
-  nameTargetPaths?: string[];
-  referenceTargetPaths?: string[];
-}
-
 export interface PreparedPublicationPlan {
-  videos?: PreparedPublicationVideo[];
+  videos?: PreparedPublicationMove[];
   sidecars?: PreparedPublicationMove[];
   artifacts: Array<{ targetPath: string; content: Exclude<PublicationContent, { kind: "download" }> }>;
   assets: Array<{ kind: string; targetPath?: string; url?: string }>;

@@ -32,6 +32,7 @@ export interface ScrapeHostExecution<TManualScrape> {
   items: readonly ScrapeRunItem<TManualScrape>[];
   initialItems?: readonly ScrapeRunItemInitialState<TManualScrape>[];
   concurrency: number;
+  preflight(items: readonly ScrapeRunItem<TManualScrape>[]): Promise<void>;
   admitItem(item: ScrapeRunItem<TManualScrape>): Promise<string>;
   executeItem(item: ScrapeRunItem<TManualScrape>, signal: AbortSignal, attemptId: string): Promise<ScrapeResult>;
   commitItem(item: ScrapeRunItem<TManualScrape>, result: ScrapeResult, attemptId: string): Promise<ScrapeResult>;
@@ -40,6 +41,7 @@ export interface ScrapeHostExecution<TManualScrape> {
 
 export interface ScrapeHostPort<TStart, TRun, TManualScrape = unknown> {
   create(input: TStart): Promise<TRun>;
+  preflightRetry(runId: string, itemIds?: readonly string[]): Promise<void>;
   runId(run: TRun): string;
   createExecution(run: TRun, reporter: ScrapeWorkflowReporter): Promise<ScrapeHostExecution<TManualScrape>>;
   onInvalidate(runs: Array<{ run: TRun; snapshot: ScrapeRunSnapshot<TManualScrape>; startedAt: Date | null }>): void;
@@ -90,6 +92,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     if (this.closing) throw new Error("Scrape queue is closing");
     if (this.repairRequired) throw new Error(`Scrape queue requires repair: ${this.repairRequired}`);
     if (this.entries.has(runId)) throw new Error(`Scrape run is already live: ${runId}`);
+    await this.host.preflightRetry(runId, itemIds);
     return await this.enqueue(await (itemIds ? this.store.retry(runId, itemIds) : this.store.retry(runId)));
   }
 
@@ -193,14 +196,12 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
       items: execution.items,
       initialItems: execution.initialItems,
       concurrency: execution.concurrency,
+      preflight: execution.preflight,
       acquireItem: execution.acquireItem,
       admitItem: execution.admitItem,
       executeItem: execution.executeItem,
       commitItem: execution.commitItem,
       onSnapshot: () => this.host.onInvalidate(this.liveRuns()),
-      onConflictResolved: async () => {
-        await this.settle(entry, entry.session.snapshot());
-      },
     });
     Object.assign(entry, {
       id,

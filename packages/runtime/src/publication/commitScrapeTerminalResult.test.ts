@@ -4,6 +4,7 @@ import path from "node:path";
 import type { CrawlerData, ScrapeResult } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commitScrapeTerminalResult } from "./commitScrapeTerminalResult";
+import { PublicationConflictError } from "./conflicts";
 import { createMemoryPublicationJournal } from "./memoryJournal";
 import type { PublicationFileSystem, PublicationPlan } from "./types";
 
@@ -74,7 +75,15 @@ const fixture = async () => {
     ["output", { id: "output", hostPath: outputRoot }],
   ]);
   return {
-    plan,
+    success: {
+      plan,
+      crawlerData: crawlerData(),
+      identity: "ABC-001",
+      nfo: null,
+      size: 5,
+      modifiedAt: null,
+      uncensoredAmbiguous: false,
+    },
     source,
     target: path.join(outputRoot, "ABC-001/movie.mp4"),
     resolveRoot: async (rootId: string) => {
@@ -86,6 +95,34 @@ const fixture = async () => {
 };
 
 describe("commitScrapeTerminalResult", () => {
+  it("does not move files or persist an outcome on a publication conflict", async () => {
+    const test = await fixture();
+    const store = scrapeRuns();
+    const transitions = noFileTransitions();
+    await mkdir(path.dirname(test.target), { recursive: true });
+    await writeFile(test.target, "existing video");
+    const journal = createMemoryPublicationJournal();
+    await expect(
+      commitScrapeTerminalResult({
+        result: { ...baseResult("success"), crawlerData: crawlerData() },
+        attemptId: "attempt-1",
+        itemPath: "movie.mp4",
+        success: test.success,
+        scrapeRuns: store,
+        resolveRoot: test.resolveRoot,
+        journal,
+        fileTransitions: transitions,
+      }),
+    ).rejects.toBeInstanceOf(PublicationConflictError);
+    expect(transitions.failed).not.toHaveBeenCalled();
+    expect(transitions.succeeded).not.toHaveBeenCalled();
+    expect(store.commitOutcome).not.toHaveBeenCalled();
+    expect(store.commitSuccessOutcome).not.toHaveBeenCalled();
+    expect(await readFile(test.source, "utf8")).toBe("video");
+    expect(await readFile(test.target, "utf8")).toBe("existing video");
+    await expect(readFile(path.join(path.dirname(test.target), "movie.nfo"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(journal.listUnfinished()).toEqual([]);
+  });
   it("persists failed and skipped outcomes without publication", async () => {
     const store = scrapeRuns();
     const failedTransition = vi.fn(async () => undefined);
@@ -135,13 +172,8 @@ describe("commitScrapeTerminalResult", () => {
       attemptId: "attempt-1",
       itemPath: "movie.mp4",
       success: {
-        plan: test.plan,
-        crawlerData: crawlerData(),
-        identity: "ABC-001",
+        ...test.success,
         nfo: { rootId: "output", relativePath: "ABC-001/movie.nfo" },
-        size: 5,
-        modifiedAt: null,
-        uncensoredAmbiguous: false,
       },
       scrapeRuns: store,
       resolveRoot: test.resolveRoot,
@@ -197,12 +229,8 @@ describe("commitScrapeTerminalResult", () => {
       attemptId: "attempt-1",
       itemPath: "movie.mp4",
       success: {
-        plan: test.plan,
-        crawlerData: crawlerData(),
-        identity: "ABC-001",
+        ...test.success,
         nfo: { rootId: "metadata", relativePath: "ABC-001/movie.nfo" },
-        size: 5,
-        modifiedAt: null,
         uncensoredAmbiguous: true,
       },
       scrapeRuns: store,
@@ -235,15 +263,7 @@ describe("commitScrapeTerminalResult", () => {
       result: { ...baseResult("success"), crawlerData: crawlerData() },
       attemptId: "attempt-1",
       itemPath: "movie.mp4",
-      success: {
-        plan: test.plan,
-        crawlerData: crawlerData(),
-        identity: "ABC-001",
-        nfo: null,
-        size: 5,
-        modifiedAt: null,
-        uncensoredAmbiguous: false,
-      },
+      success: test.success,
       scrapeRuns: store,
       resolveRoot: test.resolveRoot,
       journal: createMemoryPublicationJournal(),
@@ -275,15 +295,7 @@ describe("commitScrapeTerminalResult", () => {
         result: { ...baseResult("success"), crawlerData: crawlerData() },
         attemptId: "attempt-1",
         itemPath: "movie.mp4",
-        success: {
-          plan: test.plan,
-          crawlerData: crawlerData(),
-          identity: "ABC-001",
-          nfo: null,
-          size: 5,
-          modifiedAt: null,
-          uncensoredAmbiguous: false,
-        },
+        success: test.success,
         scrapeRuns: store,
         resolveRoot: test.resolveRoot,
         journal: createMemoryPublicationJournal(),

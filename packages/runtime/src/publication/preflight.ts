@@ -1,6 +1,6 @@
 import { resolveRootRelativePath } from "@mdcz/media-store";
 import { parseWireRelativePath, type RootFileRef } from "@mdcz/shared/mediaRef";
-import { createPublicationConflict } from "./conflicts";
+import { PublicationConflictError } from "./conflicts";
 import type {
   PublicationFileSystem,
   PublicationJournalManifestObsolete,
@@ -108,9 +108,6 @@ export const preflightPublication = async (
   previous?: readonly ObservedPublicationFile[],
 ): Promise<ResolvedPublicationPlan> => {
   if (!plan.operationId.trim()) throw new Error("Publication operation ID is required");
-  for (const fact of plan.expectedFiles ?? []) {
-    assertPublicationFileUnchanged(fact, await observePublicationFile(fileSystem, fact.path));
-  }
   const refs = planRefs(plan);
   const rootIds = [...new Set(refs.map((ref) => ref.rootId))];
   const roots = new Map(
@@ -121,12 +118,14 @@ export const preflightPublication = async (
     if (!root) throw new Error(`Publication root not resolved: ${ref.rootId}`);
     return resolveRootRelativePath(root, parseWireRelativePath(ref.relativePath));
   };
-  if (previous) {
-    for (const fact of previous) {
-      assertPublicationFileUnchanged(fact, await observePublicationFile(fileSystem, fact.path));
+  for (const fact of previous ?? []) {
+    const current = await observePublicationFile(fileSystem, fact.path);
+    if (!fact.exists && current.exists) {
+      const video = plan.videos?.find((video) => resolve(video.target) === fact.path);
+      if (video) throw new PublicationConflictError(resolve(video.source), fact.path);
     }
+    assertPublicationFileUnchanged(fact, current);
   }
-
   const moves = planMoves(plan);
   const targets = [...moves.map((move) => move.target), ...plan.artifacts.map(({ target }) => target)];
   const targetKeys = targets.map(refKey);
@@ -147,6 +146,9 @@ export const preflightPublication = async (
     const targetPath = resolve(move.target);
     const source = await record(sourcePath);
     const target = await record(targetPath);
+    if (plan.videos?.includes(move) && sourcePath !== targetPath && source.exists && target.exists) {
+      throw new PublicationConflictError(sourcePath, targetPath);
+    }
     if (target.exists && !target.isFile) throw new Error(`Publication target is not a file: ${targetPath}`);
     if (move.shared && target.exists && !source.exists) {
       plan.sidecars = plan.sidecars?.filter((candidate) => candidate !== move);
@@ -158,21 +160,6 @@ export const preflightPublication = async (
       }
     } else {
       throw new Error(`Publication source is missing: ${refLabel(move.source)}`);
-    }
-    if (
-      plan.videos?.includes(move) &&
-      sourcePath !== targetPath &&
-      target.exists &&
-      !replacing.has(refKey(move.target))
-    ) {
-      throw await createPublicationConflict({
-        plan,
-        target: move.target,
-        source: move.source,
-        sourceSize: move.size,
-        resolve,
-        fileSystem,
-      });
     }
     if (
       !plan.videos?.includes(move) &&

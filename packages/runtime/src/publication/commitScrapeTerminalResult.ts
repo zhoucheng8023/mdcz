@@ -106,14 +106,10 @@ export const commitScrapeTerminalResult = async (input: {
   fileTransitions: ScrapeFileTransitions;
 }): Promise<ScrapeResult> => {
   const { result, attemptId, scrapeRuns } = input;
-  const transition = async (name: "success" | "failed"): Promise<void> => {
-    if (name === "success") await input.fileTransitions.succeeded();
-    else await input.fileTransitions.failed();
-  };
   const commitFailure = async (error: string, causes: unknown[] = []): Promise<ScrapeResult> => {
     let terminalError = error;
     try {
-      await transition("failed");
+      await input.fileTransitions.failed();
     } catch (transitionError) {
       causes.push(transitionError);
       terminalError = `${terminalError}；失败文件移动失败：${errorMessage(transitionError)}`;
@@ -145,10 +141,6 @@ export const commitScrapeTerminalResult = async (input: {
     throw new Error(`Successful scrape has no publication plan: ${input.itemPath}`);
   }
   const success = input.success;
-  for (const change of success.plan.targetChanges ?? []) {
-    if (success.nfo?.rootId === change.from.rootId && success.nfo.relativePath === change.from.relativePath)
-      success.nfo = change.to;
-  }
   const source = video.source;
   const sourcePath = resolveRootRelativePath(await input.resolveRoot(source.rootId), source.relativePath);
   const sourceStats = await (input.fileSystem?.stat ?? stat)(sourcePath);
@@ -203,11 +195,15 @@ export const commitScrapeTerminalResult = async (input: {
         }),
     });
   } catch (error) {
-    if (error instanceof PublicationConflictError) throw error;
+    if (
+      error instanceof PublicationConflictError ||
+      (error instanceof AggregateError && error.errors.some((cause) => cause instanceof PublicationConflictError))
+    )
+      throw error;
     const coordinatedError = formatCommitFailure(error);
     return await commitFailure(coordinatedError, [error]);
   }
-  await transition("success");
+  await input.fileTransitions.succeeded();
   return {
     ...result,
     resultId: committed.value.outcomeId,

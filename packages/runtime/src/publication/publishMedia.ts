@@ -4,6 +4,7 @@ import path from "node:path";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import { mediaPathOwnership } from "../library/mediaPathOwnership";
 import { runtimeLoggerService } from "../shared";
+import { PublicationConflictError } from "./conflicts";
 import {
   assertPublicationFileUnchanged,
   type ObservedPublicationFile,
@@ -324,7 +325,12 @@ export const commitPublishedMedia = async <TResult>(
     for (const item of planned) {
       const expectedTarget = observedAt(resolved.observed, item.targetPath);
       if (!expectedTarget) throw new Error(`Publication target was not observed: ${item.targetPath}`);
-      assertPublicationFileUnchanged(expectedTarget, await observePublicationFile(fileSystem, item.targetPath));
+      const currentTarget = await observePublicationFile(fileSystem, item.targetPath);
+      const video = plan.videos?.find((video) => refKey(video.target) === refKey(item.ref));
+      if (video && !expectedTarget.exists && currentTarget.exists) {
+        throw new PublicationConflictError(resolved.resolve(video.source), item.targetPath);
+      }
+      assertPublicationFileUnchanged(expectedTarget, currentTarget);
       if (item.targetExisted && item.backupPath) {
         await fileSystem.rename(item.targetPath, item.backupPath);
         published.push(item);

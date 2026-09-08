@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Website } from "@mdcz/shared/enums";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { findSubtitleSidecars } from "../scrape/media";
 import { NfoGenerator } from "../scrape/nfo";
 import { PublicationConflictError } from "./conflicts";
@@ -27,21 +27,26 @@ afterEach(async () => {
 
 describe("preparePublicationPlan", () => {
   it.each([
-    "keep_existing",
-    "keep_new",
-    "keep_both",
-  ] as const)("resolves only the video conflict with %s and preserves subtitle ownership", async (choice) => {
+    { extension: ".mp4", conflict: true },
+    { extension: ".strm", conflict: true },
+    { extension: ".mp4", conflict: false },
+    { extension: ".strm", conflict: false },
+  ])("protects both videos and their attachments ($extension, conflict=$conflict)", async ({ extension, conflict }) => {
     const { root, source, output, staging } = await fixture();
-    const sourceVideoPath = join(source, "ABC-123.mp4");
-    const outputVideoPath = join(output, "ABC-123.mp4");
-    const nfoPath = join(output, "ABC-123.nfo");
-    const strmPath = join(output, "ABC-123.strm");
+    const metadata = join(root, "metadata");
+    await mkdir(metadata);
+    const sourceVideoPath = join(source, `ABC-123${extension}`);
+    const outputVideoPath = join(output, `ABC-123${extension}`);
+    const nfoPath = join(metadata, "ABC-123.nfo");
+    const strmPath = join(metadata, "ABC-123.strm");
     const subtitles = [".zh.srt", ".ass", ".idx", ".sub"];
-    for (const suffix of [".mp4", ".nfo", ".strm", "-poster.jpg", ...subtitles]) {
+    for (const suffix of [".nfo", ".strm", "-poster.jpg"])
+      await writeFile(join(metadata, `ABC-123${suffix}`), `old${suffix}`);
+    for (const suffix of subtitles.filter((suffix) => suffix !== ".ass"))
       await writeFile(join(output, `ABC-123${suffix}`), `old${suffix}`);
-    }
-    await writeFile(join(output, "ABC-123 (1).zh.srt"), "reserved subtitle");
-    await writeFile(sourceVideoPath, "new video");
+    if (conflict) await writeFile(outputVideoPath, "old video");
+    const videoContent = extension === ".strm" ? "https://new.example/video.mp4" : "new video";
+    await writeFile(sourceVideoPath, videoContent);
     for (const suffix of subtitles) await writeFile(join(source, `ABC-123${suffix}`), `new${suffix}`);
     await writeFile(join(staging, "ABC-123-poster.jpg"), "new poster");
     const generator = new NfoGenerator();
@@ -50,7 +55,7 @@ describe("preparePublicationPlan", () => {
       outputVideoPath,
       stagingDir: staging,
       existingAssetDir: source,
-      metadataOutputDir: output,
+      metadataOutputDir: metadata,
       downloadedAssets: { downloaded: [], sceneImages: [], poster: join(staging, "ABC-123-poster.jpg") },
       actorPhotoPaths: [],
       nfoNaming: "both",
@@ -76,42 +81,40 @@ describe("preparePublicationPlan", () => {
         ),
     });
     const mediaRoot = { id: "root", hostPath: root };
-    const plan = createPublicationPlan("conflict", "scrape", prepared, [mediaRoot]);
+    const plan = createPublicationPlan("publication", "scrape", prepared, [mediaRoot]);
     const options = {
       resolveRoot: async () => mediaRoot,
       journal: createMemoryPublicationJournal(),
-      commit: () => undefined,
+      commit: vi.fn(),
     };
-    const conflict = await commitPublishedMedia(plan, options).catch((error) => error);
-    expect(conflict).toBeInstanceOf(PublicationConflictError);
-    expect(conflict.snapshot.targetPath).toBe(outputVideoPath);
-    expect(conflict.snapshot.keepBothPath).toBe(join(output, "ABC-123 (2).mp4"));
-    await conflict.applyChoice(choice);
+    if (conflict) {
+      const video = plan.videos?.[0];
+      if (!video) throw new Error("Fixture video is required");
+      plan.replaceExistingTargets = [...(plan.replaceExistingTargets ?? []), video.target];
+      await expect(commitPublishedMedia(plan, options)).rejects.toBeInstanceOf(PublicationConflictError);
+      expect(options.commit).not.toHaveBeenCalled();
+      expect(options.journal.listUnfinished()).toEqual([]);
+      expect(await readFile(sourceVideoPath, "utf8")).toBe(videoContent);
+      expect(await readFile(outputVideoPath, "utf8")).toBe("old video");
+      for (const suffix of [".nfo", ".strm", "-poster.jpg"])
+        expect(await readFile(join(metadata, `ABC-123${suffix}`), "utf8")).toBe(`old${suffix}`);
+      for (const suffix of subtitles) {
+        expect(await readFile(join(source, `ABC-123${suffix}`), "utf8")).toBe(`new${suffix}`);
+        if (suffix === ".ass")
+          await expect(readFile(join(output, `ABC-123${suffix}`))).rejects.toMatchObject({ code: "ENOENT" });
+        else expect(await readFile(join(output, `ABC-123${suffix}`), "utf8")).toBe(`old${suffix}`);
+      }
+      return;
+    }
     await commitPublishedMedia(plan, options);
-    const newBase = choice === "keep_both" ? "ABC-123 (2)" : "ABC-123";
-    expect(await readFile(join(output, `${newBase}.mp4`), "utf8")).toBe(
-      choice === "keep_existing" ? "old.mp4" : "new video",
-    );
-    for (const suffix of subtitles) {
-      expect(await readFile(join(output, `${newBase}${suffix}`), "utf8")).toBe(
-        choice === "keep_existing" ? `old${suffix}` : `new${suffix}`,
-      );
-    }
-    expect(await readFile(join(output, `${newBase}.strm`), "utf8")).toBe(join(output, `${newBase}.mp4`));
-    const nfo = await readFile(join(output, `${newBase}.nfo`), "utf8");
-    expect(nfo).toContain(`<thumb aspect="poster">${newBase}-poster.jpg</thumb>`);
+    expect(options.commit).toHaveBeenCalledOnce();
+    expect((await readFile(outputVideoPath, "utf8")).trim()).toBe(videoContent);
+    for (const suffix of subtitles)
+      expect(await readFile(join(output, `ABC-123${suffix}`), "utf8")).toBe(`new${suffix}`);
+    expect((await readFile(strmPath, "utf8")).trim()).toBe(extension === ".strm" ? videoContent : outputVideoPath);
+    const nfo = await readFile(nfoPath, "utf8");
+    expect(nfo).toContain('<thumb aspect="poster">ABC-123-poster.jpg</thumb>');
     expect(nfo).toContain("<title>ABC-123-poster.jpg</title>");
-    expect(await readFile(join(output, "ABC-123 (1).zh.srt"), "utf8")).toBe("reserved subtitle");
-    if (choice === "keep_both") {
-      for (const suffix of [".mp4", ".nfo", ".strm", "-poster.jpg", ...subtitles])
-        expect(await readFile(join(output, `ABC-123${suffix}`), "utf8")).toBe(`old${suffix}`);
-      expect((await findSubtitleSidecars(join(output, `${newBase}.mp4`))).map(({ path }) => path).sort()).toEqual(
-        subtitles.map((suffix) => join(output, `${newBase}${suffix}`)).sort(),
-      );
-      expect((await findSubtitleSidecars(outputVideoPath)).map(({ path }) => path).sort()).toEqual(
-        subtitles.map((suffix) => join(output, `ABC-123${suffix}`)).sort(),
-      );
-    }
   });
   it.each([
     false,

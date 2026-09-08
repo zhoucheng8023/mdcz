@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { defaultConfiguration } from "@main/services/config";
 import { DesktopPersistenceService } from "@main/services/persistence";
 import { SignalService } from "@main/services/SignalService";
@@ -9,7 +9,7 @@ import { createMediaRoot } from "@mdcz/media-store";
 import { PersistentCooldownStore } from "@mdcz/runtime/cooldown";
 import { CrawlerProvider, FetchGateway } from "@mdcz/runtime/crawler";
 import { NetworkClient } from "@mdcz/runtime/network";
-import { ActorImageService, FileScraper } from "@mdcz/runtime/scrape";
+import { ActorImageService, FileScraper, ScrapeTargetConflictError } from "@mdcz/runtime/scrape";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockConfigManager } from "../../../helpers/scraper";
 
@@ -58,6 +58,90 @@ describe("ScraperService ref-native start", () => {
       directories.splice(0).map(async (directory) => await rm(directory, { recursive: true, force: true })),
     );
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    "start",
+    "retry",
+  ] as const)("rejects all four files before %s when one output already exists", async (operation) => {
+    const { directory, persistence, service } = await createHarness();
+    const source = join(directory, "source");
+    const output = join(directory, "output");
+    const metadata = join(output, "metadata");
+    await Promise.all([source, metadata].map((path) => mkdir(path, { recursive: true })));
+    const state = await persistence.getState();
+    const sourceRoot = await state.repositories.mediaRoots.ensurePath(source);
+    const outputRoot = await state.repositories.mediaRoots.ensurePath(output);
+    const names = ["XYZ-111", "ABF-981", "XYZ-222", "XYZ-333"];
+    const refs = names.map((number) => ({ rootId: sourceRoot.id, relativePath: `${number}.mp4` }));
+    const contents = new Map<string, string>();
+    for (const number of names)
+      for (const suffix of [".mp4", ".nfo", ".zh.srt", "-poster.jpg"])
+        contents.set(join(source, `${number}${suffix}`), `source ${number}${suffix}`);
+    const targetRelativePath = "JAV_output/Actor A/ABF-981/ABF-981.mp4";
+    const target = join(output, targetRelativePath);
+    contents.set(target, "existing video");
+    contents.set(join(dirname(target), "ABF-981.zh.srt"), "existing subtitle");
+    for (const suffix of [".nfo", ".strm", "-poster.jpg"])
+      contents.set(join(metadata, `Actor A/ABF-981/ABF-981${suffix}`), `existing ${suffix}`);
+    for (const [file, content] of contents) {
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, content);
+    }
+    mockConfigManager({
+      ...defaultConfiguration,
+      paths: { ...defaultConfiguration.paths, mediaPath: join(directory, "unrelated"), metadataPath: metadata },
+      behavior: { ...defaultConfiguration.behavior, failedFileMove: true },
+    });
+    const libraryEntry = await state.repositories.library.upsertEntry({
+      rootId: outputRoot.id,
+      rootRelativePath: targetRelativePath,
+      number: "ABF-981",
+      title: "Existing title",
+    });
+    const repository = state.repositories.scrapeRuns;
+    const startInput = {
+      mode: "selection" as const,
+      refs,
+      outputRootId: outputRoot.id,
+      outputRelativeDirectory: "JAV_output",
+    };
+    let retryRunId: string | undefined;
+    if (operation === "retry") {
+      const run = await repository.create({
+        rootId: sourceRoot.id,
+        outputRootId: outputRoot.id,
+        outputRelativeDirectory: "JAV_output",
+        executionMode: "batch",
+        items: refs.map((ref, ordinal) => ({ ...ref, ordinal })),
+      });
+      for (const item of run.items) {
+        const attempt = repository.admitAttempt(item.id);
+        repository.commitOutcome({ attemptId: attempt.id, outcome: "failed", error: "previous failure" });
+      }
+      await repository.finalize({ runId: run.id, disposition: "failed" });
+      retryRunId = run.id;
+    }
+    const beforeRetry = retryRunId ? await repository.get(retryRunId) : null;
+    const create = vi.spyOn(repository, "create");
+    const retry = vi.spyOn(repository, "retry");
+    const launch = retryRunId ? service.retry(retryRunId) : service.start(startInput);
+    await expect(launch).rejects.toBeInstanceOf(ScrapeTargetConflictError);
+    await expect(launch).rejects.toMatchObject({
+      conflicts: [{ number: "ABF-981", sourcePath: join(source, "ABF-981.mp4"), targetPath: target }],
+    });
+    await service.waitForIdle();
+    expect(FileScraper.prototype.scrapeFile).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+    expect(service.getSnapshot()).toBeNull();
+    if (retryRunId) expect(await repository.get(retryRunId)).toEqual(beforeRetry);
+    expect(await state.repositories.library.getEntryById(libraryEntry.id)).toEqual(libraryEntry);
+    expect(state.repositories.publicationJournal.listUnfinished()).toEqual([]);
+    for (const [file, content] of contents) expect(await readFile(file, "utf8")).toBe(content);
+    await expect(stat(join(output, defaultConfiguration.paths.failedOutputFolder))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("derives the run root from selected refs, not from config.paths.mediaPath", async () => {
@@ -160,6 +244,9 @@ describe("ScraperService ref-native start", () => {
     });
     const state = await persistence.getState();
     const sourceRoot = await state.repositories.mediaRoots.ensurePath(sourcePath);
+
+    await writeFile(join(sourcePath, "ABC-001.mp4"), "video");
+    await writeFile(join(sourcePath, "ABC-001.nfo"), "existing nfo");
 
     const result = await service.start({
       mode: "single",

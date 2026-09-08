@@ -6,7 +6,7 @@ import { Website } from "@mdcz/shared/enums";
 import { buildFileId } from "@mdcz/shared/mediaIdentity";
 import type { CrawlerData, LocalScanEntry } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commitPublishedMedia, createPublicationPlan, PublicationConflictError } from "../publication";
+import { commitPublishedMedia, createPublicationPlan } from "../publication";
 import { createMemoryPublicationJournal } from "../publication/memoryJournal";
 import { confirmUncensoredOutputs, type UncensoredConfirmDependencies } from "./confirmUncensored";
 import { FileOrganizer } from "./FileOrganizer";
@@ -18,7 +18,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-const fixture = async (conflictChoice?: "keep_existing" | "keep_new" | "keep_both") => {
+const fixture = async () => {
   const root = await mkdtemp(join(tmpdir(), "mdcz-confirm-"));
   directories.push(root);
   const source = join(root, "source");
@@ -98,19 +98,11 @@ const fixture = async (conflictChoice?: "keep_existing" | "keep_new" | "keep_bot
     logger: { info: vi.fn(), warn: vi.fn() },
     publish: vi.fn(async ({ operationId, plan }) => {
       const publicationPlan = createPublicationPlan(operationId, "maintenance", plan, [mediaRoot]);
-      for (;;) {
-        try {
-          await commitPublishedMedia(publicationPlan, {
-            resolveRoot: async () => mediaRoot,
-            journal,
-            commit: () => undefined,
-          });
-          break;
-        } catch (error) {
-          if (!(error instanceof PublicationConflictError) || !conflictChoice) throw error;
-          await error.applyChoice(conflictChoice);
-        }
-      }
+      await commitPublishedMedia(publicationPlan, {
+        resolveRoot: async () => mediaRoot,
+        journal,
+        commit: () => undefined,
+      });
     }),
   };
   return { source, output, metadata, items, deps, journal };
@@ -175,8 +167,8 @@ describe("confirmUncensoredOutputs", () => {
     expect(deps.publish).not.toHaveBeenCalled();
   });
 
-  it("resolves multipart main-video conflicts without duplicating shared resources", async () => {
-    const { source, output, metadata, items, deps } = await fixture("keep_both");
+  it("rejects multipart main-video conflicts without changing paths or shared resources", async () => {
+    const { source, output, metadata, items, deps } = await fixture();
     for (const item of items) {
       const base = `${parse(item.videoPath).name}-leak`;
       await writeFile(join(output, `${base}.mp4`), `old-${base}`);
@@ -185,19 +177,20 @@ describe("confirmUncensoredOutputs", () => {
 
     const result = await confirmUncensoredOutputs(items, defaultConfiguration, deps);
 
-    expect(result.updatedCount).toBe(2);
+    expect(result.updatedCount).toBe(0);
+    expect(result.items).toEqual([]);
+    expect(result.failures).toHaveLength(2);
     for (const item of items) {
       const base = `${parse(item.videoPath).name}-leak`;
-      const targetBase = `${base} (1)`;
-      expect(await readFile(join(output, `${targetBase}.mp4`), "utf8")).toBe(parse(item.videoPath).base);
+      expect(await readFile(item.videoPath, "utf8")).toBe(parse(item.videoPath).base);
       expect(await readFile(join(output, `${base}.mp4`), "utf8")).toBe(`old-${base}`);
-      expect(await readFile(join(metadata, `${targetBase}.strm`), "utf8")).toBe(join(output, `${targetBase}.mp4`));
+      expect(await readFile(item.metadataVideoPath, "utf8")).toBe(item.videoPath);
+      expect(await readFile(item.nfoPath, "utf8")).toContain("Original");
+      await expect(readFile(join(output, `${base} (1).mp4`))).rejects.toMatchObject({ code: "ENOENT" });
     }
-    expect(await readFile(join(output, "FC2-123456-leak-花絮.mp4"), "utf8")).toBe("FC2-123456-花絮.mp4");
-    expect(await readFile(join(metadata, "FC2-123456-leak.nfo"), "utf8")).toContain("Multipart");
-    expect(await readFile(join(metadata, "poster.jpg"), "utf8")).toBe("poster.jpg");
-    await expect(readFile(join(output, "FC2-123456-CD1-leak (1)-花絮.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(readFile(join(source, "FC2-123456-花絮.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(source, "FC2-123456-花絮.mp4"), "utf8")).toBe("FC2-123456-花絮.mp4");
+    expect(await readFile(join(source, "poster.jpg"), "utf8")).toBe("poster.jpg");
+    await expect(readFile(join(metadata, "FC2-123456-leak.nfo"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects conflicting choices for a shared NFO before preparing output", async () => {

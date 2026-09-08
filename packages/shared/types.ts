@@ -80,7 +80,7 @@ export interface FileInfo {
   };
 }
 
-export type ScrapeResultStatus = "pending" | "processing" | "waiting_conflict" | "success" | "failed" | "skipped";
+export type ScrapeResultStatus = "pending" | "processing" | "success" | "failed" | "skipped";
 export type SubtitleTag = "字幕" | "中文字幕";
 
 /** Structured record of all files produced by DownloadManager. */
@@ -269,7 +269,7 @@ export interface MaintenanceAssetDecisions {
   trailer?: "preserve" | "replace";
 }
 
-export type MaintenanceItemStatus = "pending" | "processing" | "waiting_conflict" | "success" | "failed" | "skipped";
+export type MaintenanceItemStatus = "pending" | "processing" | "success" | "failed" | "skipped";
 
 /** Per-item execution result pushed via IPC events. */
 export interface MaintenanceItemResult {

@@ -1,6 +1,6 @@
 import type { ScrapeResult } from "@mdcz/shared/types";
 import { describe, expect, it, vi } from "vitest";
-import { PublicationConflictError, publicationConflicts } from "../../publication/conflicts";
+import { PublicationConflictError } from "../../publication/conflicts";
 import { ScrapeCoordinator, type ScrapeHostPort, type ScrapeRunStore } from "./ScrapeCoordinator";
 import type { ScrapeRunItem } from "./ScrapeRunSession";
 
@@ -53,10 +53,12 @@ const createHost = (
   concurrency = 1,
 ): ScrapeHostPort<string, Run, undefined> => ({
   create: vi.fn(async () => run),
+  preflightRetry: vi.fn(async () => undefined),
   runId: (entry) => entry.id,
   createExecution: async (entry) => ({
     items: entry.items.map((item) => ({ ...item, sourcePath: `/media/${item.relativePath}` })),
     concurrency,
+    preflight: vi.fn(async () => undefined),
     admitItem: async (item) => `${item.id}:attempt`,
     executeItem,
     commitItem: async (_item, result) => result,
@@ -101,58 +103,40 @@ describe("ScrapeCoordinator", () => {
     expect(store.finalize).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    "resolve",
-    "stop",
-  ] as const)("continues other items while a conflict waits, then handles %s", async (action) => {
+  it.each(["preflight", "publication"] as const)("stops the whole run on a %s conflict", async (stage) => {
     const run: Run = {
-      id: `conflict-${action}`,
+      id: `conflict-${stage}`,
       items: [
         { id: "one", rootId: "root", relativePath: "one.mp4" },
         { id: "two", rootId: "root", relativePath: "two.mp4" },
       ],
     };
     const store = createStore(run);
-    let chosen = false;
-    const host = createHost(run, async (item) => resultFor(item, "success"));
+    const executeItem = vi.fn(async (item: ScrapeRunItem) => resultFor(item, "success"));
+    const host = createHost(run, executeItem);
+    host.onTerminal = vi.fn();
     const create = host.createExecution;
     host.createExecution = async (entry, reporter) => ({
       ...(await create(entry, reporter)),
+      preflight: async () => {
+        if (stage === "preflight") throw new PublicationConflictError("/one", "/two");
+      },
       commitItem: async (item, result) => {
-        if (item.id === "one" && result.status === "success" && !chosen)
-          throw new PublicationConflictError(
-            {
-              id: run.id,
-              operationId: run.id,
-              sourcePath: "/one",
-              targetPath: "/two",
-              keepBothPath: "/two (1)",
-              sourceSize: 3,
-              targetSize: 3,
-              sourceModifiedAt: 1,
-              targetModifiedAt: 1,
-            },
-            async () => {
-              chosen = true;
-            },
-          );
+        if (item.id === "one" && result.status === "success") throw new PublicationConflictError("/one", "/two");
         return result;
       },
     });
     const coordinator = new ScrapeCoordinator(store, host);
     await coordinator.start("start");
     await coordinator.waitForIdle();
-    expect(coordinator.liveRuns()[0]?.snapshot.items.map((item) => item.status)).toEqual([
-      "waiting_conflict",
-      "success",
-    ]);
-    expect(store.finalize).not.toHaveBeenCalled();
-    if (action === "resolve") await publicationConflicts.resolve({ id: run.id, choice: "keep_both" });
-    else {
-      await coordinator.stop(run.id);
-      await expect(publicationConflicts.resolve({ id: run.id, choice: "keep_new" })).rejects.toThrow("已变化");
-    }
-    await coordinator.waitForIdle();
+    expect(executeItem).toHaveBeenCalledTimes(stage === "preflight" ? 0 : 1);
+    expect(host.onTerminal).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({
+        status: "failed",
+        items: [expect.objectContaining({ status: "skipped" }), expect.objectContaining({ status: "skipped" })],
+      }),
+    );
     expect(store.finalize).toHaveBeenCalledOnce();
     expect(coordinator.liveRuns()).toEqual([]);
   });

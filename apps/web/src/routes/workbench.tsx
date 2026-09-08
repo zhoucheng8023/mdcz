@@ -13,11 +13,7 @@ import {
   WorkbenchSetupAdapter,
   type WorkbenchSetupPort,
 } from "@mdcz/views/adapters";
-import {
-  PublicationConflictDialog,
-  UncensoredConfirmDialog,
-  type UncensoredConfirmSelection,
-} from "@mdcz/views/scrape";
+import { ScrapeStartErrorDialog, UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
 import {
   selectIsScraping,
   selectScrapeResults,
@@ -76,6 +72,7 @@ function WorkbenchPage() {
   const ports = useMemo<SharedWorkbenchPorts>(() => createWebWorkbenchPorts(), []);
   const setupPort = useMemo(() => createWebSetupPort(), []);
   const [uncensoredDialogOpen, setUncensoredDialogOpen] = useState(false);
+  const [startError, setStartError] = useState<unknown>(null);
   const { hydrationState, clearUncensoredConfirmation, refreshError } = useWorkbenchTaskStore(
     useShallow((state) => ({
       hydrationState: state.hydrationState,
@@ -129,7 +126,7 @@ function WorkbenchPage() {
       toast.success("已启动选中文件刮削");
     } catch (error) {
       resetScrapeWorkbenchToSetup();
-      toast.error(`启动失败: ${toErrorMessage(error)}`);
+      setStartError(error);
     }
   };
 
@@ -205,7 +202,7 @@ function WorkbenchPage() {
       const result = await ports.scrape.retryFailed();
       toast.success(result.message);
     } catch (error) {
-      toast.error(`重试失败: ${toErrorMessage(error)}`);
+      setStartError(error);
     }
   };
 
@@ -240,9 +237,6 @@ function WorkbenchPage() {
           <ScrapeWorkbenchAdapter
             ports={ports}
             failedCount={failedCount}
-            conflictAction={
-              <PublicationConflictDialog list={api.publication.conflicts} resolve={api.publication.resolveConflict} />
-            }
             onPauseScrape={() => void handlePauseScrape()}
             onResumeScrape={() => void handleResumeScrape()}
             onRetryFailed={() => void handleRetryFailed()}
@@ -252,6 +246,7 @@ function WorkbenchPage() {
           <MaintenanceWorkbenchAdapter ports={ports} />
         )}
       </div>
+      <ScrapeStartErrorDialog error={startError} onClose={() => setStartError(null)} />
       <UncensoredConfirmDialog
         open={uncensoredDialogOpen && hydrationState.ambiguousUncensoredItems.length > 0}
         items={hydrationState.ambiguousUncensoredItems}

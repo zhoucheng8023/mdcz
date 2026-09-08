@@ -301,25 +301,6 @@ export class NfoGenerator {
 
 export const nfoGenerator = new NfoGenerator();
 
-export const remapNfoAssetPaths = (xml: string, paths: ReadonlyMap<string, string>): string => {
-  const root = parser.parse(xml);
-  if (!root?.movie) throw new Error("Invalid NFO movie node");
-  const remap = (node: unknown): unknown => {
-    if (typeof node === "string") return paths.get(node) ?? node;
-    if (Array.isArray(node)) return node.map(remap);
-    if (node && typeof node === "object") {
-      return Object.fromEntries(
-        Object.entries(node).map(([key, value]) => [key, key.startsWith("@_") ? value : remap(value)]),
-      );
-    }
-    return node;
-  };
-  for (const key of ["thumb", "fanart", "trailer", "filenameandpath"]) {
-    if (key in root.movie) root.movie[key] = remap(root.movie[key]);
-  }
-  return builder.build(root);
-};
-
 export const resolveCanonicalNfoPath = (nfoPath: string, nfoNaming: NfoNamingMode = "both"): string =>
   getNfoWritePaths(nfoPath, nfoNaming).canonicalPath;
 

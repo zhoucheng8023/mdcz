@@ -1,7 +1,9 @@
 import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type MediaRoot, resolveRootRelativePath } from "@mdcz/media-store";
+import type { Configuration } from "@mdcz/shared/config";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
+import { preflightScrapeTask } from "../../scrape/preflightScrapeTask";
 
 export const resolveScrapeAttempts = <TOutcome extends { attemptId: string; itemId: string }>(manifest: {
   attempts: readonly { id: string; itemId: string }[];
@@ -55,4 +57,59 @@ export const resolveScrapeRetry = async (input: {
     };
   }
   throw new Error(`Retry source is missing: ${sourcePath}`);
+};
+
+export const preflightScrapeRetry = async (input: {
+  manifest: {
+    rootId: string;
+    requestedOutputRootId: string | null;
+    requestedOutputRelativeDirectory: string | null;
+    executionMode: "single" | "batch";
+    items: readonly (RootFileRef & { id: string })[];
+    outcomes: readonly {
+      itemId: string;
+      outcome: string;
+      outputRootId: string | null;
+      outputRelativePath: string | null;
+    }[];
+  };
+  itemIds?: readonly string[];
+  configuration: Configuration;
+  resolveRoot(id: string): Promise<Pick<MediaRoot, "id" | "hostPath">>;
+}): Promise<void> => {
+  const { manifest, configuration } = input;
+  const latestOutcomeByItemId = new Map(manifest.outcomes.map((outcome) => [outcome.itemId, outcome]));
+  const items = manifest.items.filter((item) => {
+    if (input.itemIds) return input.itemIds.includes(item.id);
+    const outcome = latestOutcomeByItemId.get(item.id)?.outcome;
+    return outcome === "failed" || outcome === "skipped";
+  });
+  const outputRoot = await input.resolveRoot(manifest.requestedOutputRootId ?? manifest.rootId);
+  const files = await Promise.all(
+    items.map((item) =>
+      resolveScrapeRetry({
+        item,
+        retrying: true,
+        latestOutcome: latestOutcomeByItemId.get(item.id),
+        outputRoot,
+        outputRelativeDirectory: manifest.requestedOutputRelativeDirectory ?? "",
+        failedOutputFolder: configuration.paths.failedOutputFolder,
+        resolveRoot: input.resolveRoot,
+      }),
+    ),
+  );
+  await preflightScrapeTask({
+    files,
+    executionMode: manifest.executionMode,
+    configuration: {
+      ...configuration,
+      paths: {
+        ...configuration.paths,
+        mediaPath: outputRoot.hostPath,
+        ...(manifest.requestedOutputRootId
+          ? { successOutputFolder: manifest.requestedOutputRelativeDirectory ?? "" }
+          : {}),
+      },
+    },
+  });
 };

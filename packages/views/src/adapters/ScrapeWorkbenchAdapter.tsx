@@ -5,7 +5,6 @@ import {
   selectScrapeStatus,
   useScrapeStore,
 } from "@mdcz/views/state/scrapeStore";
-import type { ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ScrapeWorkbenchFrame } from "../workbench";
 import { DetailPanelAdapter } from "./DetailPanelAdapter";
@@ -20,7 +19,6 @@ export interface ScrapeWorkbenchAdapterProps {
   onStopScrape: () => void;
   onRetryFailed: () => void;
   failedCount: number;
-  conflictAction?: ReactNode;
 }
 
 export function ScrapeWorkbenchAdapter({
@@ -30,7 +28,6 @@ export function ScrapeWorkbenchAdapter({
   onStopScrape,
   onRetryFailed,
   failedCount,
-  conflictAction,
 }: ScrapeWorkbenchAdapterProps) {
   const { isScraping, scrapeStatus, progress, resultsCount } = useScrapeStore(
     useShallow((state) => ({
@@ -50,7 +47,6 @@ export function ScrapeWorkbenchAdapter({
       progress={progress}
       showCompletedActions={!isScraping && resultsCount > 0}
       failedCount={failedCount}
-      conflictAction={conflictAction}
       onPauseScrape={onPauseScrape}
       onResumeScrape={onResumeScrape}
       onStopScrape={onStopScrape}

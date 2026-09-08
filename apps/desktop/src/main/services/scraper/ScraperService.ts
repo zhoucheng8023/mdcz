@@ -6,7 +6,7 @@ import { createDesktopMediaRootService } from "@main/services/mediaRoots";
 import { DesktopPersistenceService } from "@main/services/persistence";
 import type { SignalService } from "@main/services/SignalService";
 import { didPromiseTimeout } from "@main/utils/async";
-import { type MediaRoot, toRootRelativePath } from "@mdcz/media-store";
+import { type MediaRoot, resolveRootRelativePath, toRootRelativePath } from "@mdcz/media-store";
 import type { ScrapeRunManifest } from "@mdcz/persistence";
 import type { ActorSourceProvider } from "@mdcz/runtime/actorSource";
 import type { PersistentCooldownStore } from "@mdcz/runtime/cooldown";
@@ -24,9 +24,11 @@ import {
   DownloadManager,
   type FileScrapeResult,
   NfoGenerator,
+  preflightScrapeTask,
   TranslateService,
 } from "@mdcz/runtime/scrape";
 import {
+  preflightScrapeRetry,
   resolveScrapeAttempts,
   resolveScrapeRetry,
   ScrapeCoordinator,
@@ -99,6 +101,15 @@ export class ScraperService {
     this.mediaRoots = mediaRoots ?? createDesktopMediaRootService(this.persistenceService);
     this.host = {
       create: async (input) => await this.createRun(input),
+      preflightRetry: async (runId, itemIds) => {
+        const state = await this.persistenceService.getState();
+        await preflightScrapeRetry({
+          manifest: await state.repositories.scrapeRuns.get(runId),
+          itemIds,
+          configuration: await configManager.getValidated(),
+          resolveRoot: async (id) => await state.repositories.mediaRoots.get(id),
+        });
+      },
       runId: (run) => run.id,
       createExecution: async (run, reporter) => await this.createExecution(run, reporter),
       onInvalidate: (runs) => {
@@ -256,8 +267,24 @@ export class ScraperService {
     const rootId = input.refs[0]?.rootId;
     if (!rootId) throw new ScraperServiceError("NO_FILES", "No files selected");
     const state = await this.persistenceService.getState();
-    await Promise.all(input.refs.map(async (ref) => await state.repositories.mediaRoots.get(ref.rootId)));
-    await state.repositories.mediaRoots.get(input.outputRootId);
+    const files = await Promise.all(
+      input.refs.map(async (ref) => ({
+        sourcePath: resolveRootRelativePath(await state.repositories.mediaRoots.get(ref.rootId), ref.relativePath),
+      })),
+    );
+    const outputRoot = await state.repositories.mediaRoots.get(input.outputRootId);
+    await preflightScrapeTask({
+      files,
+      executionMode: input.mode,
+      configuration: {
+        ...input.configuration,
+        paths: {
+          ...input.configuration.paths,
+          mediaPath: outputRoot.hostPath,
+          successOutputFolder: input.outputRelativeDirectory ?? "",
+        },
+      },
+    });
     return await state.repositories.scrapeRuns.create({
       rootId,
       outputRootId: input.outputRootId,
@@ -350,6 +377,12 @@ export class ScraperService {
       items,
       initialItems,
       concurrency: manifest.executionMode === "single" ? 1 : policy.concurrency,
+      preflight: async (pending: readonly ScrapeRunItem<ManualScrapeOptions>[]) =>
+        await preflightScrapeTask({
+          files: pending,
+          configuration: runConfiguration,
+          executionMode: manifest.executionMode,
+        }),
       admitItem: async (item: ScrapeRunItem<ManualScrapeOptions>) => {
         const existing = openAttemptByItemId.get(item.id);
         if (existing) return existing;
@@ -371,7 +404,6 @@ export class ScraperService {
           source: item.executionSource ?? { rootId: item.rootId, relativePath: item.relativePath },
           roots: [...roots.values()],
           operationId: `${manifest.id}:${attemptId}`,
-          replaceExistingTargets: item.replaceExistingTargets,
           outputBaseDirectory: item.outputBaseDirectory,
         });
         return { ...result, fileId: item.id, rootId: item.rootId, relativePath: item.relativePath };

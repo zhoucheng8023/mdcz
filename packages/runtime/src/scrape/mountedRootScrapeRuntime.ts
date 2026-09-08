@@ -55,7 +55,6 @@ export interface MountedRootScrapeRuntimeItemInput {
   manualScrape?: ManualScrapeOptions;
   localState?: NfoLocalState;
   operationId?: string;
-  replaceExistingTargets?: boolean;
   outputBaseDirectory?: string;
   publicationRoots?: MediaRoot[];
   progress: { fileIndex: number; totalFiles: number };
@@ -204,7 +203,6 @@ export class MountedRootScrapeRuntime {
           source: { rootId: input.root.id, relativePath: input.relativePath },
           roots,
           operationId: input.operationId ?? `${input.scrapeSessionId ?? "scrape"}:${input.relativePath}`,
-          replaceExistingTargets: input.replaceExistingTargets,
           outputBaseDirectory: input.outputBaseDirectory,
         },
       );
