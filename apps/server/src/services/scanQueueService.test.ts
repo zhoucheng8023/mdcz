@@ -17,6 +17,76 @@ const task = (id: string, status: ScanTask["status"]): ScanTask => ({
 });
 
 describe("ScanQueueService", () => {
+  it.each(
+    (["start", "retry"] as const).flatMap((operation) =>
+      (["event", "snapshot", "publish"] as const).map((failure) => ({ operation, failure })),
+    ),
+  )("executes $operation even when its queued $failure notification fails", async ({ operation, failure }) => {
+    const queued = task("notification-failure", operation === "retry" ? "failed" : "queued");
+    const notificationError = new Error("notification unavailable");
+    const addEvent = vi.fn(async ({ taskId, type, message }: { taskId: string; type: string; message: string }) => ({
+      id: `${taskId}:${type}`,
+      taskId,
+      type,
+      message,
+      createdAt: new Date(),
+    }));
+    const listScanResults = vi.fn(async () => []);
+    const claim = vi.fn(async () => {
+      queued.status = "running";
+      return queued;
+    });
+    const persistence = {
+      getState: async () => ({
+        repositories: {
+          mediaRoots: { get: async () => ({ displayName: "Media" }) },
+          scanTasks: {
+            create: async () => queued,
+            requeue: async () => {
+              queued.status = "queued";
+              return queued;
+            },
+            get: async () => queued,
+            claim,
+            addEvent,
+            listScanResults,
+            fail: async (_id: string, error: string) => {
+              queued.status = "failed";
+              queued.error = error;
+              return queued;
+            },
+            interruptUnfinished: async () => [],
+          },
+        },
+      }),
+    };
+    const taskEvents = createTaskEventBus();
+    if (failure === "event") addEvent.mockRejectedValueOnce(notificationError);
+    if (failure === "snapshot") listScanResults.mockRejectedValueOnce(notificationError);
+    if (failure === "publish")
+      vi.spyOn(taskEvents, "lifecycle").mockImplementationOnce(() => {
+        throw notificationError;
+      });
+    const service = new ScanQueueService(
+      persistence as never,
+      {
+        get: async () => {
+          if (queued.status === "running") throw new Error("scan execution failed");
+          return { displayName: "Media" };
+        },
+      } as never,
+      taskEvents,
+      {} as never,
+    );
+
+    await expect(operation === "start" ? service.start(queued.rootId) : service.retry(queued.id)).rejects.toBe(
+      notificationError,
+    );
+    await vi.waitFor(() => expect(queued).toMatchObject({ status: "failed", error: "scan execution failed" }));
+    expect(claim).toHaveBeenCalledExactlyOnceWith(queued.id);
+    await service.close();
+  });
+
   it("fails queued and running tasks recovered after a backend restart", async () => {
     const tasks = new Map([task("queued", "queued"), task("running", "running")].map((item) => [item.id, item]));
     const interruptUnfinished = vi.fn(async (error: string) => {

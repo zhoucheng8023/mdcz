@@ -118,11 +118,25 @@ describe("Actor source local and gfriends", () => {
     }
   });
 
-  it("uses exact local names to resolve gfriends image matches through the provider", async () => {
+  it.each([
+    "local",
+    "gfriends",
+  ] as const)("respects image source order with movie-local photos: %s first", async (first) => {
     const root = await createTempDir();
     const movieDir = join(root, "Actor A", "ABC-123");
     await mkdir(movieDir, { recursive: true });
-    await writeFile(join(movieDir, "ABC-123.nfo"), new NfoGenerator().buildXml(createCrawlerData()), "utf8");
+    const photoPath = join(movieDir, ".actors", "Actor A.jpg");
+    await mkdir(dirname(photoPath));
+    await writeFile(photoPath, "photo");
+    await writeFile(
+      join(movieDir, "ABC-123.nfo"),
+      new NfoGenerator().buildXml(
+        createCrawlerData({
+          actor_profiles: [{ name: "Actor A", photo_url: ".actors/Actor A.jpg" }],
+        }),
+      ),
+      "utf8",
+    );
 
     const networkClient = new FakeNetworkClient();
     networkClient.getJson.mockImplementation(async (url: string) => {
@@ -152,20 +166,22 @@ describe("Actor source local and gfriends", () => {
       createConfig({
         paths: {
           ...defaultConfiguration.paths,
-          mediaPath: root,
+          mediaPath: "",
+          successOutputFolder: root,
         },
         personSync: {
           ...defaultConfiguration.personSync,
-          personImageSources: ["local", "gfriends"],
+          personImageSources: first === "local" ? ["local", "gfriends"] : ["gfriends", "local"],
         },
       }),
-      "Actor A",
+      { name: "Actor A", requiredField: "photo_url" },
     );
 
     expect(result.profile).toMatchObject({
       name: "Actor A",
-      photo_url: "https://example.com/Content/actresses/actor-a.jpg",
+      photo_url: first === "local" ? photoPath : "https://example.com/Content/actresses/actor-a.jpg",
     });
-    expect(result.profileSources.photo_url).toBe("gfriends");
+    expect(result.profileSources.photo_url).toBe(first);
+    expect(networkClient.getJson).toHaveBeenCalledTimes(first === "local" ? 0 : 1);
   });
 });

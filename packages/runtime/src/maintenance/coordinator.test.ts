@@ -551,7 +551,15 @@ describe("MaintenanceSessionCoordinator", () => {
     await fixture.coordinator.close();
   });
 
-  it("holds media path ownership through apply and releases it on stop", async () => {
+  it.each([
+    { closeFirst: false, notificationFails: false },
+    { closeFirst: true, notificationFails: false },
+    { closeFirst: false, notificationFails: true },
+    { closeFirst: true, notificationFails: true },
+  ])("settles overlapping termination and releases ownership ($closeFirst, $notificationFails)", async ({
+    closeFirst,
+    notificationFails,
+  }) => {
     const { promise: started, resolve: applyStarted } = promiseWithResolvers<void>();
     const fixture = createCoordinator({
       applyEntry: vi.fn(async ({ signal }) => {
@@ -567,17 +575,30 @@ describe("MaintenanceSessionCoordinator", () => {
       refs: [ref("owned.mp4")],
     });
     const previewBatch = await preview.completion;
-    await fixture.coordinator.beginApply({
+    const apply = await fixture.coordinator.beginApply({
       sessionId: preview.session.id,
       selections: [{ previewId: previewBatch.items[0]?.id ?? "" }],
     });
     await started;
 
     expect(() => fixture.ownership.acquire(root.id, "owned.mp4")).toThrow("Media path is already being modified");
-    await fixture.coordinator.stop(preview.session.id);
+    if (notificationFails)
+      vi.spyOn(fixture.events, "push").mockImplementation(() => {
+        throw new Error("notification unavailable");
+      });
+    const first = closeFirst ? fixture.coordinator.close() : fixture.coordinator.stop(preview.session.id);
+    const second = closeFirst ? fixture.coordinator.stop(preview.session.id) : fixture.coordinator.close();
+    const settlements = await Promise.allSettled([first, second]);
+    expect(settlements.map((settlement) => settlement.status)).toEqual([
+      notificationFails ? "rejected" : "fulfilled",
+      notificationFails ? "rejected" : "fulfilled",
+    ]);
+    const batch = await apply.completion;
+    expect(batch.session.status).toBe("failed");
+    expect(batch.applied).toEqual([expect.objectContaining({ status: "skipped" })]);
+    expect(vi.mocked(fixture.runtime.applyEntry)).toHaveBeenCalledOnce();
     const release = fixture.ownership.acquire(root.id, "owned.mp4");
     release();
-    await fixture.coordinator.close();
   });
 
   it.each(["completed", "failed"] as const)("releases media path ownership when apply is %s", async (outcome) => {

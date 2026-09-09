@@ -84,6 +84,33 @@ describe("LlmApiClient", () => {
       absent: ["reasoning_effort", "response_format"],
       data: { choices: [{ message: { content: "ok" } }] },
     },
+    ...(["default", "enabled", "low", "high", "max"] as const).map((reasoning) => ({
+      name: `DeepSeek ${reasoning} thinking`,
+      request: {
+        baseUrl: "https://api.deepseek.com",
+        apiFormat: "chat-completions" as const,
+        serviceType: "deepseek" as const,
+        reasoning,
+      },
+      url: "https://api.deepseek.com/chat/completions",
+      expected:
+        reasoning === "default"
+          ? {}
+          : {
+              thinking: { type: "enabled" },
+              ...(reasoning === "enabled" ? {} : { reasoning_effort: reasoning }),
+            },
+      absent: [
+        "temperature",
+        "response_format",
+        ...(reasoning === "default"
+          ? ["thinking", "reasoning_effort"]
+          : reasoning === "enabled"
+            ? ["reasoning_effort"]
+            : []),
+      ],
+      data: { choices: [{ message: { content: "ok" } }] },
+    })),
   ])("constructs $name requests from explicit service type", async ({ request, url, expected, absent, data }) => {
     const postJsonDetailed = vi.fn().mockResolvedValue(response(data));
     const client = new LlmApiClient({ postJsonDetailed });

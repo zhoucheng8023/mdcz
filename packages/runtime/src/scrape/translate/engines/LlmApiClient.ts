@@ -214,6 +214,12 @@ export class LlmApiClient {
   constructor(private readonly transport: LlmApiTransport = new FetchLlmApiTransport()) {}
 
   async generateText(request: LlmTextRequest, signal?: AbortSignal): Promise<string | null> {
+    if (request.reasoning === "enabled" && request.serviceType !== "deepseek") {
+      throw new Error("显式开启并使用默认强度仅适用于 DeepSeek；请选择服务端默认或指定强度");
+    }
+    if (request.serviceType === "google" && request.reasoning === "max") {
+      throw new Error("Google OpenAI 兼容接口不支持 max 推理强度");
+    }
     const baseUrl = normalizeLlmBaseUrl(request.baseUrl);
     const headers = this.buildHeaders(request.apiKey);
     if (request.serviceType !== "openai-compatible" || request.apiFormat === "chat-completions") {
@@ -282,7 +288,9 @@ export class LlmApiClient {
     if (provider === "deepseek") {
       return {
         thinking: { type: request.reasoning === "disabled" ? "disabled" : "enabled" },
-        ...(request.reasoning === "disabled" ? {} : { reasoning_effort: request.reasoning }),
+        ...(request.reasoning === "disabled" || request.reasoning === "enabled"
+          ? {}
+          : { reasoning_effort: request.reasoning }),
       };
     }
     return { reasoning_effort: request.reasoning === "disabled" ? "none" : request.reasoning };

@@ -262,7 +262,7 @@ describe("FileScraper multipart aggregation cache", () => {
     });
   });
 
-  it("serializes same-number multipart files before output planning", async () => {
+  it("prepares same-number multipart files independently while sharing aggregation", async () => {
     const aggregate = vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData({ number: "FC2-123456" })));
     let markFirstStarted: (() => void) | undefined;
     const firstStarted = new Promise<void>((resolve) => {
@@ -282,7 +282,7 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
     const { scraper } = createScraper(aggregate, { resolveOutputPlan });
 
-    const firstPromise = prepareAndExecuteFile(scraper, part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+    const firstPromise = scraper.prepareFile(part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
       roots: [
         { id: "test-root", hostPath: tmpdir() },
         { id: "output-root", hostPath: "/output" },
@@ -290,24 +290,26 @@ describe("FileScraper multipart aggregation cache", () => {
     });
     await firstStarted;
 
-    const secondPromise = prepareAndExecuteFile(scraper, part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+    const secondPromise = scraper.prepareFile(part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
       roots: [
         { id: "test-root", hostPath: tmpdir() },
         { id: "output-root", hostPath: "/output" },
       ],
     });
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
-
-    expect(resolveOutputPlan).toHaveBeenCalledTimes(1);
-
-    releaseFirst?.();
+    try {
+      const second = await secondPromise;
+      expect(second.status).toBe("prepared");
+      expect(resolveOutputPlan).toHaveBeenCalledTimes(2);
+      expect(aggregate).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseFirst?.();
+      await firstPromise;
+    }
 
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
 
-    expect(first.status).toBe("success");
-    expect(second.status).toBe("success");
+    expect(first.status).toBe("prepared");
+    expect(second.status).toBe("prepared");
     expect(resolveOutputPlan).toHaveBeenCalledTimes(2);
   });
 

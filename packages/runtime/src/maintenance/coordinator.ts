@@ -379,13 +379,31 @@ export class MaintenanceSessionCoordinator {
     const current = this.require(sessionId);
     if (current.status === "completed" || current.status === "failed") return current.statusSnapshot();
     const generation = current.beginStopping(reason);
-    await this.publishStatus(current, "stopping", "Stopping maintenance session");
+    const errors: unknown[] = [];
     this.active?.executor.stop();
+    try {
+      await this.publishStatus(current, "stopping", "Stopping maintenance session");
+    } catch (error) {
+      errors.push(error);
+    }
     await this.awaitCurrentExecution();
     const latest = this.require(sessionId);
     if (latest.generation !== generation) return latest.statusSnapshot();
-    if (latest.phase === "apply") await this.skipOutstanding(latest.id, generation, itemReason);
-    await this.finishSession(latest.id, generation, "failed", reason);
+    try {
+      if (latest.phase === "apply") await this.skipOutstanding(latest.id, generation, itemReason);
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await this.finishSession(latest.id, generation, "failed", reason);
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      this.releasePaths();
+      this.notify(sessionId);
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Maintenance stopped with notification errors");
     return latest.statusSnapshot();
   }
 

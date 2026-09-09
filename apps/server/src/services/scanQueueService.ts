@@ -86,11 +86,14 @@ export class ScanQueueService {
     await this.mediaRoots.get(rootId);
     const state = await this.persistence.getState();
     const task = await state.repositories.scanTasks.create({ rootId });
-    await this.addEvent(task.id, "queued", "扫描任务已排队");
-    const queuedTask = await this.toDto(task.id);
-    this.publishTask(queuedTask);
-    this.enqueue(task.id);
-    return queuedTask;
+    try {
+      await this.addEvent(task.id, "queued", "扫描任务已排队");
+      const queuedTask = await this.toDto(task.id);
+      this.publishTask(queuedTask);
+      return queuedTask;
+    } finally {
+      this.enqueue(task.id);
+    }
   }
 
   async list(): Promise<ScanTaskListResponse> {
@@ -139,11 +142,14 @@ export class ScanQueueService {
     await this.mediaRoots.get(task.rootId);
     const queued = await state.repositories.scanTasks.requeue(taskId);
     if (!queued) throw new Error(`Failed to requeue scan task: ${taskId}`);
-    await this.addEvent(taskId, "queued", "重试扫描已排队");
-    const queuedTask = await this.toDto(taskId);
-    this.publishTask(queuedTask);
-    this.enqueue(taskId);
-    return queuedTask;
+    try {
+      await this.addEvent(taskId, "queued", "重试扫描已排队");
+      const queuedTask = await this.toDto(taskId);
+      this.publishTask(queuedTask);
+      return queuedTask;
+    } finally {
+      this.enqueue(taskId);
+    }
   }
 
   async candidates(input: ScanCandidatesInput): Promise<ScanCandidatesResponse> {

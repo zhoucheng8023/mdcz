@@ -81,7 +81,7 @@ const LLM_SERVICE_TYPE_FIELD_OPTIONS: EnumOption[] = [
   { value: "deepseek", label: "DeepSeek" },
 ];
 const LLM_OUTPUT_FORMAT_FIELD_OPTIONS: EnumOption[] = [
-  { value: "none", label: "无" },
+  { value: "none", label: "提示词 JSON" },
   { value: "json_object", label: "JSON Object" },
   { value: "json_schema", label: "JSON Schema" },
 ];
@@ -1084,10 +1084,10 @@ export function TranslateSection() {
               >
                 {testing ? (
                   <>
-                    <Loader2 className="h-3 w-3 mr-1 animate-spin" /> 测试中...
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" /> 验证中...
                   </>
                 ) : (
-                  "测试连通性"
+                  "验证元数据翻译"
                 )}
               </Button>
             )}
@@ -1133,13 +1133,30 @@ export function TranslateSection() {
           <EnumField
             name="translate.llmReasoning"
             label="LLM 推理强度"
-            description="服务端默认会省略推理字段；显式关闭或档位是否可用由模型和服务端校验。"
-            options={LLM_REASONING_FIELD_OPTIONS}
+            description={
+              serviceType === "google"
+                ? "默认省略推理字段。Gemini 2.5 Pro 和 Gemini 3 系列不能关闭推理；其他模型由服务端校验。"
+                : serviceType === "deepseek"
+                  ? "默认省略开关和强度；开启可使用服务端默认强度，或选择 low / high / max。思考模式下 temperature 不生效。"
+                  : "默认省略推理字段；关闭与指定强度是否可用由模型和服务端校验。"
+            }
+            options={
+              serviceType === "deepseek"
+                ? [
+                    { value: "default", label: "服务端默认" },
+                    { value: "disabled", label: "关闭" },
+                    { value: "enabled", label: "开启（服务端默认强度）" },
+                    { value: "low", label: "low" },
+                    { value: "high", label: "high" },
+                    { value: "max", label: "max" },
+                  ]
+                : LLM_REASONING_FIELD_OPTIONS
+            }
           />
           <EnumField
             name="translate.llmOutputFormat"
             label="输出格式"
-            description="独立于请求形式。无则省略结构化输出参数。"
+            description="提示词 JSON 省略结构化输出参数；元数据翻译始终要求 JSON 并在本地校验。"
             options={LLM_OUTPUT_FORMAT_FIELD_OPTIONS.filter(
               (option) =>
                 serviceType !== "deepseek" || (typeof option === "string" ? option : option.value) !== "json_schema",
