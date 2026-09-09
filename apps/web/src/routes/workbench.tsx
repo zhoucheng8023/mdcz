@@ -9,6 +9,7 @@ import {
   ScrapeWorkbenchAdapter,
   type SharedWorkbenchPorts,
   startMaintenanceFlow,
+  useScrapeTerminalError,
   useWorkbenchSessionSnapshot,
   WorkbenchSetupAdapter,
   type WorkbenchSetupPort,
@@ -98,7 +99,12 @@ function WorkbenchPage() {
 
   const sessionSnapshot = useWorkbenchSessionSnapshot(workbenchMode, search.intent);
   const showSetup = sessionSnapshot.showSetup;
-  const failedCount = useMemo(() => results.filter((result) => result.status === "failed").length, [results]);
+  const failedCount = useMemo(
+    () => results.filter((result) => result.status === "failed" || result.status === "skipped").length,
+    [results],
+  );
+
+  useScrapeTerminalError(setStartError);
 
   useEffect(() => {
     if (sessionSnapshot.workbenchMode !== workbenchMode) {

@@ -53,14 +53,15 @@ const createHost = (
   concurrency = 1,
 ): ScrapeHostPort<string, Run, undefined> => ({
   create: vi.fn(async () => run),
-  preflightRetry: vi.fn(async () => undefined),
   runId: (entry) => entry.id,
   createExecution: async (entry) => ({
     items: entry.items.map((item) => ({ ...item, sourcePath: `/media/${item.relativePath}` })),
     concurrency,
-    preflight: vi.fn(async () => undefined),
     admitItem: async (item) => `${item.id}:attempt`,
-    executeItem,
+    prepareItem: async () => ({ status: "prepared", prepared: undefined }),
+    validatePrepared: vi.fn(async () => undefined),
+    executePreparedItem: async (item, _prepared, signal) => await executeItem(item, signal),
+    commitPreparationItem: async (_item, result) => result,
     commitItem: async (_item, result) => result,
   }),
   onInvalidate: vi.fn(),
@@ -118,7 +119,7 @@ describe("ScrapeCoordinator", () => {
     const create = host.createExecution;
     host.createExecution = async (entry, reporter) => ({
       ...(await create(entry, reporter)),
-      preflight: async () => {
+      validatePrepared: async () => {
         if (stage === "preflight") throw new PublicationConflictError("/one", "/two");
       },
       commitItem: async (item, result) => {
@@ -134,7 +135,10 @@ describe("ScrapeCoordinator", () => {
       run,
       expect.objectContaining({
         status: "failed",
-        items: [expect.objectContaining({ status: "skipped" }), expect.objectContaining({ status: "skipped" })],
+        items:
+          stage === "preflight"
+            ? [expect.objectContaining({ status: "failed" }), expect.objectContaining({ status: "failed" })]
+            : [expect.objectContaining({ status: "skipped" }), expect.objectContaining({ status: "skipped" })],
       }),
     );
     expect(store.finalize).toHaveBeenCalledOnce();

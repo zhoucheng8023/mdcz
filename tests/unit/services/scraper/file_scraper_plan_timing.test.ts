@@ -68,31 +68,37 @@ describe("FileScraper plan timing", () => {
       downloaded: [],
       sceneImages: [],
     });
+    const aggregate = vi.fn().mockResolvedValue({
+      data: aggregatedData,
+      sources: {},
+      imageAlternatives: {
+        thumb_url: [],
+        poster_url: [],
+        fanart_url: [],
+        scene_images: [],
+      },
+      stats: {
+        totalSites: 1,
+        successCount: 1,
+        failedCount: 0,
+        skippedCount: 0,
+        siteResults: [],
+        rejectedSites: [],
+        totalElapsedMs: 1,
+      },
+    });
+    const translateCrawlerData = vi.fn().mockResolvedValue(translatedData);
+    let currentConfig = {
+      ...config,
+      paths: { ...config.paths, mediaPath: "/selected-output" },
+    };
     mockConfigManager(config);
     const scraper = createFileScraper({
       aggregationService: {
-        aggregate: vi.fn().mockResolvedValue({
-          data: aggregatedData,
-          sources: {},
-          imageAlternatives: {
-            thumb_url: [],
-            poster_url: [],
-            fanart_url: [],
-            scene_images: [],
-          },
-          stats: {
-            totalSites: 1,
-            successCount: 1,
-            failedCount: 0,
-            skippedCount: 0,
-            siteResults: [],
-            rejectedSites: [],
-            totalElapsedMs: 1,
-          },
-        }),
+        aggregate,
       } as unknown as AggregationService,
       translateService: {
-        translateCrawlerData: vi.fn().mockResolvedValue(translatedData),
+        translateCrawlerData,
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo: vi.fn(),
@@ -103,13 +109,24 @@ describe("FileScraper plan timing", () => {
       fileOrganizer,
       signalService: new SignalService(null),
       actorImageService,
-      getConfiguration: async () => ({
-        ...config,
-        paths: { ...config.paths, mediaPath: "/selected-output" },
-      }),
+      getConfiguration: async () => currentConfig,
     });
 
-    await scraper.scrapeFile("/tmp/ABC-123.mp4", { fileIndex: 1, totalFiles: 1 });
+    const preparation = await scraper.prepareFile("/tmp/ABC-123.mp4", { fileIndex: 1, totalFiles: 1 }, undefined, {
+      source: { rootId: "root", relativePath: "tmp/ABC-123.mp4" },
+      roots: [{ id: "root", hostPath: "/" }],
+    });
+    expect(preparation.status).toBe("prepared");
+    expect(downloadAll).not.toHaveBeenCalled();
+    currentConfig = {
+      ...currentConfig,
+      naming: { ...currentConfig.naming, fileTemplate: "changed-{number}" },
+    };
+    if (preparation.status !== "prepared") throw new Error("Expected prepared scrape");
+    await scraper.executePreparedFile(preparation.prepared);
+    expect(aggregate).toHaveBeenCalledOnce();
+    expect(translateCrawlerData).toHaveBeenCalledOnce();
+    expect(fileOrganizer.plan).toHaveBeenCalledOnce();
 
     expect(fileOrganizer.plan).toHaveBeenCalledWith(
       expect.objectContaining({

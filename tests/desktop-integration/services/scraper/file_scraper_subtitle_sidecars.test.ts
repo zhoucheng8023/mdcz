@@ -16,7 +16,7 @@ import type {
 import { Website } from "@mdcz/shared/enums";
 import type { CrawlerData, FileInfo } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockConfigManager } from "../../../helpers/scraper";
+import { mockConfigManager, prepareAndExecuteFile } from "../../../helpers/scraper";
 
 const tempDirs: string[] = [];
 
@@ -125,7 +125,7 @@ describe("FileScraper subtitle sidecars", () => {
     const writeNfo = vi.fn().mockResolvedValue(plan.nfoPath);
     const scraper = createScraper(plan, writeNfo);
 
-    const result = await scraper.scrapeFile(videoPath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+    const result = await prepareAndExecuteFile(scraper, videoPath, { fileIndex: 1, totalFiles: 1 }, undefined, {
       roots: [{ id: "test-root", hostPath: tmpdir() }],
     });
     const nfoOptions = writeNfo.mock.calls[0]?.[2] as { fileInfo?: FileInfo } | undefined;

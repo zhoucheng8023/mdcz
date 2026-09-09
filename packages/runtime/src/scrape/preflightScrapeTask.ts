@@ -1,132 +1,132 @@
 import type { Dirent } from "node:fs";
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { extname, join, parse, relative, resolve } from "node:path";
-import type { Configuration } from "@mdcz/shared/config";
-import { resolveOrganizeDirectory, type ScrapeExecutionMode } from "./FileOrganizer";
+import { readdir, realpath, stat } from "node:fs/promises";
+import { dirname, extname, parse, resolve } from "node:path";
+import type { OrganizePlan } from "./FileOrganizer";
 import { isGeneratedSidecarVideo } from "./media/generatedSidecarVideos";
-import { parseNfo } from "./nfo";
-import { DEFAULT_VIDEO_EXTENSIONS, isPathInside } from "./utils/filesystem";
-import { extractNumber, parseFileInfo } from "./utils/number";
+import { DEFAULT_VIDEO_EXTENSIONS } from "./utils/filesystem";
+
+export interface PreparedScrapeTarget {
+  itemId: string;
+  sourcePath: string;
+  outputPlan: Pick<OrganizePlan, "targetVideoPath">;
+}
 
 export interface ScrapeTargetConflict {
-  number: string;
-  part?: number;
+  itemId: string;
   sourcePath: string;
   targetPath: string;
+  message: string;
 }
 
 export class ScrapeTargetConflictError extends Error {
   constructor(readonly conflicts: readonly ScrapeTargetConflict[]) {
     super(
-      "目标区域已有同番号、同分片的影片，或本次选择中存在重复影片。本次待处理影片均未开始刮削，请处理以下冲突后重试。\n\n" +
-        conflicts
-          .map(
-            (conflict) =>
-              `${conflict.number}${conflict.part ? ` · 分片 ${conflict.part}` : ""}\n待处理：${conflict.sourcePath}\n冲突文件：${conflict.targetPath}`,
-          )
-          .join("\n\n"),
+      conflicts
+        .map((conflict) => `${conflict.message}\n待处理：${conflict.sourcePath}\n冲突文件：${conflict.targetPath}`)
+        .join("\n\n"),
     );
     this.name = "ScrapeTargetConflictError";
   }
 }
 
-export const preflightScrapeTask = async (input: {
-  files: readonly { sourcePath: string; outputBaseDirectory?: string }[];
-  configuration: Configuration;
-  executionMode: ScrapeExecutionMode;
-}): Promise<void> => {
-  const { configuration } = input;
+const pathKey = (value: string): string => resolve(value).toLocaleLowerCase();
+const targetKey = (value: string): string => `${pathKey(dirname(value))}\0${parse(value).name.toLocaleLowerCase()}`;
+
+const resolvedRealPath = async (filePath: string): Promise<string> =>
+  await realpath(filePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return resolve(filePath);
+    throw error;
+  });
+
+export const validatePreparedScrapeFiles = async (prepared: readonly PreparedScrapeTarget[]): Promise<void> => {
   const conflicts: ScrapeTargetConflict[] = [];
-  const scopes = new Map<
-    string,
-    { directory: string; recursive: boolean; files: Map<string, Array<{ path: string; realPath: string }>> }
-  >();
-  for (const file of input.files) {
-    const sourcePath = resolve(file.sourcePath);
-    if (isGeneratedSidecarVideo(sourcePath)) continue;
-    const info = parseFileInfo(sourcePath, configuration.scrape.filenameIgnoreTokens);
-    const { directory, useFolderTemplate } = resolveOrganizeDirectory(sourcePath, configuration, {
-      executionMode: input.executionMode,
-      outputBaseDirectory: file.outputBaseDirectory,
-    });
-    const key = `${directory}\0${useFolderTemplate}`;
-    let scope = scopes.get(key);
-    if (!scope) {
-      scope = { directory, recursive: useFolderTemplate, files: new Map() };
-      scopes.set(key, scope);
+  const plannedByTarget = new Map<string, PreparedScrapeTarget[]>();
+  for (const item of prepared) {
+    const key = targetKey(item.outputPlan.targetVideoPath);
+    const siblings = plannedByTarget.get(key) ?? [];
+    for (const sibling of siblings) {
+      if ((await resolvedRealPath(sibling.sourcePath)) === (await resolvedRealPath(item.sourcePath))) continue;
+      conflicts.push({
+        itemId: sibling.itemId,
+        sourcePath: sibling.sourcePath,
+        targetPath: item.outputPlan.targetVideoPath,
+        message: "批次内多部影片目标文件名重复",
+      });
+      conflicts.push({
+        itemId: item.itemId,
+        sourcePath: item.sourcePath,
+        targetPath: sibling.outputPlan.targetVideoPath,
+        message: "批次内多部影片目标文件名重复",
+      });
     }
-    const realPath = await realpath(sourcePath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return sourcePath;
-      throw error;
-    });
-    const identity = `${info.number}\0${info.part?.number ?? ""}`;
-    const siblings = scope.files.get(identity) ?? [];
-    const duplicate = siblings.find((other) => other.realPath !== realPath);
-    if (duplicate) {
-      conflicts.push({ number: info.number, part: info.part?.number, sourcePath, targetPath: duplicate.path });
-    }
-    siblings.push({ path: sourcePath, realPath });
-    scope.files.set(identity, siblings);
+    siblings.push(item);
+    plannedByTarget.set(key, siblings);
   }
 
-  const metadataRoot = configuration.paths.metadataPath.trim();
-  for (const scope of scopes.values()) {
-    const directories = [scope.directory];
-    const visited = new Set<string>();
-    for (const directory of directories) {
-      if (metadataRoot && !isPathInside(metadataRoot, scope.directory) && isPathInside(metadataRoot, directory))
-        continue;
-      let entries: Dirent[];
-      try {
-        const key = await realpath(directory);
-        if (visited.has(key)) continue;
-        visited.add(key);
-        entries = await readdir(directory, { encoding: "utf8", withFileTypes: true });
-      } catch (error) {
-        if (directory === scope.directory && (error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw new Error(`无法检查目标目录：${directory}。本次待处理影片均未开始刮削。`, { cause: error });
+  const byDirectory = new Map<string, PreparedScrapeTarget[]>();
+  for (const item of prepared) {
+    const directory = resolve(dirname(item.outputPlan.targetVideoPath));
+    const items = byDirectory.get(pathKey(directory)) ?? [];
+    items.push(item);
+    byDirectory.set(pathKey(directory), items);
+  }
+
+  for (const items of byDirectory.values()) {
+    const first = items[0];
+    if (!first) continue;
+    const directory = resolve(dirname(first.outputPlan.targetVideoPath));
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { encoding: "utf8", withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      for (const item of items) {
+        conflicts.push({
+          itemId: item.itemId,
+          sourcePath: item.sourcePath,
+          targetPath: directory,
+          message: `无法检查目标目录：${error instanceof Error ? error.message : String(error)}`,
+        });
       }
-      for (const entry of entries) {
-        const targetPath = join(directory, entry.name);
-        const kind = entry.isSymbolicLink() ? await stat(targetPath) : entry;
-        if (kind.isDirectory()) {
-          if (scope.recursive) directories.push(targetPath);
-          continue;
+      continue;
+    }
+
+    for (const entry of entries) {
+      const targetPath = resolve(directory, entry.name);
+      let kind = entry;
+      try {
+        if (entry.isSymbolicLink()) kind = (await stat(targetPath)) as unknown as Dirent;
+      } catch (error) {
+        for (const item of items) {
+          conflicts.push({
+            itemId: item.itemId,
+            sourcePath: item.sourcePath,
+            targetPath,
+            message: `无法检查目标文件：${error instanceof Error ? error.message : String(error)}`,
+          });
         }
-        if (!kind.isFile() || !DEFAULT_VIDEO_EXTENSIONS.has(extname(targetPath).toLowerCase())) continue;
-        if (isGeneratedSidecarVideo(targetPath)) continue;
-        const info = parseFileInfo(targetPath, configuration.scrape.filenameIgnoreTokens);
-        let number = info.number;
-        let matches = scope.files.get(`${number}\0${info.part?.number ?? ""}`);
-        if (!configuration.naming.fileTemplate.includes("{number}") && !matches) {
-          const stem = info.part ? parse(targetPath).name.replace(info.part.suffix, "") : parse(targetPath).name;
-          const nfoPaths = [join(directory, `${stem}.nfo`), join(directory, "movie.nfo")];
-          if (metadataRoot && configuration.paths.mediaPath.trim()) {
-            const mirrorDir = join(metadataRoot, relative(configuration.paths.mediaPath, directory));
-            nfoPaths.push(join(mirrorDir, `${stem}.nfo`), join(mirrorDir, "movie.nfo"));
-          }
-          for (const nfoPath of nfoPaths) {
-            const xml = await readFile(nfoPath, "utf8").catch((error: NodeJS.ErrnoException) => {
-              if (error.code === "ENOENT") return undefined;
-              throw error;
-            });
-            if (xml === undefined) continue;
-            number = extractNumber(parseNfo(xml, targetPath).number, configuration.scrape.filenameIgnoreTokens);
-            matches = scope.files.get(`${number}\0${info.part?.number ?? ""}`);
-            break;
-          }
-        }
-        if (!matches) continue;
-        const targetRealPath = await realpath(targetPath);
-        for (const source of matches) {
-          if (source.realPath === targetRealPath) continue;
-          conflicts.push({ number, part: info.part?.number, sourcePath: source.path, targetPath });
-        }
+        continue;
+      }
+      if (!kind.isFile() || !DEFAULT_VIDEO_EXTENSIONS.has(extname(targetPath).toLowerCase())) continue;
+      if (isGeneratedSidecarVideo(targetPath)) continue;
+      const matches = plannedByTarget.get(targetKey(targetPath));
+      if (!matches) continue;
+      const existingRealPath = await resolvedRealPath(targetPath);
+      for (const item of matches) {
+        if ((await resolvedRealPath(item.sourcePath)) === existingRealPath) continue;
+        conflicts.push({
+          itemId: item.itemId,
+          sourcePath: item.sourcePath,
+          targetPath,
+          message: "目标目录已存在同名影片",
+        });
       }
     }
   }
-  if (conflicts.length) {
-    const unique = new Map(conflicts.map((conflict) => [`${conflict.sourcePath}\0${conflict.targetPath}`, conflict]));
-    throw new ScrapeTargetConflictError([...unique.values()]);
-  }
+
+  if (!conflicts.length) return;
+  const unique = new Map(
+    conflicts.map((conflict) => [`${conflict.itemId}\0${pathKey(conflict.targetPath)}`, conflict]),
+  );
+  throw new ScrapeTargetConflictError([...unique.values()]);
 };

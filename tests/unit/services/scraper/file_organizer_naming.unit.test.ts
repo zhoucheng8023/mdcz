@@ -448,9 +448,9 @@ describe("FileOrganizer naming rules", () => {
           number: "XYZ-999",
         }),
         assert: (plan: ReturnType<FileOrganizer["plan"]>) => {
-          expect(plan.outputDir).toBe("/input");
-          expect(plan.targetVideoPath).toBe(join("/input", "original-name.mp4"));
-          expect(plan.nfoPath).toBe(join("/input", "original-name.nfo"));
+          expect(plan.outputDir).toBe(resolve("/input"));
+          expect(plan.targetVideoPath).toBe(join(resolve("/input"), "original-name.mp4"));
+          expect(plan.nfoPath).toBe(join(resolve("/input"), "original-name.nfo"));
         },
       },
       {
@@ -472,9 +472,9 @@ describe("FileOrganizer naming rules", () => {
           number: "XYZ-999",
         }),
         assert: (plan: ReturnType<FileOrganizer["plan"]>) => {
-          expect(plan.outputDir).toBe("/input");
-          expect(plan.targetVideoPath).toBe(join("/input", "XYZ-999-CEN.mp4"));
-          expect(plan.nfoPath).toBe(join("/input", "XYZ-999-CEN.nfo"));
+          expect(plan.outputDir).toBe(resolve("/input"));
+          expect(plan.targetVideoPath).toBe(join(resolve("/input"), "XYZ-999-CEN.mp4"));
+          expect(plan.nfoPath).toBe(join(resolve("/input"), "XYZ-999-CEN.nfo"));
         },
       },
     ];

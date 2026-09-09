@@ -29,12 +29,13 @@ export function ScrapeWorkbenchAdapter({
   onRetryFailed,
   failedCount,
 }: ScrapeWorkbenchAdapterProps) {
-  const { isScraping, scrapeStatus, progress, resultsCount } = useScrapeStore(
+  const { isScraping, scrapeStatus, progress, resultsCount, stageMessage } = useScrapeStore(
     useShallow((state) => ({
       isScraping: selectIsScraping(state),
       scrapeStatus: selectScrapeStatus(state),
       progress: selectScrapeProgress(state),
       resultsCount: selectScrapeResults(state).length,
+      stageMessage: state.snapshot?.latestStage?.message,
     })),
   );
 
@@ -45,6 +46,7 @@ export function ScrapeWorkbenchAdapter({
       isScraping={isScraping}
       scrapeStatus={scrapeStatus}
       progress={progress}
+      stageMessage={stageMessage}
       showCompletedActions={!isScraping && resultsCount > 0}
       failedCount={failedCount}
       onPauseScrape={onPauseScrape}

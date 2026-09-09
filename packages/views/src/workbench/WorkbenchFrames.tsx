@@ -10,6 +10,7 @@ export interface ScrapeWorkbenchFrameProps {
   isScraping: boolean;
   scrapeStatus: "idle" | "running" | "stopping" | "paused";
   progress: number;
+  stageMessage?: string;
   showCompletedActions: boolean;
   failedCount: number;
   onPauseScrape: () => void;
@@ -25,6 +26,7 @@ export function ScrapeWorkbenchFrame({
   isScraping,
   scrapeStatus,
   progress,
+  stageMessage,
   showCompletedActions,
   failedCount,
   onPauseScrape,
@@ -69,6 +71,7 @@ export function ScrapeWorkbenchFrame({
         <FloatingWorkbenchBar contentClassName={barContentClassName}>
           {isScraping ? (
             <div className="flex items-center gap-3">
+              {stageMessage ? <span className="text-xs text-muted-foreground">{stageMessage}</span> : null}
               <Progress value={progress} className="h-1.5 w-24 md:w-28" />
               <span className="font-numeric text-[11px] font-bold text-foreground">{Math.round(progress)}%</span>
             </div>

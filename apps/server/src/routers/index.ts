@@ -41,13 +41,7 @@ import { createHealthPayload } from "../http/health";
 import { decorateTaskLog } from "../services/runtimeLogService";
 import { mapConfigError, protectedProcedure, setupProcedure, t } from "./context";
 
-const scrapeLaunchProcedure = protectedProcedure.use(async ({ next }) => {
-  const result = await next();
-  if (!result.ok && result.error.cause instanceof ScrapeTargetConflictError) {
-    throw new TRPCError({ code: "CONFLICT", message: result.error.cause.message, cause: result.error.cause });
-  }
-  return result;
-});
+const scrapeLaunchProcedure = protectedProcedure;
 
 export const appRouter = t.router({
   auth: t.router({
@@ -351,5 +345,3 @@ export const appRouter = t.router({
 });
 
 export type AppRouter = typeof appRouter;
-
-import { ScrapeTargetConflictError } from "@mdcz/runtime/scrape/preflightScrapeTask";

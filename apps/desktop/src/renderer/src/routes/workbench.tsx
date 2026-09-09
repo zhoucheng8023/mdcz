@@ -13,6 +13,7 @@ import {
   resetScrapeWorkbenchToSetup,
   ScrapeWorkbenchAdapter,
   startMaintenanceFlow,
+  useScrapeTerminalError,
   useWorkbenchSessionSnapshot,
 } from "@mdcz/views/adapters";
 import { ScrapeStartErrorDialog, UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
@@ -84,9 +85,14 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
     [ambiguousItems],
   );
   const failedPaths = useMemo(
-    () => results.filter((result) => result.status === "failed").map((result) => result.relativePath),
+    () =>
+      results
+        .filter((result) => result.status === "failed" || result.status === "skipped")
+        .map((result) => result.relativePath),
     [results],
   );
+
+  useScrapeTerminalError(setStartError);
   const sessionSnapshot = useWorkbenchSessionSnapshot(workbenchMode, routeIntent);
   const showSetup = sessionSnapshot.showSetup;
 

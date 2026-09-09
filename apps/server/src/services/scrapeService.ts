@@ -23,15 +23,16 @@ import {
   type MountedRootScrapeRuntimeItemSuccess,
   NfoGenerator,
   PosterCropService,
-  preflightScrapeTask,
+  type PreparedMountedRootScrape,
+  validatePreparedScrapeFiles,
 } from "@mdcz/runtime/scrape";
 import { runtimeLoggerService } from "@mdcz/runtime/shared";
 import {
-  preflightScrapeRetry,
   resolveScrapeAttempts,
   resolveScrapeRetry,
   ScrapeCoordinator,
   type ScrapeHostPort,
+  type ScrapePreparationResult,
   type ScrapeRunItem,
   type ScrapeRunItemInitialState,
   type ScrapeRunSnapshot,
@@ -122,10 +123,20 @@ export class ScrapeService {
   private readonly runtime: MountedRootScrapeRuntime;
   private readonly imageHostCooldownStore: Pick<PersistentCooldownStore, "clear">;
   private readonly prepareScrapeItem: <T extends { relativePath: string; caseId?: string }>(item: T) => T;
-  private workflow: ScrapeCoordinator<ScrapeStartInput, ScrapeRunManifest, ServerManualScrape> | null = null;
+  private workflow: ScrapeCoordinator<
+    ScrapeStartInput,
+    ScrapeRunManifest,
+    ServerManualScrape,
+    PreparedMountedRootScrape
+  > | null = null;
   private scrapeInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
-  private readonly host: ScrapeHostPort<ScrapeStartInput, ScrapeRunManifest, ServerManualScrape>;
+  private readonly host: ScrapeHostPort<
+    ScrapeStartInput,
+    ScrapeRunManifest,
+    ServerManualScrape,
+    PreparedMountedRootScrape
+  >;
 
   constructor(
     private readonly persistence: ServerPersistenceService,
@@ -148,15 +159,6 @@ export class ScrapeService {
     );
     this.host = {
       create: async (input) => await this.createRun(input),
-      preflightRetry: async (runId, itemIds) => {
-        const state = await this.persistence.getState();
-        await preflightScrapeRetry({
-          manifest: await state.repositories.scrapeRuns.get(runId),
-          itemIds,
-          configuration: await this.config.get(),
-          resolveRoot: async (id) => await this.mediaRoots.get(id),
-        });
-      },
       runId: (run) => run.id,
       createExecution: async (run, reporter) => await this.createExecution(run, reporter),
       onInvalidate: () => this.scheduleScrapeInvalidation(),
@@ -495,7 +497,9 @@ export class ScrapeService {
     await this.workflow?.abortForShutdown();
   }
 
-  private async coordinator(): Promise<ScrapeCoordinator<ScrapeStartInput, ScrapeRunManifest, ServerManualScrape>> {
+  private async coordinator(): Promise<
+    ScrapeCoordinator<ScrapeStartInput, ScrapeRunManifest, ServerManualScrape, PreparedMountedRootScrape>
+  > {
     if (this.closed) throw new Error("Scrape queue is closing");
     if (this.workflow) return this.workflow;
     const state = await this.persistence.initialize();
@@ -512,24 +516,6 @@ export class ScrapeService {
     const refs = await this.mediaRoots.canonicalizeFileRefs(input.refs);
     const rootId = refs[0]?.rootId;
     if (!rootId) throw new Error("Scrape run requires at least one file");
-    const outputRoot = await this.mediaRoots.get(input.outputRootId ?? rootId);
-    const configuration = await this.config.get();
-    await preflightScrapeTask({
-      files: await Promise.all(
-        refs.map(async (ref) => ({
-          sourcePath: resolveRootRelativePath(await this.mediaRoots.get(ref.rootId), ref.relativePath),
-        })),
-      ),
-      executionMode: input.executionMode,
-      configuration: {
-        ...configuration,
-        paths: {
-          ...configuration.paths,
-          mediaPath: outputRoot.hostPath,
-          ...(input.outputRootId ? { successOutputFolder: input.outputRelativeDirectory ?? "" } : {}),
-        },
-      },
-    });
     return await (await this.persistence.getState()).repositories.scrapeRuns.create({
       rootId,
       outputRootId: input.outputRootId ?? null,
@@ -600,21 +586,6 @@ export class ScrapeService {
       items,
       initialItems,
       concurrency: manifest.executionMode === "single" ? 1 : policy.concurrency,
-      preflight: async (pending: readonly ScrapeRunItem<ServerManualScrape>[]) => {
-        const outputRoot = requestedOutputRoot ?? (await this.mediaRoots.get(manifest.rootId));
-        await preflightScrapeTask({
-          files: pending,
-          executionMode: manifest.executionMode,
-          configuration: {
-            ...configuration,
-            paths: {
-              ...configuration.paths,
-              mediaPath: outputRoot.hostPath,
-              ...(requestedOutputRoot ? { successOutputFolder: manifest.requestedOutputRelativeDirectory ?? "" } : {}),
-            },
-          },
-        });
-      },
       admitItem: async (item: ScrapeRunItem<ServerManualScrape>) => {
         const existing = openAttemptByItemId.get(item.id);
         if (existing) return existing;
@@ -628,8 +599,63 @@ export class ScrapeService {
           item.executionSource?.relativePath ?? item.relativePath,
           item.id,
         ),
-      executeItem: async (item: ScrapeRunItem<ServerManualScrape>, signal: AbortSignal, attemptId: string) =>
-        await this.executeItem(manifest, item, signal, attemptId, policy.restGate ?? undefined, reporter),
+      prepareItem: async (item: ScrapeRunItem<ServerManualScrape>, signal: AbortSignal, attemptId: string) =>
+        await this.prepareItem(
+          manifest,
+          item,
+          configuration,
+          signal,
+          attemptId,
+          policy.restGate ?? undefined,
+          reporter,
+        ),
+      validatePrepared: async (
+        prepared: readonly {
+          item: ScrapeRunItem<ServerManualScrape>;
+          prepared: PreparedMountedRootScrape;
+        }[],
+      ) =>
+        await validatePreparedScrapeFiles(
+          prepared.map(({ item, prepared }) => ({
+            itemId: item.id,
+            sourcePath: prepared.fileScrape.sourcePath,
+            outputPlan: prepared.fileScrape.outputPlan,
+          })),
+        ),
+      executePreparedItem: async (
+        item: ScrapeRunItem<ServerManualScrape>,
+        prepared: PreparedMountedRootScrape,
+        signal: AbortSignal,
+      ) => await this.executePreparedItem(manifest, item, prepared, signal),
+      commitPreparationItem: async (
+        item: ScrapeRunItem<ServerManualScrape>,
+        result: ScrapeResult,
+        attemptId: string,
+      ) => {
+        if (result.status !== "failed" && result.status !== "skipped") {
+          throw new Error("Preparation can only commit failed or skipped results");
+        }
+        const outcome =
+          result.status === "failed"
+            ? repository.commitOutcome({
+                outcome: "failed",
+                attemptId,
+                error: result.error?.trim() || "刮削预检失败",
+              })
+            : repository.commitOutcome({
+                outcome: "skipped",
+                attemptId,
+                error: result.error ?? null,
+              });
+        const committed = { ...result, resultId: outcome.id };
+        this.addEvent(
+          manifest.id,
+          committed.status === "failed" ? "item-failed" : "item-skipped",
+          committed.error ? `${item.relativePath}: ${committed.error}` : item.relativePath,
+          item.id,
+        );
+        return committed;
+      },
       commitItem: async (item: ScrapeRunItem<ServerManualScrape>, result: ScrapeResult, attemptId: string) => {
         const sourceRoot = roots.get(item.executionSource?.rootId ?? item.rootId);
         if (!sourceRoot) throw new Error(`Scrape root disappeared before item commit: ${item.rootId}`);
@@ -658,14 +684,15 @@ export class ScrapeService {
     };
   }
 
-  private async executeItem(
+  private async prepareItem(
     manifest: ScrapeRunManifest,
     item: ScrapeRunItem<ServerManualScrape>,
+    configuration: Configuration,
     signal: AbortSignal,
     attemptId: string,
     restGate: { waitBeforeStart(signal?: AbortSignal): Promise<void> } | undefined,
     reporter: ScrapeWorkflowReporter,
-  ): Promise<ScrapeResult> {
+  ): Promise<ScrapePreparationResult<PreparedMountedRootScrape>> {
     try {
       await restGate?.waitBeforeStart(signal);
       const sourceRef = item.executionSource ?? { rootId: item.rootId, relativePath: item.relativePath };
@@ -675,7 +702,8 @@ export class ScrapeService {
         : root;
       const metadataRoot =
         manifest.executionMode === "single" ? outputRoot : await this.resolveMetadataRoot(outputRoot);
-      const runtimeResult = await this.runtime.scrape({
+      const runtimeResult = await this.runtime.prepare({
+        configuration,
         root,
         outputRoot: manifest.requestedOutputRootId ? outputRoot : undefined,
         outputRelativeDirectory: manifest.requestedOutputRelativeDirectory ?? undefined,
@@ -706,14 +734,44 @@ export class ScrapeService {
           reporter.stage({ stage, message, itemId: item.id });
         },
       });
-      const result: PlannedScrapeResult = {
+      if (runtimeResult.status === "prepared") return runtimeResult;
+      return {
+        status: runtimeResult.status,
+        result: {
+          ...runtimeResult.result,
+          fileId: item.id,
+          rootId: item.rootId,
+          relativePath: item.relativePath,
+        },
+      };
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return { status: "failed" as const, result: createFailedResult(item, errorMessage(error)) };
+    }
+  }
+
+  private async executePreparedItem(
+    manifest: ScrapeRunManifest,
+    item: ScrapeRunItem<ServerManualScrape>,
+    prepared: PreparedMountedRootScrape,
+    signal: AbortSignal,
+  ): Promise<ScrapeResult> {
+    try {
+      const runtimeResult = await this.runtime.executePrepared(
+        prepared,
+        {
+          fileIndex: (manifest.items.find((candidate) => candidate.id === item.id)?.ordinal ?? 0) + 1,
+          totalFiles: manifest.items.length,
+        },
+        signal,
+      );
+      return {
         ...runtimeResult.result,
         fileId: item.id,
         rootId: item.rootId,
         relativePath: item.relativePath,
         ...(runtimeResult.status === "success" ? { publication: runtimeResult } : {}),
-      };
-      return result;
+      } satisfies PlannedScrapeResult;
     } catch (error) {
       if (signal.aborted) throw error;
       return createFailedResult(item, errorMessage(error));

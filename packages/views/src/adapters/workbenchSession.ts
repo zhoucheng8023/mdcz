@@ -5,9 +5,15 @@ import {
   selectMaintenanceHasWork,
   useMaintenanceStore,
 } from "@mdcz/views/state/maintenanceStore";
-import { selectIsScraping, selectScrapeHasWork, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import {
+  selectIsScraping,
+  selectScrapeHasWork,
+  selectScrapeSnapshot,
+  useScrapeStore,
+} from "@mdcz/views/state/scrapeStore";
 import { useUIStore } from "@mdcz/views/state/uiStore";
 import { useWorkbenchTaskStore } from "@mdcz/views/state/workbenchTaskStore";
+import { useEffect, useRef } from "react";
 import type { MaintenanceActionPort } from "./ports";
 
 export type WorkbenchMode = "scrape" | "maintenance";
@@ -88,6 +94,20 @@ export const useWorkbenchSessionSnapshot = (
     maintenanceHasWork,
     showSetup: workbenchMode === "maintenance" ? !maintenanceHasWork : !scrapeHasWork,
   };
+};
+
+export const useScrapeTerminalError = (showError: (error: string) => void): void => {
+  const scrapeSnapshot = useScrapeStore(selectScrapeSnapshot);
+  const shownErrors = useRef(new Set<string>());
+
+  useEffect(() => {
+    const task = scrapeSnapshot?.task;
+    if (task?.status !== "failed" || !task.error) return;
+    const key = `${task.id}:${task.updatedAt}`;
+    if (shownErrors.current.has(key)) return;
+    shownErrors.current.add(key);
+    showError(task.error);
+  }, [scrapeSnapshot, showError]);
 };
 
 export const activateNewScrapeTask = (): void => {

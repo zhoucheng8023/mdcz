@@ -1,4 +1,5 @@
 import { type Configuration, configManager } from "@main/services/config";
+import type { FileScrapeResult, FileScraper } from "@mdcz/runtime/scrape";
 import { vi } from "vitest";
 
 const getByPath = (target: Record<string, unknown>, path: string): unknown => {
@@ -26,4 +27,13 @@ export const mockConfigManager = (config: Configuration): void => {
 
     return getByPath(config as unknown as Record<string, unknown>, path);
   });
+};
+
+export const prepareAndExecuteFile = async (
+  scraper: FileScraper,
+  ...args: Parameters<FileScraper["prepareFile"]>
+): Promise<FileScrapeResult> => {
+  const preparation = await scraper.prepareFile(...args);
+  if (preparation.status !== "prepared") return preparation;
+  return await scraper.executePreparedFile(preparation.prepared, args[1], args[2]);
 };

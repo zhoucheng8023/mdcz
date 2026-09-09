@@ -6,7 +6,7 @@ import { createDesktopMediaRootService } from "@main/services/mediaRoots";
 import { DesktopPersistenceService } from "@main/services/persistence";
 import type { SignalService } from "@main/services/SignalService";
 import { didPromiseTimeout } from "@main/utils/async";
-import { type MediaRoot, resolveRootRelativePath, toRootRelativePath } from "@mdcz/media-store";
+import { type MediaRoot, toRootRelativePath } from "@mdcz/media-store";
 import type { ScrapeRunManifest } from "@mdcz/persistence";
 import type { ActorSourceProvider } from "@mdcz/runtime/actorSource";
 import type { PersistentCooldownStore } from "@mdcz/runtime/cooldown";
@@ -24,11 +24,11 @@ import {
   DownloadManager,
   type FileScrapeResult,
   NfoGenerator,
-  preflightScrapeTask,
+  type PreparedFileScrape,
   TranslateService,
+  validatePreparedScrapeFiles,
 } from "@mdcz/runtime/scrape";
 import {
-  preflightScrapeRetry,
   resolveScrapeAttempts,
   resolveScrapeRetry,
   ScrapeCoordinator,
@@ -75,8 +75,13 @@ export class ScraperService {
   private readonly aggregationService: AggregationService;
   private readonly imageHostCooldownStore: PersistentCooldownStore;
   private readonly mediaRoots: ConfiguredMediaRootService;
-  private readonly host: ScrapeHostPort<DesktopScrapeStart, ScrapeRunManifest, ManualScrapeOptions>;
-  private workflow: ScrapeCoordinator<DesktopScrapeStart, ScrapeRunManifest, ManualScrapeOptions> | null = null;
+  private readonly host: ScrapeHostPort<DesktopScrapeStart, ScrapeRunManifest, ManualScrapeOptions, PreparedFileScrape>;
+  private workflow: ScrapeCoordinator<
+    DesktopScrapeStart,
+    ScrapeRunManifest,
+    ManualScrapeOptions,
+    PreparedFileScrape
+  > | null = null;
   private terminalSnapshot: ScrapeRunSnapshotDto | null = null;
   private closed = false;
 
@@ -101,15 +106,6 @@ export class ScraperService {
     this.mediaRoots = mediaRoots ?? createDesktopMediaRootService(this.persistenceService);
     this.host = {
       create: async (input) => await this.createRun(input),
-      preflightRetry: async (runId, itemIds) => {
-        const state = await this.persistenceService.getState();
-        await preflightScrapeRetry({
-          manifest: await state.repositories.scrapeRuns.get(runId),
-          itemIds,
-          configuration: await configManager.getValidated(),
-          resolveRoot: async (id) => await state.repositories.mediaRoots.get(id),
-        });
-      },
       runId: (run) => run.id,
       createExecution: async (run, reporter) => await this.createExecution(run, reporter),
       onInvalidate: (runs) => {
@@ -219,7 +215,9 @@ export class ScraperService {
     return { taskId: snapshot.runId, totalFiles: snapshot.items.length, snapshot: initialSnapshot };
   }
 
-  private async coordinator(): Promise<ScrapeCoordinator<DesktopScrapeStart, ScrapeRunManifest, ManualScrapeOptions>> {
+  private async coordinator(): Promise<
+    ScrapeCoordinator<DesktopScrapeStart, ScrapeRunManifest, ManualScrapeOptions, PreparedFileScrape>
+  > {
     if (this.closed) throw new Error("Scrape queue is closing");
     if (this.workflow) return this.workflow;
     const state = await this.persistenceService.initialize();
@@ -267,24 +265,6 @@ export class ScraperService {
     const rootId = input.refs[0]?.rootId;
     if (!rootId) throw new ScraperServiceError("NO_FILES", "No files selected");
     const state = await this.persistenceService.getState();
-    const files = await Promise.all(
-      input.refs.map(async (ref) => ({
-        sourcePath: resolveRootRelativePath(await state.repositories.mediaRoots.get(ref.rootId), ref.relativePath),
-      })),
-    );
-    const outputRoot = await state.repositories.mediaRoots.get(input.outputRootId);
-    await preflightScrapeTask({
-      files,
-      executionMode: input.mode,
-      configuration: {
-        ...input.configuration,
-        paths: {
-          ...input.configuration.paths,
-          mediaPath: outputRoot.hostPath,
-          successOutputFolder: input.outputRelativeDirectory ?? "",
-        },
-      },
-    });
     return await state.repositories.scrapeRuns.create({
       rootId,
       outputRootId: input.outputRootId,
@@ -377,12 +357,6 @@ export class ScraperService {
       items,
       initialItems,
       concurrency: manifest.executionMode === "single" ? 1 : policy.concurrency,
-      preflight: async (pending: readonly ScrapeRunItem<ManualScrapeOptions>[]) =>
-        await preflightScrapeTask({
-          files: pending,
-          configuration: runConfiguration,
-          executionMode: manifest.executionMode,
-        }),
       admitItem: async (item: ScrapeRunItem<ManualScrapeOptions>) => {
         const existing = openAttemptByItemId.get(item.id);
         if (existing) return existing;
@@ -390,23 +364,68 @@ export class ScraperService {
         openAttemptByItemId.set(item.id, attempt.id);
         return attempt.id;
       },
-      acquireItem: (item: ScrapeRunItem<ManualScrapeOptions>) =>
-        mediaPathOwnership.acquire(
-          item.executionSource?.rootId ?? item.rootId,
-          item.executionSource?.relativePath ?? item.relativePath,
-          item.id,
-        ),
-      executeItem: async (item: ScrapeRunItem<ManualScrapeOptions>, signal: AbortSignal, attemptId: string) => {
+      prepareItem: async (item: ScrapeRunItem<ManualScrapeOptions>, signal: AbortSignal, attemptId: string) => {
         await policy.restGate?.waitBeforeStart(signal);
         const progress = { fileIndex: itemIndexById.get(item.id) ?? 1, totalFiles: items.length };
-        const result = await fileScraper.scrapeFile(item.sourcePath, progress, signal, {
+        const result = await fileScraper.prepareFile(item.sourcePath, progress, signal, {
           ...(item.manualScrape ? { manualScrape: item.manualScrape } : {}),
           source: item.executionSource ?? { rootId: item.rootId, relativePath: item.relativePath },
           roots: [...roots.values()],
           operationId: `${manifest.id}:${attemptId}`,
           outputBaseDirectory: item.outputBaseDirectory,
         });
+        if (result.status === "prepared") return result;
+        return {
+          status: result.status,
+          result: { ...result, fileId: item.id, rootId: item.rootId, relativePath: item.relativePath },
+        };
+      },
+      validatePrepared: async (
+        prepared: readonly { item: ScrapeRunItem<ManualScrapeOptions>; prepared: PreparedFileScrape }[],
+      ) =>
+        await validatePreparedScrapeFiles(
+          prepared.map(({ item, prepared }) => ({
+            itemId: item.id,
+            sourcePath: prepared.sourcePath,
+            outputPlan: prepared.outputPlan,
+          })),
+        ),
+      acquireItem: (item: ScrapeRunItem<ManualScrapeOptions>) =>
+        mediaPathOwnership.acquire(
+          item.executionSource?.rootId ?? item.rootId,
+          item.executionSource?.relativePath ?? item.relativePath,
+          item.id,
+        ),
+      executePreparedItem: async (
+        item: ScrapeRunItem<ManualScrapeOptions>,
+        prepared: PreparedFileScrape,
+        signal: AbortSignal,
+      ) => {
+        const progress = { fileIndex: itemIndexById.get(item.id) ?? 1, totalFiles: items.length };
+        const result = await fileScraper.executePreparedFile(prepared, progress, signal);
         return { ...result, fileId: item.id, rootId: item.rootId, relativePath: item.relativePath };
+      },
+      commitPreparationItem: async (
+        _item: ScrapeRunItem<ManualScrapeOptions>,
+        result: ScrapeResult,
+        attemptId: string,
+      ) => {
+        if (result.status !== "failed" && result.status !== "skipped") {
+          throw new Error("Preparation can only commit failed or skipped results");
+        }
+        const outcome =
+          result.status === "failed"
+            ? state.repositories.scrapeRuns.commitOutcome({
+                outcome: "failed",
+                attemptId,
+                error: result.error?.trim() || "刮削预检失败",
+              })
+            : state.repositories.scrapeRuns.commitOutcome({
+                outcome: "skipped",
+                attemptId,
+                error: result.error ?? null,
+              });
+        return { ...result, resultId: outcome.id };
       },
       commitItem: async (item: ScrapeRunItem<ManualScrapeOptions>, result: ScrapeResult, attemptId: string) => {
         const sourceRoot = roots.get(item.executionSource?.rootId ?? item.rootId);

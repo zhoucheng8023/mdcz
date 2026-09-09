@@ -17,7 +17,7 @@ import type {
 import { Website } from "@mdcz/shared/enums";
 import type { CrawlerData, FileInfo } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockConfigManager } from "../../../helpers/scraper";
+import { mockConfigManager, prepareAndExecuteFile } from "../../../helpers/scraper";
 
 const config = configurationSchema.parse({
   ...defaultConfiguration,
@@ -144,13 +144,13 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
 
     const [part1, part2] = await Promise.all([
-      scraper.scrapeFile(part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
         ],
       }),
-      scraper.scrapeFile(part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
@@ -173,13 +173,13 @@ describe("FileScraper multipart aggregation cache", () => {
     const [partAPath, partHPath] = await createTempFiles("IDBD-905-A.mp4", "IDBD-905-H.mp4");
 
     const [partA, partH] = await Promise.all([
-      scraper.scrapeFile(partAPath, { fileIndex: 1, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, partAPath, { fileIndex: 1, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
         ],
       }),
-      scraper.scrapeFile(partHPath, { fileIndex: 2, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, partHPath, { fileIndex: 2, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
@@ -205,13 +205,13 @@ describe("FileScraper multipart aggregation cache", () => {
     const [firstPath, secondPath] = await createTempFiles("ABC-123-1.mp4", "XYZ-999-1.mp4");
 
     const [first, second] = await Promise.all([
-      scraper.scrapeFile(firstPath, { fileIndex: 1, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, firstPath, { fileIndex: 1, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
         ],
       }),
-      scraper.scrapeFile(secondPath, { fileIndex: 2, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, secondPath, { fileIndex: 2, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
@@ -230,13 +230,13 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
 
     const [part1, part2] = await Promise.all([
-      scraper.scrapeFile(part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
         ],
       }),
-      scraper.scrapeFile(part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+      prepareAndExecuteFile(scraper, part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
         roots: [
           { id: "test-root", hostPath: tmpdir() },
           { id: "output-root", hostPath: "/output" },
@@ -275,7 +275,7 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
     const { scraper } = createScraper(aggregate, { resolveOutputPlan });
 
-    const firstPromise = scraper.scrapeFile(part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+    const firstPromise = prepareAndExecuteFile(scraper, part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
       roots: [
         { id: "test-root", hostPath: tmpdir() },
         { id: "output-root", hostPath: "/output" },
@@ -283,7 +283,7 @@ describe("FileScraper multipart aggregation cache", () => {
     });
     await firstStarted;
 
-    const secondPromise = scraper.scrapeFile(part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+    const secondPromise = prepareAndExecuteFile(scraper, part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
       roots: [
         { id: "test-root", hostPath: tmpdir() },
         { id: "output-root", hostPath: "/output" },
@@ -324,9 +324,15 @@ describe("FileScraper multipart aggregation cache", () => {
     const journal = createMemoryPublicationJournal();
 
     for (const [index, filePath] of paths.entries()) {
-      const result = await scraper.scrapeFile(filePath, { fileIndex: index + 1, totalFiles: paths.length }, undefined, {
-        roots: [mediaRoot],
-      });
+      const result = await prepareAndExecuteFile(
+        scraper,
+        filePath,
+        { fileIndex: index + 1, totalFiles: paths.length },
+        undefined,
+        {
+          roots: [mediaRoot],
+        },
+      );
       expect(result.status).toBe("success");
       if (result.status !== "success") continue;
       await commitPublishedMedia(result.publicationPlan, {
@@ -351,7 +357,7 @@ describe("FileScraper multipart aggregation cache", () => {
     const { scraper } = createScraper(aggregate, { signalService });
     const [sourcePath] = await createTempFiles("ABC-123.mp4");
 
-    const terminal = await scraper.scrapeFile(sourcePath, undefined, undefined, {
+    const terminal = await prepareAndExecuteFile(scraper, sourcePath, undefined, undefined, {
       roots: [
         { id: "test-root", hostPath: tmpdir() },
         { id: "output-root", hostPath: "/output" },
@@ -370,7 +376,7 @@ describe("FileScraper multipart aggregation cache", () => {
     const aggregate = vi.fn().mockResolvedValue(null);
     const { scraper } = createScraper(aggregate);
 
-    const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+    const result = await prepareAndExecuteFile(scraper, sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
       roots: [
         { id: "test-root", hostPath: tmpdir() },
         { id: "output-root", hostPath: "/output" },

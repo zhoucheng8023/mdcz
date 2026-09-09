@@ -2,6 +2,7 @@ import type { ScrapeResult } from "@mdcz/shared/types";
 import { runtimeLoggerService } from "../../shared";
 import { TaskScheduler } from "../scheduler";
 import {
+  type ScrapePreparationResult,
   type ScrapeRunItem,
   type ScrapeRunItemInitialState,
   type ScrapeRunLogEntry,
@@ -28,46 +29,60 @@ export interface ScrapeWorkflowReporter {
   stage(stage: Omit<ScrapeRunStageSnapshot, "itemId" | "relativePath"> & { itemId?: string | null }): void;
 }
 
-export interface ScrapeHostExecution<TManualScrape> {
+export interface ScrapeHostExecution<TManualScrape, TPrepared> {
   items: readonly ScrapeRunItem<TManualScrape>[];
   initialItems?: readonly ScrapeRunItemInitialState<TManualScrape>[];
   concurrency: number;
-  preflight(items: readonly ScrapeRunItem<TManualScrape>[]): Promise<void>;
   admitItem(item: ScrapeRunItem<TManualScrape>): Promise<string>;
-  executeItem(item: ScrapeRunItem<TManualScrape>, signal: AbortSignal, attemptId: string): Promise<ScrapeResult>;
+  prepareItem(
+    item: ScrapeRunItem<TManualScrape>,
+    signal: AbortSignal,
+    attemptId: string,
+  ): Promise<ScrapePreparationResult<TPrepared>>;
+  validatePrepared(items: readonly { item: ScrapeRunItem<TManualScrape>; prepared: TPrepared }[]): Promise<void>;
+  executePreparedItem(
+    item: ScrapeRunItem<TManualScrape>,
+    prepared: TPrepared,
+    signal: AbortSignal,
+    attemptId: string,
+  ): Promise<ScrapeResult>;
+  commitPreparationItem(
+    item: ScrapeRunItem<TManualScrape>,
+    result: ScrapeResult,
+    attemptId: string,
+  ): Promise<ScrapeResult>;
   commitItem(item: ScrapeRunItem<TManualScrape>, result: ScrapeResult, attemptId: string): Promise<ScrapeResult>;
   acquireItem?(item: ScrapeRunItem<TManualScrape>): () => void;
 }
 
-export interface ScrapeHostPort<TStart, TRun, TManualScrape = unknown> {
+export interface ScrapeHostPort<TStart, TRun, TManualScrape = unknown, TPrepared = unknown> {
   create(input: TStart): Promise<TRun>;
-  preflightRetry(runId: string, itemIds?: readonly string[]): Promise<void>;
   runId(run: TRun): string;
-  createExecution(run: TRun, reporter: ScrapeWorkflowReporter): Promise<ScrapeHostExecution<TManualScrape>>;
+  createExecution(run: TRun, reporter: ScrapeWorkflowReporter): Promise<ScrapeHostExecution<TManualScrape, TPrepared>>;
   onInvalidate(runs: Array<{ run: TRun; snapshot: ScrapeRunSnapshot<TManualScrape>; startedAt: Date | null }>): void;
   onTerminal?(run: TRun, snapshot: ScrapeRunSnapshot<TManualScrape>): Promise<void> | void;
   onError?(runId: string, error: unknown): Promise<void> | void;
 }
 
-type WorkflowEntry<TRun, TManualScrape> = {
+type WorkflowEntry<TRun, TManualScrape, TPrepared> = {
   id: string;
   run: TRun;
-  session: ScrapeRunSession<TManualScrape>;
+  session: ScrapeRunSession<TManualScrape, TPrepared>;
   state: "queued" | "running" | "paused" | "stopping";
   startedAt: Date | null;
   settlement: Promise<void> | null;
 };
 
-export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
-  private readonly entries = new Map<string, WorkflowEntry<TRun, TManualScrape>>();
+export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown, TPrepared = unknown> {
+  private readonly entries = new Map<string, WorkflowEntry<TRun, TManualScrape, TPrepared>>();
   private readonly readyRunIds: string[] = [];
-  private readonly scheduler: TaskScheduler<WorkflowEntry<TRun, TManualScrape>>;
+  private readonly scheduler: TaskScheduler<WorkflowEntry<TRun, TManualScrape, TPrepared>>;
   private activeRunId: string | null = null;
   private closing = false;
   private repairRequired: string | null = null;
   constructor(
     private readonly store: ScrapeRunStore<TRun>,
-    private readonly host: ScrapeHostPort<TStart, TRun, TManualScrape>,
+    private readonly host: ScrapeHostPort<TStart, TRun, TManualScrape, TPrepared>,
   ) {
     this.scheduler = new TaskScheduler({
       claimNext: async () => this.claimNext(),
@@ -92,7 +107,6 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     if (this.closing) throw new Error("Scrape queue is closing");
     if (this.repairRequired) throw new Error(`Scrape queue requires repair: ${this.repairRequired}`);
     if (this.entries.has(runId)) throw new Error(`Scrape run is already live: ${runId}`);
-    await this.host.preflightRetry(runId, itemIds);
     return await this.enqueue(await (itemIds ? this.store.retry(runId, itemIds) : this.store.retry(runId)));
   }
 
@@ -185,21 +199,23 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     const id = this.host.runId(run);
     if (!id.trim()) throw new Error("Scrape run ID must not be empty");
     if (this.entries.has(id)) throw new Error(`Scrape run is already live: ${id}`);
-    const entry = {} as WorkflowEntry<TRun, TManualScrape>;
+    const entry = {} as WorkflowEntry<TRun, TManualScrape, TPrepared>;
     const reporter: ScrapeWorkflowReporter = {
       progress: (itemId, percent) => entry.session.recordProgress(itemId, percent),
       stage: (stage) => entry.session.recordStage(stage),
     };
     const execution = await this.host.createExecution(run, reporter);
-    const session = new ScrapeRunSession<TManualScrape>({
+    const session = new ScrapeRunSession<TManualScrape, TPrepared>({
       runId: id,
       items: execution.items,
       initialItems: execution.initialItems,
       concurrency: execution.concurrency,
-      preflight: execution.preflight,
       acquireItem: execution.acquireItem,
       admitItem: execution.admitItem,
-      executeItem: execution.executeItem,
+      prepareItem: execution.prepareItem,
+      validatePrepared: execution.validatePrepared,
+      executePreparedItem: execution.executePreparedItem,
+      commitPreparationItem: execution.commitPreparationItem,
       commitItem: execution.commitItem,
       onSnapshot: () => this.host.onInvalidate(this.liveRuns()),
     });
@@ -210,7 +226,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
       state: "queued",
       startedAt: null,
       settlement: null,
-    } satisfies WorkflowEntry<TRun, TManualScrape>);
+    } satisfies WorkflowEntry<TRun, TManualScrape, TPrepared>);
     this.entries.set(id, entry);
     this.readyRunIds.push(id);
     this.host.onInvalidate(this.liveRuns());
@@ -218,7 +234,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     return this.entrySnapshot(entry);
   }
 
-  private claimNext(): WorkflowEntry<TRun, TManualScrape> | null {
+  private claimNext(): WorkflowEntry<TRun, TManualScrape, TPrepared> | null {
     while (!this.closing && !this.repairRequired) {
       const runId = this.readyRunIds.shift();
       if (!runId) return null;
@@ -233,7 +249,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     return null;
   }
 
-  private async runEntry(entry: WorkflowEntry<TRun, TManualScrape>): Promise<void> {
+  private async runEntry(entry: WorkflowEntry<TRun, TManualScrape, TPrepared>): Promise<void> {
     try {
       const status = entry.session.snapshot().status;
       if (status === "queued") await entry.session.start();
@@ -256,7 +272,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
   }
 
   private async settle(
-    entry: WorkflowEntry<TRun, TManualScrape>,
+    entry: WorkflowEntry<TRun, TManualScrape, TPrepared>,
     snapshot: ScrapeRunSnapshot<TManualScrape>,
   ): Promise<void> {
     if (!["completed", "failed", "stopped", "interrupted"].includes(snapshot.status)) {
@@ -291,7 +307,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     this.host.onInvalidate(this.liveRuns());
   }
 
-  private entrySnapshot(entry: WorkflowEntry<TRun, TManualScrape>): ScrapeRunSnapshot<TManualScrape> {
+  private entrySnapshot(entry: WorkflowEntry<TRun, TManualScrape, TPrepared>): ScrapeRunSnapshot<TManualScrape> {
     const snapshot = entry.session.snapshot();
     if (entry.state === "paused" && snapshot.status === "queued") return { ...snapshot, status: "paused" };
     if (entry.state === "queued" && snapshot.status === "paused") return { ...snapshot, status: "queued" };
@@ -307,15 +323,15 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown> {
     return snapshot;
   }
 
-  private orderedEntries(): WorkflowEntry<TRun, TManualScrape>[] {
+  private orderedEntries(): WorkflowEntry<TRun, TManualScrape, TPrepared>[] {
     const orderedIds = [this.activeRunId, ...this.readyRunIds].filter((id): id is string => Boolean(id));
     const seen = new Set(orderedIds);
     return [...orderedIds, ...[...this.entries.keys()].filter((id) => !seen.has(id))]
       .map((id) => this.entries.get(id))
-      .filter((entry): entry is WorkflowEntry<TRun, TManualScrape> => Boolean(entry));
+      .filter((entry): entry is WorkflowEntry<TRun, TManualScrape, TPrepared> => Boolean(entry));
   }
 
-  private requireLive(runId: string): WorkflowEntry<TRun, TManualScrape> {
+  private requireLive(runId: string): WorkflowEntry<TRun, TManualScrape, TPrepared> {
     const entry = this.entries.get(runId);
     if (!entry) throw new Error(`Scrape run is not live in this backend process: ${runId}`);
     return entry;
