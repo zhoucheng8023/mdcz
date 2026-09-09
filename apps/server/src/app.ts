@@ -149,7 +149,7 @@ export const buildServer = (options: BuildServerOptions = {}): ServerApp => {
         mappingStore,
       }),
     );
-  const scans = options.services?.scans ?? new ScanQueueService(persistence, mediaRoots, taskEvents);
+  const scans = options.services?.scans ?? new ScanQueueService(persistence, mediaRoots, taskEvents, config);
   const system = options.services?.system ?? new SystemService();
   const services: ServerServices = {
     automation:

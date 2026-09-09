@@ -49,7 +49,7 @@ describe("ScanQueueService", () => {
         },
       }),
     };
-    const service = new ScanQueueService(persistence as never, {} as never, taskEvents);
+    const service = new ScanQueueService(persistence as never, {} as never, taskEvents, {} as never);
 
     await service.recoverInterrupted();
 

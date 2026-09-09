@@ -9,6 +9,7 @@ import {
 } from "@mdcz/media-store";
 import type { ScanTask } from "@mdcz/persistence";
 import { TaskScheduler } from "@mdcz/runtime/tasks";
+import { hasLiteralFilenameToken } from "@mdcz/shared/filenameTokens";
 import { isHostPathWithinDirectory } from "@mdcz/shared/mediaCandidate";
 import type {
   LogListResponse,
@@ -23,6 +24,7 @@ import type {
 import { isPrimaryVideoFileName } from "@mdcz/shared/videoClassification";
 import { toTaskEventDto } from "../taskDto";
 import type { TaskEventBus } from "../taskEvents";
+import type { ServerConfigService } from "./configService";
 import type { MediaRootService } from "./mediaRootService";
 import type { ServerPersistenceService } from "./persistenceService";
 import { decorateTaskLog } from "./runtimeLogService";
@@ -52,6 +54,7 @@ export class ScanQueueService {
     private readonly persistence: ServerPersistenceService,
     private readonly mediaRoots: MediaRootService,
     private readonly taskEvents: TaskEventBus,
+    private readonly config: ServerConfigService,
   ) {
     this.scheduler = new TaskScheduler({
       claimNext: async () => await this.claimNext(),
@@ -120,6 +123,7 @@ export class ScanQueueService {
 
   async candidates(input: ScanCandidatesInput): Promise<ScanCandidatesResponse> {
     if (this.closing) throw new Error("Scan queue is closing");
+    const configuration = await this.config.get();
     const hostPath = normalizeHostPath(input.scanDir);
     const excludeDirPaths = input.excludeDirPaths?.map((path) => normalizeHostPath(path)) ?? [];
     await this.mediaRoots.ensurePathRecord({ hostPath: input.scanDir });
@@ -132,6 +136,9 @@ export class ScanQueueService {
     const candidates = await Promise.all(
       files
         .filter((file) => {
+          if (hasLiteralFilenameToken(path.basename(file.relativePath), configuration.scrape.filenameBlacklistTokens)) {
+            return false;
+          }
           const extension = path.extname(file.relativePath).replace(/^\./u, "").toLowerCase();
           if (excludeDirPaths.some((directoryPath) => isHostPathWithinDirectory(file.absolutePath, directoryPath))) {
             return false;
