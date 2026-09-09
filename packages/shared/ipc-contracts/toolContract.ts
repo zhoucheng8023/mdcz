@@ -27,11 +27,8 @@ export type ToolIpcContract = {
   [IpcChannel.Tool_CreateSymlink]: IpcProcedure<
     {
       sourceDir?: string;
-      source_dir?: string;
       destDir?: string;
-      dest_dir?: string;
       copyFiles?: boolean;
-      copy_files?: boolean;
     },
     { message: string }
   >;

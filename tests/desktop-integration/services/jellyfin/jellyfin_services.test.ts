@@ -5,7 +5,6 @@ import { getActorImageCacheDirectory } from "@main/appIdentity";
 import { type Configuration, configurationSchema, type DeepPartial, defaultConfiguration } from "@main/services/config";
 import { ActorPhotoFolderConfigurationError } from "@main/services/config/actorPhotoPath";
 import { checkConnection, isUuid } from "@main/services/mediaServer/jellyfin";
-import { SignalService } from "@main/services/SignalService";
 import {
   type ActorLookupResult,
   ActorSourceProvider,
@@ -13,11 +12,18 @@ import {
   GfriendsActorSource,
   LocalActorSource,
 } from "@mdcz/runtime/actorSource";
+import type { MediaServerSignalService } from "@mdcz/runtime/mediaserver";
 import { JellyfinActorInfoService, JellyfinActorPhotoService } from "@mdcz/runtime/mediaserver";
 import type { NetworkClient } from "@mdcz/runtime/network";
 import { ActorImageService } from "@mdcz/runtime/scrape";
 import { app } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const createSignalService = (): MediaServerSignalService => ({
+  resetProgress: vi.fn(),
+  setProgress: vi.fn(),
+  showLogText: vi.fn(),
+});
 
 const tempDirs: string[] = [];
 
@@ -272,7 +278,7 @@ describe("Jellyfin services", () => {
     actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
 
     const service = new JellyfinActorInfoService({
-      signalService: new SignalService(null),
+      signalService: createSignalService(),
       networkClient: networkClient as unknown as NetworkClient,
       actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -329,7 +335,7 @@ describe("Jellyfin services", () => {
     actorSourceProvider.lookup.mockResolvedValue(createStructuredLookupResult());
 
     const service = new JellyfinActorInfoService({
-      signalService: new SignalService(null),
+      signalService: createSignalService(),
       networkClient: networkClient as unknown as NetworkClient,
       actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -392,7 +398,7 @@ describe("Jellyfin services", () => {
       .mockResolvedValueOnce(createStructuredLookupResult("Actor B"));
 
     const service = new JellyfinActorInfoService({
-      signalService: new SignalService(null),
+      signalService: createSignalService(),
       networkClient: networkClient as unknown as NetworkClient,
       actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -445,7 +451,7 @@ describe("Jellyfin services", () => {
     });
 
     const service = new JellyfinActorInfoService({
-      signalService: new SignalService(null),
+      signalService: createSignalService(),
       networkClient: networkClient as unknown as NetworkClient,
       actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -505,7 +511,7 @@ describe("Jellyfin services", () => {
       .mockResolvedValueOnce("");
 
     const service = new JellyfinActorPhotoService({
-      signalService: new SignalService(null),
+      signalService: createSignalService(),
       networkClient: networkClient as unknown as NetworkClient,
       actorSourceProvider: createActorSourceProvider(networkClient),
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -548,7 +554,7 @@ describe("Jellyfin services", () => {
   it("fails fast when local actor photos use a relative path without mediaPath", async () => {
     const networkClient = new FakeNetworkClient();
     const service = new JellyfinActorPhotoService({
-      signalService: new SignalService(null),
+      signalService: createSignalService(),
       networkClient: networkClient as unknown as NetworkClient,
       actorSourceProvider: createActorSourceProvider(networkClient),
       logger: { debug() {}, info() {}, warn() {}, error() {} },

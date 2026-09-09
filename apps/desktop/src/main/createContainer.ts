@@ -132,25 +132,41 @@ export const createContainer = ({
     actorSourceProvider,
     actorImageService,
     jellyfinActorPhotoService: new JellyfinActorPhotoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("JellyfinActorPhoto"),
     }),
     jellyfinActorInfoService: new JellyfinActorInfoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("JellyfinActorInfo"),
     }),
     embyActorPhotoService: new EmbyActorPhotoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("EmbyActorPhoto"),
     }),
     embyActorInfoService: new EmbyActorInfoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("EmbyActorInfo"),

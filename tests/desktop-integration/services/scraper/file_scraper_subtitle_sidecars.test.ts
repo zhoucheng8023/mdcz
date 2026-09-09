@@ -2,7 +2,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import * as scraperOutput from "@main/services/scraper/output";
 import type {
@@ -100,7 +99,6 @@ describe("FileScraper subtitle sidecars", () => {
         plan: vi.fn((_fileInfo: FileInfo) => plan),
         resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
       } as unknown as FileOrganizer,
-      signalService: new SignalService(null),
     });
   };
 

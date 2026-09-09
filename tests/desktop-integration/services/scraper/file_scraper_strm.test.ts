@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import type { LocalScanService } from "@mdcz/runtime/maintenance";
 import type {
@@ -106,7 +105,6 @@ const createScraper = ({
       plan: vi.fn().mockReturnValue(plan),
       resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
     } as unknown as FileOrganizer,
-    signalService: new SignalService(null),
     localScanService,
   });
 };
@@ -256,7 +254,6 @@ describe("FileScraper .strm support", () => {
         }),
       } as unknown as DownloadManager,
       fileOrganizer,
-      signalService: new SignalService(null),
       localScanService,
     });
     await writeFile(join(root, "ABC-123-U.strm"), "video");

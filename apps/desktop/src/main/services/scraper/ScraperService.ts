@@ -177,7 +177,7 @@ export class ScraperService {
     const pendingCount = live.snapshot.items.filter(
       (item) => !["success", "failed", "skipped"].includes(item.status),
     ).length;
-    this.signalService.setButtonStatus(false, false);
+    this.signalService.invalidate("scrape", "overview");
     await this.workflow?.stop(live.run.id);
     return { pendingCount };
   }
@@ -214,8 +214,7 @@ export class ScraperService {
     const snapshot = await (await this.coordinator()).retry(runId, itemIds);
     const initialSnapshot = this.getSnapshot(snapshot.runId);
     if (!initialSnapshot) throw new Error(`Scrape task disappeared after retry: ${snapshot.runId}`);
-    this.signalService.setButtonStatus(false, true);
-    this.signalService.resetProgress();
+    this.signalService.invalidate("scrape", "overview");
     return {
       taskId: snapshot.runId,
       snapshot: initialSnapshot,
@@ -228,8 +227,7 @@ export class ScraperService {
     const snapshot = await (await this.coordinator()).start(input);
     const initialSnapshot = this.getSnapshot(snapshot.runId);
     if (!initialSnapshot) throw new Error(`Scrape task disappeared after start: ${snapshot.runId}`);
-    this.signalService.setButtonStatus(false, true);
-    this.signalService.resetProgress();
+    this.signalService.invalidate("scrape", "overview");
     return { taskId: snapshot.runId, totalFiles: snapshot.items.length, snapshot: initialSnapshot };
   }
 
@@ -264,10 +262,10 @@ export class ScraperService {
         setProgress: (value: number, current: number, total: number) => {
           recordProgress(value, current, total);
         },
-        showFailedInfo: this.signalService.showFailedInfo.bind(this.signalService),
+        showFailedInfo: () => this.signalService.invalidate("scrape"),
         showLogText: this.signalService.showLogText.bind(this.signalService),
-        showScrapeInfo: this.signalService.showScrapeInfo.bind(this.signalService),
-        showScrapeResult: this.signalService.showScrapeResult.bind(this.signalService),
+        showScrapeInfo: () => this.signalService.invalidate("scrape"),
+        showScrapeResult: () => this.signalService.invalidate("scrape"),
       },
       actorImageService: this.actorImageService,
       actorSourceProvider: this.actorSourceProvider,
@@ -521,7 +519,7 @@ export class ScraperService {
     this.logger.info(`Scrape run finished: ${snapshot.runId}`);
     this.outputLibraryScanner.invalidate();
     this.aggregationService.clearCache();
-    this.signalService.setButtonStatus(true, false);
+    this.signalService.invalidate("scrape", "overview");
   }
 
   private async rebuildTerminalSnapshot(runId: string): Promise<ScrapeRunSnapshotDto> {

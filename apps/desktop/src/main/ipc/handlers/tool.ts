@@ -223,9 +223,9 @@ export const createToolHandlers = (
             throw createIpcError(IpcErrorCode.OPERATION_CANCELLED, "Softlink creation task is already running");
           }
 
-          const sourceDir = (input?.sourceDir ?? input?.source_dir ?? "").trim();
-          const destDir = (input?.destDir ?? input?.dest_dir ?? "").trim();
-          const copyFiles = input?.copyFiles ?? input?.copy_files ?? false;
+          const sourceDir = (input?.sourceDir ?? "").trim();
+          const destDir = (input?.destDir ?? "").trim();
+          const copyFiles = input?.copyFiles ?? false;
 
           if (!sourceDir || !destDir) {
             throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "Source and destination directories are required");

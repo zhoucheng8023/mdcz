@@ -1,5 +1,4 @@
 import { type Configuration, configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import { CrawlerProvider, FetchGateway } from "@mdcz/runtime/crawler";
 import type { CrawlerInput, CrawlerResponse } from "@mdcz/runtime/crawler/base/types";
@@ -68,7 +67,6 @@ describe("FileScraper site aggregation", () => {
         imageHostCooldownStore: new MemoryImageHostCooldownStore(),
       }),
       fileOrganizer: new FileOrganizer(),
-      signalService: new SignalService(null),
     });
 
     const result = await prepareAndExecuteFile(
@@ -98,7 +96,6 @@ describe("FileScraper site aggregation", () => {
         imageHostCooldownStore: new MemoryImageHostCooldownStore(),
       }),
       fileOrganizer: new FileOrganizer(),
-      signalService: new SignalService(null),
     });
 
     const result = await prepareAndExecuteFile(scraper, filePath, undefined, undefined, {

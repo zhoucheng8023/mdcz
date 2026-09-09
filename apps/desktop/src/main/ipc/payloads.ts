@@ -113,11 +113,8 @@ export {
 
 export const toolCreateSymlinkInputSchema = z.object({
   sourceDir: optionalString,
-  source_dir: optionalString,
   destDir: optionalString,
-  dest_dir: optionalString,
   copyFiles: z.boolean().optional(),
-  copy_files: z.boolean().optional(),
 });
 export const toolDirectoryInputSchema = z.object({ directory: optionalString });
 export const toolAmazonPosterLookupInputSchema = z.object({ nfoPath: optionalString, title: optionalString });

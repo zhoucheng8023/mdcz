@@ -245,30 +245,7 @@ export class LocalScanService {
     sceneImagesFolder: string,
     signal?: AbortSignal,
     metadata?: MetadataLocation,
-  ): Promise<LocalScanEntry>;
-  async scanVideo(videoPath: string, sceneImagesFolder: string, signal?: AbortSignal): Promise<LocalScanEntry>;
-  async scanVideo(
-    rootOrVideoPath: MediaRoot | string,
-    pathOrSceneImagesFolder: string,
-    sceneImagesFolderOrSignal?: string | AbortSignal,
-    maybeSignal?: AbortSignal,
-    metadata?: MetadataLocation,
   ): Promise<LocalScanEntry> {
-    const videoPath = typeof rootOrVideoPath === "string" ? rootOrVideoPath : pathOrSceneImagesFolder;
-    const sceneImagesFolder =
-      typeof rootOrVideoPath === "string" ? pathOrSceneImagesFolder : (sceneImagesFolderOrSignal as string);
-    const signal =
-      typeof rootOrVideoPath === "string" ? (sceneImagesFolderOrSignal as AbortSignal | undefined) : maybeSignal;
-    const root: MediaRoot =
-      typeof rootOrVideoPath === "string"
-        ? {
-            id: deterministicMediaRootId(dirname(videoPath)),
-            displayName: dirname(videoPath),
-            hostPath: dirname(videoPath),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }
-        : rootOrVideoPath;
     throwIfAborted(signal);
     const { fileInfo } = await resolveFileInfoWithSubtitles(videoPath);
     const dir = dirname(videoPath);

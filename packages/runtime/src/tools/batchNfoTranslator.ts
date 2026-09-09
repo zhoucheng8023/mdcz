@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { createMediaRoot, deterministicMediaRootId, type MediaRoot } from "@mdcz/media-store";
 import type { Configuration } from "@mdcz/shared/config";
 import type { BatchTranslateApplyResultItem, BatchTranslateField, BatchTranslateScanItem } from "@mdcz/shared/ipcTypes";
 import type { CrawlerData, FileInfo, LocalScanEntry, NfoLocalState } from "@mdcz/shared/types";
@@ -20,7 +21,7 @@ import { detectLanguage, toErrorMessage } from "../shared";
 
 type BatchTranslateLocalScanService = {
   scan(dirPath: string, sceneImagesFolder: string): Promise<LocalScanEntry[]>;
-  scanVideo(videoPath: string, sceneImagesFolder: string): Promise<LocalScanEntry>;
+  scanVideo(root: MediaRoot, videoPath: string, sceneImagesFolder: string): Promise<LocalScanEntry>;
 };
 
 type BatchTranslateWriteNfoInput = {
@@ -375,7 +376,12 @@ export const applyBatchNfoTranslations = async (
   const pendingByKey = new Map<string, PendingTranslation>();
 
   for (const item of items) {
-    const entry = await dependencies.localScanService.scanVideo(item.filePath, config.paths.sceneImagesFolder);
+    const root = createMediaRoot({
+      id: deterministicMediaRootId(dirname(item.filePath)),
+      displayName: dirname(item.filePath),
+      hostPath: dirname(item.filePath),
+    });
+    const entry = await dependencies.localScanService.scanVideo(root, item.filePath, config.paths.sceneImagesFolder);
     if (!entry.nfoPath || !entry.crawlerData) {
       plans.push({ entry });
       continue;

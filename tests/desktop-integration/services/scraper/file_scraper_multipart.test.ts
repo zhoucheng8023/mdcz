@@ -2,7 +2,6 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import { commitPublishedMedia } from "@mdcz/runtime/publication";
 import { createMemoryPublicationJournal } from "@mdcz/runtime/publication/memoryJournal";
@@ -12,6 +11,7 @@ import type {
   FileOrganizer,
   NfoGenerator,
   OrganizePlan,
+  RuntimeScrapeSignalService,
   TranslateService,
 } from "@mdcz/runtime/scrape";
 import { Website } from "@mdcz/shared/enums";
@@ -84,7 +84,7 @@ const createScraper = (
     downloadAll?: ReturnType<typeof vi.fn>;
     resolveOutputPlan?: ReturnType<typeof vi.fn>;
     moveToFailedFolder?: ReturnType<typeof vi.fn>;
-    signalService?: SignalService;
+    signalService?: RuntimeScrapeSignalService;
     plan?: ReturnType<typeof vi.fn>;
   } = {},
 ) => {
@@ -97,7 +97,14 @@ const createScraper = (
     });
   const resolveOutputPlan = overrides.resolveOutputPlan ?? vi.fn(async (plan: OrganizePlan) => plan);
   const moveToFailedFolder = overrides.moveToFailedFolder ?? vi.fn(async (fileInfo: FileInfo) => fileInfo.filePath);
-  const signalService = overrides.signalService ?? new SignalService(null);
+  const defaultSignalService: RuntimeScrapeSignalService = {
+    showLogText: vi.fn(),
+    setProgress: vi.fn(),
+    showScrapeInfo: vi.fn(),
+    showScrapeResult: vi.fn(),
+    showFailedInfo: vi.fn(),
+  };
+  const signalService = overrides.signalService ?? defaultSignalService;
   const scraper = createFileScraper({
     aggregationService: {
       aggregate,
@@ -349,11 +356,16 @@ describe("FileScraper multipart aggregation cache", () => {
 
   it("emits a processing result before the terminal result", async () => {
     const aggregate = vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData({ number: "ABC-123" })));
-    const signalService = new SignalService(null);
     const results: string[] = [];
-    vi.spyOn(signalService, "showScrapeResult").mockImplementation((result: unknown) => {
-      results.push((result as { status: string }).status);
-    });
+    const signalService: RuntimeScrapeSignalService = {
+      showLogText: vi.fn(),
+      setProgress: vi.fn(),
+      showScrapeInfo: vi.fn(),
+      showScrapeResult: (result) => {
+        results.push(result.status);
+      },
+      showFailedInfo: vi.fn(),
+    };
     const { scraper } = createScraper(aggregate, { signalService });
     const [sourcePath] = await createTempFiles("ABC-123.mp4");
 

@@ -31,30 +31,6 @@ export class SignalService extends EventEmitter {
     });
   }
 
-  resetProgress(): void {
-    this.invalidate("scrape", "maintenance");
-  }
-
-  setProgress(_value: number, _current: number, _total: number): void {
-    this.invalidate("scrape", "maintenance");
-  }
-
-  showScrapeInfo(_payload: unknown): void {
-    this.invalidate("scrape");
-  }
-
-  showScrapeResult(_payload: unknown): void {
-    this.invalidate("scrape");
-  }
-
-  showFailedInfo(_payload: unknown): void {
-    this.invalidate("scrape");
-  }
-
-  setButtonStatus(_startEnabled: boolean, _stopEnabled: boolean): void {
-    this.invalidate("scrape", "overview");
-  }
-
   invalidate(...resources: Array<"scrape" | "maintenance" | "overview">): void {
     this.send(IpcChannel.Event_Invalidate, { resources: [...new Set(resources)] });
   }

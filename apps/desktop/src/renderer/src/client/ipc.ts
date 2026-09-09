@@ -132,14 +132,8 @@ export const ipc = {
       client[IpcChannel.File_PosterCropSave]({ videoPath, crop }),
   },
   tool: {
-    createSymlink: (payload: {
-      sourceDir?: string;
-      source_dir?: string;
-      destDir?: string;
-      dest_dir?: string;
-      copyFiles?: boolean;
-      copy_files?: boolean;
-    }) => client[IpcChannel.Tool_CreateSymlink](payload),
+    createSymlink: (payload: { sourceDir?: string; destDir?: string; copyFiles?: boolean }) =>
+      client[IpcChannel.Tool_CreateSymlink](payload),
     checkJellyfinConnection: () => client[IpcChannel.Tool_JellyfinServerCheckConnection](undefined),
     syncJellyfinActorPhoto: (mode: "all" | "missing") => client[IpcChannel.Tool_JellyfinActorPhotoSync]({ mode }),
     syncJellyfinActorInfo: (mode: "all" | "missing") => client[IpcChannel.Tool_JellyfinActorInfoSync]({ mode }),

@@ -80,9 +80,7 @@ const liveItemToScrapeResult = (item: ScrapeLiveItemDto): ScrapeResult => ({
     : {}),
   ...(item.nfoRootId && item.nfoRelativePath
     ? { nfo: { rootId: item.nfoRootId, relativePath: item.nfoRelativePath } }
-    : item.nfoRelativePath
-      ? { nfo: { rootId: item.rootId, relativePath: item.nfoRelativePath } }
-      : {}),
+    : {}),
   assets: item.assets,
   uncensoredAmbiguous: item.uncensoredAmbiguous,
 });

@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import type { DesktopPersistenceService } from "@main/services/persistence";
 import { BatchTranslateToolService } from "@main/services/tools/BatchTranslateToolService";
+import type { MediaRoot } from "@mdcz/media-store";
 import type { ConfiguredMediaRootService } from "@mdcz/runtime/library";
 import { writePreparedNfo } from "@mdcz/runtime/maintenance";
 import type { NetworkClient } from "@mdcz/runtime/network";
@@ -77,7 +78,7 @@ const createEntry = (overrides: EntryOverrides = {}): LocalScanEntry => ({
 const createService = (
   options: {
     scan?: (dirPath: string, sceneImagesFolder: string) => Promise<LocalScanEntry[]>;
-    scanVideo?: (videoPath: string, sceneImagesFolder: string) => Promise<LocalScanEntry>;
+    scanVideo?: (root: MediaRoot, videoPath: string, sceneImagesFolder: string) => Promise<LocalScanEntry>;
     generateText?: LlmApiClient["generateText"];
     writeNfo?: BatchNfoTranslatorDependencies["writeNfo"];
     rootPath?: string;
@@ -258,7 +259,7 @@ describe("BatchTranslateToolService", () => {
     }
 
     const { service, localScanService, ensurePathRecord } = createService({
-      scanVideo: async (videoPath) => {
+      scanVideo: async (_root, videoPath) => {
         const matched = entriesByPath.get(videoPath);
         if (!matched) {
           throw new Error(`Unexpected scan path: ${videoPath}`);

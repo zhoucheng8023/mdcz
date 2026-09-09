@@ -44,7 +44,10 @@ export const createDesktopMaintenanceRuntime = (options: DesktopMaintenanceRunti
         logger,
         signalService: options.signalService,
       }),
-    signalService: options.signalService,
+    signalService: {
+      showLogText: (message) => options.signalService.showLogText(message),
+      setProgress: () => options.signalService.invalidate("maintenance"),
+    },
     translateService: new TranslateService(options.networkClient, {
       logger: loggerService.getLogger("TranslateService"),
       mappingStore: translationMappingStore,

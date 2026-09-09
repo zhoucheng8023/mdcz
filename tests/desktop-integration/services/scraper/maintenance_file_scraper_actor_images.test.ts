@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { getMaintenancePreset as getPreset } from "@mdcz/runtime/maintenance";
 import { MaintenanceFileScraper } from "@mdcz/runtime/maintenance/MaintenanceFileScraper";
 import type {
@@ -85,7 +84,7 @@ const createScraperHarness = (root: string, downloadAll: ReturnType<typeof vi.fn
         plan: vi.fn().mockReturnValue(plan),
         resolveOutputPlan: vi.fn().mockImplementation(async (nextPlan: OrganizePlan) => nextPlan),
       } as unknown as FileOrganizer,
-      signalService: new SignalService(null),
+      signalService: { setProgress: vi.fn(), showLogText: vi.fn() },
       actorImageService: {
         prepareActorProfilesForMovie: vi.fn().mockResolvedValue(undefined),
       } as never,

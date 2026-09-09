@@ -35,11 +35,34 @@ class BodyAwareDmmTvNetworkClient extends NetworkClient {
     const operationName = operation.operationName;
 
     if (operationName === "ContentPageData") {
+      const id = String(operation.variables?.id ?? "");
+      if (id === "realknbm007") {
+        return {
+          data: {
+            ppvContent: {
+              title: "Resolved GraphQL KNBM Title",
+              makerContentId: "KNBM-007",
+              genres: [{ name: "Tag KNBM" }],
+            },
+          },
+        } as TResponse;
+      }
       return { data: {} } as TResponse;
     }
 
     if (operationName === "AvSearch") {
       const queryWord = String(operation.variables?.queryWord ?? "");
+      if (queryWord === "knbm-007") {
+        return {
+          data: {
+            legacySearchPPV: {
+              result: {
+                contents: [{ id: "realknbm007", title: "KNBM-007 Title" }],
+              },
+            },
+          },
+        } as TResponse;
+      }
       if (queryWord === "zzzz-999") {
         return {
           data: {
@@ -115,6 +138,42 @@ describe("DmmTvCrawler", () => {
     }
 
     expect(response.result.error).toBe("DMM_TV: login wall");
+  });
+
+  it("searches GraphQL for a real content id when guessed ids miss", async () => {
+    const guessedDetailUrl = "https://video.dmm.co.jp/av/content/?id=1knbm00007";
+    const networkClient = new BodyAwareDmmTvNetworkClient(
+      new Map<string, string>([
+        [guessedDetailUrl, `<html><body><script>self.__next_f.push([1,"shell"])</script></body></html>`],
+      ]),
+    );
+    const crawler = new DmmTvCrawler(withGateway(networkClient));
+
+    const response = await crawler.crawl({
+      number: "KNBM-007",
+      site: Website.DMM_TV,
+    });
+
+    expect(response.result.success).toBe(true);
+    if (!response.result.success) {
+      throw new Error("expected success");
+    }
+
+    expect(response.result.data.title).toBe("Resolved GraphQL KNBM Title");
+    expect(response.result.data.number).toBe("KNBM-007");
+    expect(response.result.data.genres).toEqual(["Tag KNBM"]);
+    const payloads = networkClient.requests.filter((request) => request.url === "https://api.video.dmm.co.jp/graphql");
+    expect(payloads.some((request) => (request.body as { operationName?: string })?.operationName === "AvSearch")).toBe(
+      true,
+    );
+    expect(
+      payloads.some(
+        (request) =>
+          (request.body as { operationName?: string; variables?: Record<string, unknown> })?.operationName ===
+            "ContentPageData" &&
+          String((request.body as { variables?: Record<string, unknown> })?.variables?.id ?? "") === "realknbm007",
+      ),
+    ).toBe(true);
   });
 
   it("does not run GraphQL search fallback for manual detail URLs", async () => {

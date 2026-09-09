@@ -123,7 +123,7 @@ export class MaintenanceService {
     if (refs.length === 0) throw new Error("No files selected");
     const rootId = refs[0]?.rootId;
     if (!rootId) throw new Error("维护文件缺少媒体目录");
-    this.signalService.resetProgress();
+    this.signalService.invalidate("maintenance");
     return await this.coordinator.startPreview({ rootId, presetId, refs, ...output });
   }
 
@@ -139,7 +139,7 @@ export class MaintenanceService {
     if (selections.some((selection) => !previewIds.has(selection.previewId))) {
       throw new Error("维护项目不属于当前任务");
     }
-    this.signalService.resetProgress();
+    this.signalService.invalidate("maintenance");
     const handle = await this.coordinator.beginApply({ sessionId: session.id, selections });
     void handle.completion.catch((error) => this.signalService.showLogText(String(error), "error"));
     return handle;

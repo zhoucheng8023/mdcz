@@ -1,10 +1,10 @@
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import type { ActorLookupResult, ActorSourceProvider } from "@mdcz/runtime/actorSource";
 import {
   checkEmbyConnection as checkConnection,
   EmbyActorInfoService as EmbyActorInfo,
   EmbyActorPhotoService as EmbyActorPhoto,
+  type MediaServerSignalService,
 } from "@mdcz/runtime/mediaserver";
 import type { NetworkClient } from "@mdcz/runtime/network";
 import { describe, expect, it, vi } from "vitest";
@@ -57,9 +57,15 @@ class FakeActorSourceProvider {
   );
 }
 
+const signalService: MediaServerSignalService = {
+  resetProgress: vi.fn(),
+  setProgress: vi.fn(),
+  showLogText: vi.fn(),
+};
+
 const createInfoService = (networkClient: FakeNetworkClient, actorSourceProvider: FakeActorSourceProvider) =>
   new EmbyActorInfo({
-    signalService: new SignalService(null),
+    signalService,
     networkClient: networkClient as unknown as NetworkClient,
     actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -67,7 +73,7 @@ const createInfoService = (networkClient: FakeNetworkClient, actorSourceProvider
 
 const createPhotoService = (networkClient: FakeNetworkClient, actorSourceProvider: FakeActorSourceProvider) =>
   new EmbyActorPhoto({
-    signalService: new SignalService(null),
+    signalService,
     networkClient: networkClient as unknown as NetworkClient,
     actorSourceProvider: actorSourceProvider as unknown as ActorSourceProvider,
     logger: { debug() {}, info() {}, warn() {}, error() {} },

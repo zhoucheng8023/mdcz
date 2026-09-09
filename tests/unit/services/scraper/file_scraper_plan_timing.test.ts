@@ -1,5 +1,4 @@
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import type {
   ActorImageService,
@@ -107,7 +106,6 @@ describe("FileScraper plan timing", () => {
         downloadAll,
       } as unknown as DownloadManager,
       fileOrganizer,
-      signalService: new SignalService(null),
       actorImageService,
       getConfiguration: async () => currentConfig,
     });

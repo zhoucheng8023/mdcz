@@ -1,3 +1,4 @@
+import type { MaintenanceFieldSelectionSide } from "@mdcz/shared/maintenanceTasks";
 import type {
   CrawlerData,
   FieldDiff,
@@ -6,8 +7,6 @@ import type {
   MaintenanceImageAlternatives,
   MaintenancePreviewItem,
 } from "@mdcz/shared/types";
-
-export type MaintenanceFieldSelectionSide = "old" | "new";
 
 export interface MaintenanceCommitPreview {
   fieldDiffs?: MaintenancePreviewItem["fieldDiffs"];
