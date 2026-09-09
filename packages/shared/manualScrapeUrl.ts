@@ -96,7 +96,7 @@ const SITE_RULES: readonly ManualScrapeSiteRule[] = [
   },
   {
     site: Website.JAV321,
-    hosts: ["www.jav321.com", "jav321.com"],
+    hosts: ["www.jav321.com", "jav321.com", "en.jav321.com"],
     isDetailUrl: (url) => pathMatches(url, /^\/video\/[^/]+\/?$/iu),
   },
   {
@@ -200,8 +200,8 @@ export const validateManualScrapeUrl = (input: string): ManualScrapeUrlValidatio
   }
 
   const isRoot = isSiteRootUrl(url);
-  const normalizedUrl = normalizeManualUrl(url);
   if (isRoot) {
+    const normalizedUrl = normalizeManualUrl(url);
     return {
       valid: true,
       route: {
@@ -213,6 +213,10 @@ export const validateManualScrapeUrl = (input: string): ManualScrapeUrlValidatio
   }
 
   if (rule.isDetailUrl?.(url)) {
+    if (rule.site === Website.JAV321 && host === "en.jav321.com") {
+      url.hostname = "www.jav321.com";
+    }
+    const normalizedUrl = normalizeManualUrl(url);
     return {
       valid: true,
       route: {

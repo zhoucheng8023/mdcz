@@ -223,11 +223,12 @@ export function ResultTreeAdapter({ port }: { port: ScrapeActionPort }) {
         }
       }}
       onManualUrlSubmit={async (target, manualUrl) => {
+        activateNewScrapeTask();
         try {
           const response = await port.rescrapeByUrl(target.targets, manualUrl);
-          activateNewScrapeTask();
           toast.success(response.message);
         } catch (error) {
+          useScrapeStore.getState().setPending(false);
           toast.error(toErrorMessage(error, "按 URL 重新刮削失败"));
         }
       }}
