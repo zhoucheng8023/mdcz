@@ -71,7 +71,13 @@ describe("FileScraper site aggregation", () => {
       signalService: new SignalService(null),
     });
 
-    const result = await prepareAndExecuteFile(scraper, "/tmp/FNS-139.mp4", { fileIndex: 1, totalFiles: 1 });
+    const result = await prepareAndExecuteFile(
+      scraper,
+      "/tmp/FNS-139.mp4",
+      { fileIndex: 1, totalFiles: 1 },
+      undefined,
+      { roots: [{ id: "test", hostPath: "/tmp" }] },
+    );
 
     expect(result.status).toBe("failed");
     expect(crawlerProvider.calledSites.sort()).toEqual([Website.DMM, Website.JAVBUS, Website.JAVDB].sort());
@@ -95,7 +101,9 @@ describe("FileScraper site aggregation", () => {
       signalService: new SignalService(null),
     });
 
-    const result = await prepareAndExecuteFile(scraper, filePath);
+    const result = await prepareAndExecuteFile(scraper, filePath, undefined, undefined, {
+      roots: [{ id: "test", hostPath: "/tmp" }],
+    });
 
     expect(crawlerProvider.calledNumbers).toEqual(["ABF-252", "ABF-252", "ABF-252"]);
     expect(result.fileName).toBe("[7SiS-001]+ ABF-252");

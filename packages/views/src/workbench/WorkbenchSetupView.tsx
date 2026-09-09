@@ -203,7 +203,13 @@ export function WorkbenchSetupView({
       <div className="h-full overflow-y-auto">
         <main className="mx-auto w-full max-w-6xl px-6 pb-36 pt-10 md:px-10 lg:px-12">
           <section className="mb-10">
-            <div className={mode === "scrape" ? "grid gap-6 lg:grid-cols-2 lg:gap-8" : "grid gap-6"}>
+            <div
+              className={
+                mode === "scrape" || presetId === "organize_files" || presetId === "rebuild_all"
+                  ? "grid gap-6 lg:grid-cols-2 lg:gap-8"
+                  : "grid gap-6"
+              }
+            >
               <PathControl
                 label="扫描目录"
                 value={scanDir}
@@ -213,7 +219,7 @@ export function WorkbenchSetupView({
                 supportsBrowse={!isServer}
                 loadSuggestions={onSuggestScanDir ? (value) => onSuggestScanDir({ path: value }) : undefined}
               />
-              {mode === "scrape" ? (
+              {mode === "scrape" || presetId === "organize_files" || presetId === "rebuild_all" ? (
                 <PathControl
                   label="输出目录"
                   value={targetDir}

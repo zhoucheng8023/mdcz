@@ -235,10 +235,16 @@ export const createWebMaintenanceActionPort = (): MaintenanceActionPort => {
       await api.maintenance.discardSession(sessionId ? { sessionId } : undefined);
       useMaintenanceStore.getState().reset();
     },
-    preview: async (refs, presetId: MaintenancePresetId) => {
+    preview: async (refs, presetId: MaintenancePresetId, targetDir) => {
       const rootId = refs[0]?.rootId ?? "";
       if (!rootId) throw new Error("请选择要维护的文件");
-      const { sessionId } = await api.maintenance.start({ rootId, presetId, refs });
+      const output = targetDir ? await api.mediaRoots.prepareOutputDirectory({ hostPath: targetDir }) : undefined;
+      const { sessionId } = await api.maintenance.start({
+        rootId,
+        presetId,
+        refs,
+        ...(output ? { outputRootId: output.id, outputRelativeDirectory: output.relativeDirectory } : {}),
+      });
       applyMaintenanceSessionSnapshot(await api.maintenance.getActiveSession());
       return { sessionId };
     },

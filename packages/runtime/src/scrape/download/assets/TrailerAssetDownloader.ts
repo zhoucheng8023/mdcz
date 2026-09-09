@@ -25,7 +25,7 @@ export class TrailerAssetDownloader implements AssetDownloader {
     const keepTrailer = shouldKeepAsset(plan.assetDecisions.trailer, plan.config.download.keepTrailer);
     const trailerResult = await resolveSingleAsset({
       targetPath: trailerPath,
-      existingPath: join(plan.existingAssetDir, plan.assetFileNames.trailer),
+      existingPath: plan.existingAssets?.trailer ?? join(plan.existingAssetDir, plan.assetFileNames.trailer),
       keepExisting: keepTrailer,
       fallbackToExistingOnFailure: shouldFallbackToExistingAsset(plan.assetDecisions.trailer),
       create: async () => {

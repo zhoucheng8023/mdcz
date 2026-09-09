@@ -63,6 +63,7 @@ const createCoordinator = (runtimeOverrides: Partial<MaintenanceRuntime> = {}, r
     applyEntry: vi.fn(),
     ...runtimeOverrides,
   } as unknown as MaintenanceRuntime;
+  runtime.createSession = vi.fn(async () => runtime);
   const events: unknown[] = [];
   const ownership = new MediaPathOwnership();
   const library = {
@@ -78,6 +79,7 @@ const createCoordinator = (runtimeOverrides: Partial<MaintenanceRuntime> = {}, r
         return selected;
       },
       list: async () => roots,
+      ensurePathRecord: async () => root,
     },
     runtime,
     library,
@@ -92,6 +94,34 @@ const createCoordinator = (runtimeOverrides: Partial<MaintenanceRuntime> = {}, r
 };
 
 describe("MaintenanceSessionCoordinator", () => {
+  it("reserves preview startup against concurrent previews and applies and releases it after scan failure", async () => {
+    const scanning = promiseWithResolvers<void>();
+    const scanned = promiseWithResolvers<LocalScanEntry[]>();
+    const fixture = createCoordinator();
+    const input = { rootId: root.id, presetId: "read_local" as const, refs: [ref("one.mp4")] };
+    const first = await fixture.coordinator.startPreview(input);
+    const batch = await first.completion;
+    vi.mocked(fixture.runtime.scanRefs).mockImplementationOnce(async () => {
+      scanning.resolve();
+      return await scanned.promise;
+    });
+    const starting = fixture.coordinator.startPreview(input);
+    const failed = expect(starting).rejects.toThrow("scan failed");
+    await scanning.promise;
+    await expect(fixture.coordinator.startPreview(input)).rejects.toThrow("已有活动的维护会话");
+    await expect(
+      fixture.coordinator.beginApply({
+        sessionId: first.session.id,
+        selections: [{ previewId: batch.items[0].id }],
+      }),
+    ).rejects.toThrow("维护预览正在启动");
+    scanned.reject(new Error("scan failed"));
+    await failed;
+    const retry = await fixture.coordinator.startPreview(input);
+    await retry.completion;
+    await fixture.coordinator.close();
+  });
+
   it("starts with no process-local session", async () => {
     const first = createCoordinator();
     expect(await first.coordinator.getActiveSession()).toBeNull();
@@ -266,7 +296,7 @@ describe("MaintenanceSessionCoordinator", () => {
     expect(batch.applied).toEqual([
       expect.objectContaining({
         status: "failed",
-        error: expect.stringContaining("文件操作已完成，但媒体库提交失败"),
+        error: expect.stringContaining("维护发布失败"),
       }),
     ]);
     await fixture.coordinator.close();

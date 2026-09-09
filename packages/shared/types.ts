@@ -122,14 +122,6 @@ export interface NfoLocalState {
   tags?: string[];
 }
 
-export interface UncensoredConfirmItem {
-  fileId: FileId;
-  nfoPath: string;
-  videoPath: string;
-  metadataVideoPath?: string;
-  choice: UncensoredChoice;
-}
-
 export interface UncensoredConfirmResultItem {
   fileId: FileId;
   sourceVideoPath: string;

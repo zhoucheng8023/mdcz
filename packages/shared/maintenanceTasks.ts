@@ -121,6 +121,8 @@ export interface MaintenanceSessionDraft {
 export interface MaintenanceActiveSessionSnapshot extends MaintenanceSessionProgress {
   id: string;
   rootId: string;
+  outputRootId: string;
+  outputRelativeDirectory: string;
   presetId: MaintenancePresetId;
   phase: MaintenanceSessionPhase;
   status: MaintenanceSessionStatus;

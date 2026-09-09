@@ -20,6 +20,7 @@ import {
   type ActorImageService,
   AggregationService,
   applyScrapeNetworkPolicy,
+  buildScrapePublicationKey,
   createScrapeExecutionPolicy,
   DownloadManager,
   type FileScrapeResult,
@@ -32,19 +33,22 @@ import {
   resolveScrapeAttempts,
   resolveScrapeRetry,
   ScrapeCoordinator,
+  type ScrapeHostExecution,
   type ScrapeHostPort,
   type ScrapeRunItem,
   type ScrapeRunItemInitialState,
   type ScrapeRunSnapshot,
   type ScrapeWorkflowReporter,
+  toFinalizedScrapeRunSnapshot,
   toScrapeResultFromOutcome,
   toScrapeRunSnapshotDto,
 } from "@mdcz/runtime/tasks";
 import type { ScraperStartInput } from "@mdcz/shared/ipc-contracts/scraperContract";
 import { resolveManualScrapeRoute } from "@mdcz/shared/manualScrapeUrl";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
-import type { ScrapeRunSnapshotDto } from "@mdcz/shared/serverDtos";
-import type { ScrapeResult } from "@mdcz/shared/types";
+import type { ScrapeConfirmUncensoredInput, ScrapeRunSnapshotDto } from "@mdcz/shared/serverDtos";
+import type { ScrapeResult, UncensoredConfirmResponse } from "@mdcz/shared/types";
+import { confirmUncensoredRunItems } from "./confirmUncensored";
 import { createFileScraper, fileOrganizer } from "./FileScraper";
 import type { ManualScrapeOptions } from "./manualScrape";
 import { resolveSingleFilePaths } from "./pathResolver";
@@ -126,6 +130,20 @@ export class ScraperService {
     const live = this.workflow?.liveRuns()[0];
     if (live) return this.toSnapshotDto(live.run, live.snapshot, live.startedAt);
     return taskId && this.terminalSnapshot?.task.id === taskId ? this.terminalSnapshot : null;
+  }
+
+  async confirmUncensored(input: ScrapeConfirmUncensoredInput): Promise<UncensoredConfirmResponse> {
+    const configuration = await configManager.getValidated();
+    if (!configuration.download.generateNfo) {
+      throw new ScraperServiceError("INVALID_ARGUMENT", "已关闭 NFO 生成功能，无法确认无码类型");
+    }
+    const state = await this.persistenceService.getState();
+    const manifest = await state.repositories.scrapeRuns.get(input.taskId);
+    const response = await confirmUncensoredRunItems({ manifest, items: input.items, configuration, state });
+    this.terminalSnapshot = await this.rebuildTerminalSnapshot(input.taskId);
+    this.signalService.publishTaskSnapshot({ resource: "scrape", snapshot: this.terminalSnapshot });
+    this.outputLibraryScanner.invalidate();
+    return response;
   }
 
   async start(input: ScraperStartInput): Promise<StartScrapeResult> {
@@ -279,7 +297,10 @@ export class ScraperService {
     });
   }
 
-  private async createExecution(manifest: ScrapeRunManifest, reporter: ScrapeWorkflowReporter) {
+  private async createExecution(
+    manifest: ScrapeRunManifest,
+    reporter: ScrapeWorkflowReporter,
+  ): Promise<ScrapeHostExecution<ManualScrapeOptions, PreparedFileScrape>> {
     const configuration = await configManager.getValidated();
     this.configureRuntimeSettings(configuration);
     const policy = createScrapeExecutionPolicy(configuration, { logger: this.logger });
@@ -345,9 +366,9 @@ export class ScraperService {
     const itemIndexById = new Map(items.map((item, index) => [item.id, index + 1]));
     const fileScraper = createFileScraper(
       this.createFileScraperDependencies(
-        (value, current, total) => {
+        (value, current) => {
           const item = items[current - 1];
-          if (item) reporter.progress(item.id, value * total - (current - 1) * 100);
+          if (item) reporter.progress(item.id, value);
         },
         async () => runConfiguration,
       ),
@@ -382,20 +403,36 @@ export class ScraperService {
       },
       validatePrepared: async (
         prepared: readonly { item: ScrapeRunItem<ManualScrapeOptions>; prepared: PreparedFileScrape }[],
+        failedItems: readonly ScrapeRunItem<ManualScrapeOptions>[],
       ) =>
-        await validatePreparedScrapeFiles(
-          prepared.map(({ item, prepared }) => ({
+        await validatePreparedScrapeFiles([
+          ...prepared.map(({ item, prepared }) => ({
             itemId: item.id,
             sourcePath: prepared.sourcePath,
             outputPlan: prepared.outputPlan,
           })),
-        ),
+          ...(runConfiguration.behavior.failedFileMove
+            ? failedItems.map((item) => ({
+                itemId: item.id,
+                sourcePath: item.sourcePath,
+                outputPlan: {
+                  targetVideoPath: fileOrganizer.resolveFailedVideoPath(
+                    item.sourcePath,
+                    outputRoot.hostPath,
+                    runConfiguration,
+                  ),
+                },
+              }))
+            : []),
+        ]),
       acquireItem: (item: ScrapeRunItem<ManualScrapeOptions>) =>
         mediaPathOwnership.acquire(
           item.executionSource?.rootId ?? item.rootId,
           item.executionSource?.relativePath ?? item.relativePath,
           item.id,
         ),
+      getPublicationKey: (_item: ScrapeRunItem<ManualScrapeOptions>, prepared: PreparedFileScrape) =>
+        buildScrapePublicationKey(prepared.outputPlan),
       executePreparedItem: async (
         item: ScrapeRunItem<ManualScrapeOptions>,
         prepared: PreparedFileScrape,
@@ -485,6 +522,30 @@ export class ScraperService {
     this.outputLibraryScanner.invalidate();
     this.aggregationService.clearCache();
     this.signalService.setButtonStatus(true, false);
+  }
+
+  private async rebuildTerminalSnapshot(runId: string): Promise<ScrapeRunSnapshotDto> {
+    const state = await this.persistenceService.getState();
+    const manifest = await state.repositories.scrapeRuns.get(runId);
+    const summary = state.repositories.scrapeRuns.summary(manifest);
+    if (!summary) throw new Error(`Scrape run is not finished: ${runId}`);
+    const outcomes = await Promise.all(
+      state.repositories.scrapeRuns.latestOutcomes(manifest).map(async (outcome) => ({
+        ...outcome,
+        assets: (await state.repositories.library.getEntryBySourceOutcomeId(outcome.id))?.assets ?? [],
+      })),
+    );
+    return this.toSnapshotDto(
+      manifest,
+      toFinalizedScrapeRunSnapshot({
+        id: manifest.id,
+        items: manifest.items,
+        outcomes,
+        disposition: summary.disposition,
+        error: summary.error,
+      }),
+      summary.startedAt,
+    );
   }
 
   private toSnapshotDto(

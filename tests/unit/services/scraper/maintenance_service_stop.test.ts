@@ -79,6 +79,7 @@ const createFixture = async () => {
     ]),
     applyEntry: vi.fn(),
   } as unknown as MaintenanceRuntime;
+  runtime.createSession = vi.fn(async () => runtime);
   const signalService = new CaptureSignalService(null);
   const networkClient = new NetworkClient();
   const persistenceService = new DesktopPersistenceService(path.join(directory, "mdcz.sqlite"), null);

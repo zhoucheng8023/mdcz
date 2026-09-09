@@ -1,6 +1,8 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import { type AssetNamingMode, buildMovieAssetFileNames } from "@mdcz/shared/assetNaming";
 import type { CrawlerData, DiscoveredAssets, DownloadedAssets, MaintenanceAssetDecisions } from "@mdcz/shared/types";
+import { XMLBuilder, XMLParser } from "fast-xml-parser";
 import type { OrganizePlan } from "../scrape/FileOrganizer";
 import {
   buildGeneratedVideoSidecarTargetPath,
@@ -29,6 +31,8 @@ export const preparePublicationPlan = async (input: {
   organizePlan?: OrganizePlan;
   organizeFiles?: boolean;
   nfoNaming: "both" | "movie" | "filename";
+  assetNamingMode?: AssetNamingMode;
+  reuseNfo?: boolean;
   remoteData?: CrawlerData;
   writeNfo(
     assets: DownloadedAssets,
@@ -42,6 +46,15 @@ export const preparePublicationPlan = async (input: {
   const existing = input.existingAssets;
   const downloaded = input.downloadedAssets;
   const organizeFiles = input.organizeFiles !== false;
+  const assetFileNames = input.assetNamingMode
+    ? buildMovieAssetFileNames(
+        basename(
+          input.organizePlan?.nfoPath ?? input.outputVideoPath,
+          input.organizePlan ? ".nfo" : parse(input.outputVideoPath).ext,
+        ),
+        input.assetNamingMode,
+      )
+    : undefined;
   const moving = new Set((input.movingVideoPaths ?? [input.sourceVideoPath]).map((path) => resolve(path)));
   const preserveSharedSources =
     organizeFiles &&
@@ -105,12 +118,17 @@ export const preparePublicationPlan = async (input: {
         const stagedName = input.stagingDir ? within(input.stagingDir, sourcePath) : undefined;
         const existingName = within(input.existingAssetDir, sourcePath);
         const collection = group.key === "sceneImages" || group.key === "actorPhotos";
+        const targetName =
+          !collection && assetFileNames
+            ? `${parse(assetFileNames[sourcePath === (downloaded.poster ?? existing?.poster) ? "poster" : group.key]).name}${parse(sourcePath).ext}`
+            : undefined;
         targetPath =
           !organizeFiles && !stagedName
             ? sourcePath
             : join(
                 input.metadataOutputDir,
-                stagedName ??
+                targetName ??
+                  stagedName ??
                   existingName ??
                   (collection ? join(basename(dirname(sourcePath)), basename(sourcePath)) : basename(sourcePath)),
               );
@@ -137,17 +155,46 @@ export const preparePublicationPlan = async (input: {
       for (const old of group.old) if (old && !targets.includes(old)) obsolete.add(old);
     }
   }
-  let nfoPath = await input.writeNfo(
-    { ...assets, downloaded: [...new Set(artifacts.map(({ targetPath }) => targetPath))] },
-    async (targetPath, data) => {
-      artifacts.push({ targetPath, content: { kind: "text", data } });
-    },
-  );
+  let nfoPath =
+    input.reuseNfo && input.organizePlan
+      ? getNfoWritePaths(input.organizePlan.nfoPath, input.nfoNaming).canonicalPath
+      : await input.writeNfo(
+          { ...assets, downloaded: [...new Set(artifacts.map(({ targetPath }) => targetPath))] },
+          async (targetPath, data) => {
+            artifacts.push({ targetPath, content: { kind: "text", data } });
+          },
+        );
   if (!nfoPath && input.existingNfoPath) {
     const paths = getNfoWritePaths(input.organizePlan?.nfoPath ?? input.existingNfoPath, input.nfoNaming);
     nfoPath = paths.canonicalPath;
+    let content = await readFile(input.existingNfoPath, "utf-8");
+    if (organizeFiles && [...mapped].some(([source, target]) => source !== target)) {
+      const xmlOptions = { preserveOrder: true, ignoreAttributes: false, parseTagValue: false, trimValues: false };
+      const document = new XMLParser(xmlOptions).parse(content);
+      let referencesChanged = false;
+      const rewriteReferences = (nodes: Record<string, unknown>[], asset = false): void => {
+        for (const node of nodes) {
+          for (const [key, value] of Object.entries(node)) {
+            if (key === "#text" && asset && typeof value === "string") {
+              const target = mapped.get(resolve(input.existingAssetDir, value));
+              if (target) {
+                const reference = relative(input.metadataOutputDir, target).replaceAll("\\", "/");
+                if (reference !== value) {
+                  node[key] = reference;
+                  referencesChanged = true;
+                }
+              }
+            } else if (Array.isArray(value)) {
+              rewriteReferences(value, asset || ["thumb", "poster", "fanart", "trailer"].includes(key));
+            }
+          }
+        }
+      };
+      rewriteReferences(document);
+      if (referencesChanged) content = new XMLBuilder(xmlOptions).build(document);
+    }
     for (const targetPath of paths.requiredPaths) {
-      artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(input.existingNfoPath) } });
+      artifacts.push({ targetPath, content: { kind: "text", data: content } });
     }
   }
   if (input.existingNfoPath && nfoPath && input.existingNfoPath !== nfoPath) obsolete.add(input.existingNfoPath);

@@ -263,6 +263,8 @@ describe("web maintenance action port", () => {
     const session: MaintenanceActiveSessionSnapshot = {
       id: "maintenance-task-1",
       rootId: "root-1",
+      outputRootId: "root-1",
+      outputRelativeDirectory: "",
       presetId: "refresh_data",
       phase: "preview",
       status: "running",

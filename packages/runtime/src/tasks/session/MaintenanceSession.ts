@@ -39,6 +39,8 @@ export class MaintenanceSession {
   readonly id: string;
   readonly rootId: string;
   readonly presetId: MaintenancePresetId;
+  readonly outputRootId: string;
+  readonly outputRelativeDirectory: string;
   private phaseValue: "preview" | "apply" = "preview";
   private statusValue: MaintenanceSessionStatus = "queued";
   private generationValue: number;
@@ -57,11 +59,15 @@ export class MaintenanceSession {
     generation: number;
     now?: Date;
     initialEntries?: readonly LocalScanEntry[];
+    outputRootId?: string;
+    outputRelativeDirectory?: string;
   }) {
     const now = input.now ?? new Date();
     this.id = input.id;
     this.rootId = input.rootId;
     this.presetId = input.presetId;
+    this.outputRootId = input.outputRootId ?? input.rootId;
+    this.outputRelativeDirectory = input.outputRelativeDirectory ?? "";
     this.generationValue = input.generation;
     this.refsValue = input.refs.map((ref) => ({ ...ref }));
     this.timestamps = { createdAt: now, updatedAt: now, startedAt: null, completedAt: null };
@@ -416,6 +422,8 @@ export class MaintenanceSession {
     return {
       id: this.id,
       rootId: this.rootId,
+      outputRootId: this.outputRootId,
+      outputRelativeDirectory: this.outputRelativeDirectory,
       presetId: this.presetId,
       phase: this.phaseValue,
       status: this.statusValue,

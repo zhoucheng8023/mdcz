@@ -6,6 +6,7 @@ import type { NetworkClient } from "@mdcz/runtime/network";
 import {
   type ActorImageService,
   AggregationService,
+  applyPosterTagBadgesIfNeeded,
   DownloadManager,
   FileOrganizer,
   NfoGenerator,
@@ -39,6 +40,13 @@ export const createServerMaintenanceRuntime = (deps: ServerMaintenanceRuntimeDep
     fileOrganizer: new FileOrganizer(logger),
     networkPolicyClient: deps.networkClient,
     nfoGenerator: new NfoGenerator(),
+    postProcessAssets: async ({ configuration, ...input }) =>
+      await applyPosterTagBadgesIfNeeded({
+        ...input,
+        config: configuration,
+        dataDir: deps.config.runtimePaths.dataDir,
+        logger,
+      }),
     signalService: {
       setProgress: () => undefined,
       showLogText: () => undefined,

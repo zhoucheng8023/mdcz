@@ -8,7 +8,7 @@ import type { NfoGenerator, NfoOptions } from "../nfo";
 import {
   downloadCrawlerAssets,
   prepareOutputCrawlerData,
-  updateBatchProgress,
+  reportItemProgress,
   writePreparedNfo,
 } from "./executeOutputSteps";
 
@@ -33,13 +33,13 @@ const createFileInfo = (): FileInfo => ({
 });
 
 describe("shared output steps", () => {
-  it("normalizes per-file progress into batch progress", () => {
+  it("reports precise item progress regardless of batch size", () => {
     const setProgress = vi.fn();
 
-    updateBatchProgress({ setProgress }, { fileIndex: 2, totalFiles: 4 }, 50);
-    updateBatchProgress({ setProgress }, { fileIndex: 0, totalFiles: 0 }, 150);
+    reportItemProgress({ setProgress }, { fileIndex: 2, totalFiles: 150 }, 37.5);
+    reportItemProgress({ setProgress }, { fileIndex: 0, totalFiles: 0 }, 150);
 
-    expect(setProgress).toHaveBeenNthCalledWith(1, 38, 2, 4);
+    expect(setProgress).toHaveBeenNthCalledWith(1, 37.5, 2, 150);
     expect(setProgress).toHaveBeenNthCalledWith(2, 100, 1, 1);
   });
 

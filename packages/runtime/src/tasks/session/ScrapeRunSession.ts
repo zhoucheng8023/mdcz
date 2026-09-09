@@ -83,13 +83,17 @@ export interface ScrapeRunSessionOptions<TManualScrape = unknown, TPrepared = un
   initialItems?: readonly ScrapeRunItemInitialState<TManualScrape>[];
   concurrency: number;
   acquireItem?: (item: ScrapeRunItem<TManualScrape>) => () => void;
+  getPublicationKey?: (item: ScrapeRunItem<TManualScrape>, prepared: TPrepared) => string;
   admitItem: (item: ScrapeRunItem<TManualScrape>) => Promise<string>;
   prepareItem: (
     item: ScrapeRunItem<TManualScrape>,
     signal: AbortSignal,
     attemptId: string,
   ) => Promise<ScrapePreparationResult<TPrepared>>;
-  validatePrepared(items: readonly { item: ScrapeRunItem<TManualScrape>; prepared: TPrepared }[]): Promise<void>;
+  validatePrepared(
+    items: readonly { item: ScrapeRunItem<TManualScrape>; prepared: TPrepared }[],
+    failedItems: readonly ScrapeRunItem<TManualScrape>[],
+  ): Promise<void>;
   executePreparedItem: (
     item: ScrapeRunItem<TManualScrape>,
     prepared: TPrepared,
@@ -157,6 +161,8 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
   private readonly attemptIdByItemId = new Map<string, string>();
   private readonly preparedByItemId = new Map<string, TPrepared>();
   private readonly preparationFailureByItemId = new Map<string, ScrapeResult>();
+  private readonly publicationChains = new Map<string, Promise<void>>();
+  private preflightPassed = false;
   private readonly shutdownController = new AbortController();
   private executor: { pause(): void; stop(): void } | null = null;
   private runPromise: Promise<void> | null = null;
@@ -381,7 +387,7 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
       }
     }
 
-    if (this.preparationFailureByItemId.size === 0) {
+    if (!this.preflightPassed) {
       this.recordStage({ stage: "check-output", message: "冲突预检" });
       try {
         await this.options.validatePrepared(
@@ -390,7 +396,9 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
             if (!this.preparedByItemId.has(item.id)) return [];
             return [{ item, prepared: this.preparedByItemId.get(item.id) as TPrepared }];
           }),
+          this.items.filter((item) => this.preparationFailureByItemId.get(item.id)?.status === "failed"),
         );
+        this.preflightPassed = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const itemIds = new Set(
@@ -400,18 +408,20 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
                 .filter((itemId): itemId is string => Boolean(itemId))
             : [],
         );
-        const failedItems = itemIds.size ? this.items.filter((item) => itemIds.has(item.id)) : this.items;
+        const preparedItems = this.items.filter((item) => item.status === "pending");
+        const conflictedItems = preparedItems.filter((item) => itemIds.has(item.id));
+        const failedItems = conflictedItems.length > 0 ? conflictedItems : preparedItems;
+        const conflicts = new Map<string, ScrapeResult>();
         for (const item of failedItems) {
-          this.preparationFailureByItemId.set(item.id, createFailedResult(item, message));
+          conflicts.set(item.id, createFailedResult(item, message));
         }
+        if (this.status !== "running") return;
+        await this.finishPreparationFailure(generation, conflicts, message);
+        return;
       }
     }
 
-    if (this.preparationFailureByItemId.size > 0) {
-      await this.finishPreparationFailure(generation);
-      return;
-    }
-
+    if (this.status !== "running") return;
     const pending = this.items.filter((item) => item.status === "pending");
     if (pending.length === 0) {
       this.completeLiveRunIfSettled(generation);
@@ -434,19 +444,31 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
       runItem: async (item, context) => {
         const attemptId = this.attemptIdByItemId.get(item.id);
         if (!attemptId) throw new Error(`Scrape item was not admitted: ${item.id}`);
-        const release = this.options.acquireItem?.(item) ?? (() => undefined);
+        const releaseSource = this.options.acquireItem?.(item) ?? (() => undefined);
+        let releasePublication: () => void = () => undefined;
         try {
+          const failure = this.preparationFailureByItemId.get(item.id);
+          if (failure) return { result: failure, release: releaseSource };
           if (!this.preparedByItemId.has(item.id)) {
             throw new Error(`Scrape item was not prepared: ${item.id}`);
           }
           const prepared = this.preparedByItemId.get(item.id) as TPrepared;
+          const publicationKey = this.options.getPublicationKey?.(item, prepared);
+          if (publicationKey) releasePublication = await this.acquirePublication(publicationKey, context.signal);
           const result = await runWithScrapeItem(
             { itemId: item.id, relativePath: item.relativePath, caseId: item.caseId },
             async () => await this.options.executePreparedItem(item, prepared, context.signal, attemptId),
           );
-          return { result, release };
+          return {
+            result,
+            release: () => {
+              releasePublication();
+              releaseSource();
+            },
+          };
         } catch (error) {
-          release();
+          releasePublication();
+          releaseSource();
           throw error;
         }
       },
@@ -512,11 +534,49 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
     }
   }
 
-  private async finishPreparationFailure(generation: number): Promise<void> {
+  private async acquirePublication(key: string, signal: AbortSignal): Promise<() => void> {
+    const previous = this.publicationChains.get(key) ?? Promise.resolve();
+    let unlock!: () => void;
+    const current = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    const chain = previous.catch(() => undefined).then(async () => await current);
+    this.publicationChains.set(key, chain);
+    const release = () => {
+      unlock();
+      if (this.publicationChains.get(key) === chain) this.publicationChains.delete(key);
+    };
+    if (signal.aborted) {
+      release();
+      throw signal.reason;
+    }
+    let rejectAbort!: (reason: unknown) => void;
+    const abort = () => rejectAbort(signal.reason);
+    const cancelled = new Promise<never>((_, reject) => {
+      rejectAbort = reject;
+      signal.addEventListener("abort", abort, { once: true });
+    });
+    try {
+      await Promise.race([previous.catch(() => undefined), cancelled]);
+    } catch (error) {
+      release();
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+    return release;
+  }
+
+  private async finishPreparationFailure(
+    generation: number,
+    conflicts: ReadonlyMap<string, ScrapeResult>,
+    message: string,
+  ): Promise<void> {
     this.assertCurrent(generation, ["running"]);
     const messages = new Set<string>();
     for (const item of this.items) {
-      const failed = this.preparationFailureByItemId.get(item.id);
+      if (!this.preparedByItemId.has(item.id) && !this.preparationFailureByItemId.has(item.id)) continue;
+      const failed = conflicts.get(item.id) ?? this.preparationFailureByItemId.get(item.id);
       const result = failed ?? createSkippedResult(item, "因存在文件冲突已跳过");
       if (failed?.error) messages.add(failed.error);
       const attemptId = this.attemptIdByItemId.get(item.id) ?? (await this.options.admitItem(item));
@@ -524,7 +584,7 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
       const committed = await this.options.commitPreparationItem(item, result, attemptId);
       this.applyCommittedResult(item, committed);
     }
-    this.error = [...messages].join("\n\n") || "刮削预检失败";
+    this.error = [...messages].join("\n\n") || message;
     this.preparedByItemId.clear();
     this.preparationFailureByItemId.clear();
     this.setStatus("failed");

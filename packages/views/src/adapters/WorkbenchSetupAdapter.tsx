@@ -36,7 +36,11 @@ export interface WorkbenchSetupAdapterProps {
   configLoading?: boolean;
   port: WorkbenchSetupPort;
   onStartScrape: (candidates: MediaCandidate[], targetDir: string) => Promise<void>;
-  onStartMaintenance: (candidates: MediaCandidate[], presetId: MaintenancePresetId) => Promise<void>;
+  onStartMaintenance: (
+    candidates: MediaCandidate[],
+    presetId: MaintenancePresetId,
+    targetDir?: string,
+  ) => Promise<void>;
 }
 
 const toPathAutocompleteResult = (result: ServerPathSuggestResponse): PathAutocompleteResult => ({
@@ -110,13 +114,14 @@ export function WorkbenchSetupAdapter({
     [candidates],
   );
   const scanning = scanStatus === "scanning";
+  const needsTarget = mode === "scrape" || presetId === "organize_files" || presetId === "rebuild_all";
   const primaryDisabled =
     startPending ||
     scanning ||
     scanStatus === "error" ||
     candidates.length === 0 ||
     selectedPaths.length === 0 ||
-    (mode === "scrape" && !targetDir.trim());
+    (needsTarget && !targetDir.trim());
   const runSummary =
     candidates.length > 0
       ? `${candidates.length} 个文件 · ${formatBytes(totalSize, { trimTrailingZeros: true })} · ${extensionCount} 种类型 · ${
@@ -181,11 +186,16 @@ export function WorkbenchSetupAdapter({
     }
 
     const nextScanDir = config.paths?.mediaPath?.trim() ?? "";
-    const nextTargetDir = nextScanDir ? resolveSuccessTargetDir(nextScanDir, config.paths?.successOutputFolder) : "";
+    const nextTargetDir =
+      mode === "maintenance"
+        ? scanDir || nextScanDir
+        : nextScanDir
+          ? resolveSuccessTargetDir(nextScanDir, config.paths?.successOutputFolder)
+          : "";
     if (nextScanDir && (!scanDir || !isAbsoluteHostPath(scanDir))) {
       setScanDir(nextScanDir);
     }
-    if (mode === "scrape" && nextTargetDir && (!targetDir || !isAbsoluteHostPath(targetDir))) {
+    if (nextTargetDir && (!targetDir || !isAbsoluteHostPath(targetDir))) {
       setTargetDir(nextTargetDir);
     }
     initializedRef.current = true;
@@ -208,8 +218,12 @@ export function WorkbenchSetupAdapter({
         return;
       }
       setScanDir(selectedPath);
-      if (mode === "scrape" && (!targetDir || !isAbsoluteHostPath(targetDir))) {
-        setTargetDir(resolveSuccessTargetDir(selectedPath, config?.paths?.successOutputFolder));
+      if (!targetDir || !isAbsoluteHostPath(targetDir)) {
+        setTargetDir(
+          mode === "maintenance"
+            ? selectedPath
+            : resolveSuccessTargetDir(selectedPath, config?.paths?.successOutputFolder),
+        );
       }
     } catch (error) {
       toast.error(`选择扫描目录失败: ${toErrorMessage(error)}`);
@@ -236,7 +250,7 @@ export function WorkbenchSetupAdapter({
     setStartPending(true);
     try {
       if (mode === "maintenance") {
-        await onStartMaintenance(selectedCandidates, presetId);
+        await onStartMaintenance(selectedCandidates, presetId, needsTarget ? targetDir : undefined);
       } else {
         await onStartScrape(selectedCandidates, targetDir);
       }
@@ -250,7 +264,7 @@ export function WorkbenchSetupAdapter({
       mode={mode}
       configLoading={configLoading}
       scanDir={scanDir}
-      targetDir={mode === "scrape" ? targetDir : undefined}
+      targetDir={needsTarget ? targetDir : undefined}
       candidates={candidates}
       selectedPaths={selectedPaths}
       selectedSize={selectedSize}
@@ -271,20 +285,22 @@ export function WorkbenchSetupAdapter({
           : undefined
       }
       onSuggestTargetDir={
-        mode === "scrape" && suggestDirectory
+        needsTarget && suggestDirectory
           ? async (input) => toPathAutocompleteResult(await suggestDirectory({ kind: "target", path: input.path }))
           : undefined
       }
       formatBytes={formatBytes}
       onBrowseScanDir={handleChooseScanDir}
-      onBrowseTargetDir={mode === "scrape" ? handleChooseTargetDir : undefined}
+      onBrowseTargetDir={needsTarget ? handleChooseTargetDir : undefined}
       onScanDirChange={(value) => {
         setScanDir(value);
-        if (mode === "scrape" && (!targetDir || !isAbsoluteHostPath(targetDir))) {
-          setTargetDir(resolveSuccessTargetDir(value, config?.paths?.successOutputFolder));
+        if (!targetDir || !isAbsoluteHostPath(targetDir)) {
+          setTargetDir(
+            mode === "maintenance" ? value : resolveSuccessTargetDir(value, config?.paths?.successOutputFolder),
+          );
         }
       }}
-      onTargetDirChange={mode === "scrape" ? setTargetDir : undefined}
+      onTargetDirChange={needsTarget ? setTargetDir : undefined}
       onRefreshScan={() => runScan(scanDir)}
       onPresetChange={changeMaintenancePreset}
       onStart={handleStart}

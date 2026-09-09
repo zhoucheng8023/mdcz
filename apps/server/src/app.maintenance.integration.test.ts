@@ -1,12 +1,13 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MaintenanceRuntime } from "@mdcz/runtime/maintenance";
+import { NetworkClient } from "@mdcz/runtime/network";
 import type { AggregationService } from "@mdcz/runtime/scrape";
-import { FileOrganizer, NfoGenerator } from "@mdcz/runtime/scrape";
+import { DownloadManager, FileOrganizer, MemoryImageHostCooldownStore, NfoGenerator } from "@mdcz/runtime/scrape";
 import { Website } from "@mdcz/shared/enums";
 import type { MaintenanceActiveSessionSnapshot } from "@mdcz/shared/maintenanceTasks";
 import type { CrawlerData, MaintenancePresetId } from "@mdcz/shared/types";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeTestServers,
   createTempRoot,
@@ -61,12 +62,19 @@ const startMaintenancePreview = async (
   rootId: string,
   presetId: MaintenancePresetId,
   relativePaths: string[],
+  outputRelativeDirectory = "JAV_output",
 ) => {
   const startResponse = await fastify.inject({
     method: "POST",
     url: "/trpc/maintenance.start",
     headers: { authorization: `Bearer ${token}` },
-    payload: { rootId, presetId, refs: relativePaths.map((relativePath) => ({ rootId, relativePath })) },
+    payload: {
+      rootId,
+      presetId,
+      outputRootId: rootId,
+      outputRelativeDirectory,
+      refs: relativePaths.map((relativePath) => ({ rootId, relativePath })),
+    },
   });
   expect(startResponse.statusCode).toBe(200);
   const sessionId = startResponse.json().result.data.sessionId as string;
@@ -105,6 +113,7 @@ const waitForMaintenanceSession = async (
 const createMaintenanceRuntime = (
   config: ServerConfigService,
   aggregationService: AggregationService,
+  downloadAll: DownloadManager["downloadAll"] = async () => ({ sceneImages: [], downloaded: [] }),
 ): MaintenanceRuntime =>
   new MaintenanceRuntime({
     actorImageService: {
@@ -113,7 +122,7 @@ const createMaintenanceRuntime = (
     aggregationService,
     config,
     downloadManager: {
-      downloadAll: async () => ({ sceneImages: [], downloaded: [] }),
+      downloadAll,
     } as never,
     fileOrganizer: new FileOrganizer(),
     nfoGenerator: new NfoGenerator(),
@@ -190,14 +199,19 @@ describe("buildServer maintenance integration", () => {
           config,
           createTestAggregation("https://example.com/maintenance.png") as AggregationService,
         );
-        const previewEntries = runtime.previewEntries.bind(runtime);
-        runtime.previewEntries = async (input) => {
-          previewedPaths.push(input.entries[0]?.ref.relativePath ?? input.entries[0]?.fileInfo.fileName ?? "");
-          if (previewedPaths.length === 1) {
-            firstCallStarted();
-            await blocked;
-          }
-          return await previewEntries(input);
+        const createSession = runtime.createSession.bind(runtime);
+        runtime.createSession = async (sessionInput) => {
+          const sessionRuntime = await createSession(sessionInput);
+          const previewEntries = sessionRuntime.previewEntries.bind(sessionRuntime);
+          sessionRuntime.previewEntries = async (input) => {
+            previewedPaths.push(input.entries[0]?.ref.relativePath ?? input.entries[0]?.fileInfo.fileName ?? "");
+            if (previewedPaths.length === 1) {
+              firstCallStarted();
+              await blocked;
+            }
+            return await previewEntries(input);
+          };
+          return sessionRuntime;
         };
         return runtime;
       },
@@ -270,18 +284,63 @@ describe("buildServer maintenance integration", () => {
     });
   });
 
-  it("runs organize_files preview and apply through the authoritative session", async () => {
-    const root = await createTempRoot("maintenance-organize-root");
-    await writeMaintenanceInput(root, "ABC-125", "Local Title ABC-125");
-    await writeFile(join(root, "ABC-125.en.srt"), "subtitle");
+  it.each([
+    "incoming",
+    "organized",
+    "metadata",
+  ] as const)("reorganizes the selected layout and preserves named assets (%s)", async (location) => {
+    const parent = await createTempRoot("maintenance-organize-root");
+    const root = location === "metadata" ? join(parent, "JAV_output") : parent;
+    const sourceRelative =
+      location === "incoming" ? "" : location === "organized" ? "JAV_output/Old/ABC-125" : "Old/ABC-125";
+    const sourceDir = join(root, sourceRelative);
+    const metadataRoot = location === "metadata" ? await createTempRoot("maintenance-metadata") : undefined;
+    const sourceMetadataDir = metadataRoot ? join(metadataRoot, sourceRelative) : sourceDir;
+    const outputRelative = location === "metadata" ? "" : "JAV_output";
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(sourceMetadataDir, { recursive: true });
+    await writeFile(join(sourceDir, "ABC-125.mp4"), "video");
+    await writeFile(join(sourceDir, "ABC-125.en.srt"), "subtitle");
+    await writeFile(join(sourceMetadataDir, "ABC-125-poster.jpg"), "original poster");
+    await writeFile(
+      join(sourceMetadataDir, "ABC-125.nfo"),
+      new NfoGenerator().buildXml(
+        {
+          number: "ABC-125",
+          title: "Local Title ABC-125",
+          studio: "S",
+          actors: [],
+          genres: [],
+          scene_images: [],
+          website: Website.JAVDB,
+        },
+        { assets: { poster: "ABC-125-poster.jpg", sceneImages: [], downloaded: [] } },
+      ),
+    );
     const { fastify } = await createTestServer();
     const token = await loginAsAdmin(fastify);
     const rootId = await syncMediaRootFromConfig(fastify, token, root);
 
-    await configureOrganizedOutput(fastify, token, root);
-    const { session, sessionId } = await startMaintenancePreview(fastify, token, rootId, "organize_files", [
-      "ABC-125.mp4",
-    ]);
+    await configureOrganizedOutput(fastify, token, root, {
+      paths: { mediaPath: root, metadataPath: metadataRoot ?? "", successOutputFolder: "ignored-output" },
+      naming: { folderTemplate: "{studio}/{number}", fileTemplate: "{number}_new", assetNamingMode: "followVideo" },
+      download: { nfoNaming: "filename" },
+    });
+    const relativePath = join(sourceRelative, "ABC-125.mp4");
+    const { session, sessionId } = await startMaintenancePreview(
+      fastify,
+      token,
+      rootId,
+      "organize_files",
+      [relativePath],
+      outputRelative,
+    );
+    await fastify.inject({
+      method: "POST",
+      url: "/trpc/config.update",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { naming: { fileTemplate: "{number}_unexpected" } },
+    });
     const applyResponse = await fastify.inject({
       method: "POST",
       url: "/trpc/maintenance.execute",
@@ -297,7 +356,7 @@ describe("buildServer maintenance integration", () => {
     });
     expect(session.previews[0]).toMatchObject({
       presetId: "organize_files",
-      relativePath: "ABC-125.mp4",
+      relativePath,
       status: "ready",
       proposedCrawlerData: { number: "ABC-125", title: "Local Title ABC-125" },
     });
@@ -308,18 +367,28 @@ describe("buildServer maintenance integration", () => {
       number: "ABC-125",
       title: "Local Title ABC-125",
     });
-    const organizedVideo = join(root, "JAV_output", "ABC-125", "ABC-125.mp4");
-    const organizedNfo = join(root, "JAV_output", "ABC-125", "ABC-125.nfo");
+    const targetDir = join(root, outputRelative, "S", "ABC-125");
+    const targetMetadataDir = join(metadataRoot ?? root, outputRelative, "S", "ABC-125");
+    const organizedVideo = join(targetDir, "ABC-125_new.mp4");
+    const organizedNfo = join(targetMetadataDir, "ABC-125_new.nfo");
     await expect(access(organizedVideo)).resolves.toBeUndefined();
     await expect(access(organizedNfo)).resolves.toBeUndefined();
-    await expect(readFile(join(root, "JAV_output", "ABC-125", "ABC-125.en.srt"), "utf8")).resolves.toBe("subtitle");
-    await expect(access(join(root, "ABC-125.en.srt"))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(access(join(root, "ABC-125.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(targetDir, "ABC-125_new.en.srt"), "utf8")).resolves.toBe("subtitle");
+    await expect(readFile(join(targetMetadataDir, "ABC-125_new-poster.jpg"), "utf8")).resolves.toBe("original poster");
+    expect(await readFile(organizedNfo, "utf8")).toContain("ABC-125_new-poster.jpg");
+    await expect(access(join(sourceDir, "ABC-125.en.srt"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(sourceDir, "ABC-125.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(sourceMetadataDir, "ABC-125-poster.jpg"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rebuilds all offline with fake aggregation and organizes output", async () => {
+  it.each([false, true])("rebuilds and publishes shared metadata once (multipart=%s)", async (multipart) => {
     const root = await createTempRoot("maintenance-rebuild-root");
     await writeMaintenanceInput(root, "ABC-300", "Stale Local Title");
+    const sourceNames = multipart ? ["ABC-300-CD1.mp4", "ABC-300-CD2.mp4"] : ["ABC-300.mp4"];
+    if (multipart) {
+      await rename(join(root, "ABC-300.mp4"), join(root, sourceNames[0]));
+      await writeFile(join(root, sourceNames[1]), "second video");
+    }
     await writeFile(join(root, "ABC-300-poster.jpg"), createTestPngBytes());
 
     const imageServer = await startTestImageServer();
@@ -330,8 +399,10 @@ describe("buildServer maintenance integration", () => {
       trailerUrl: "https://example.com/maintenance-trailer.mp4",
       trailerSourceUrl: "https://example.com/maintenance-trailer-source.mp4",
     }) as AggregationService;
+    const aggregate = vi.spyOn(aggregation, "aggregate");
+    const downloadAll = vi.fn(async () => ({ sceneImages: [] as string[], downloaded: [] as string[] }));
     const { fastify } = await createTestServer({
-      createMaintenanceRuntime: (config) => createMaintenanceRuntime(config, aggregation),
+      createMaintenanceRuntime: (config) => createMaintenanceRuntime(config, aggregation, downloadAll),
     });
     const token = await loginAsAdmin(fastify);
     const rootId = await syncMediaRootFromConfig(fastify, token, root);
@@ -345,12 +416,10 @@ describe("buildServer maintenance integration", () => {
       },
       translate: { enableTranslation: false },
     });
-    const { session, sessionId } = await startMaintenancePreview(fastify, token, rootId, "rebuild_all", [
-      "ABC-300.mp4",
-    ]);
+    const { session, sessionId } = await startMaintenancePreview(fastify, token, rootId, "rebuild_all", sourceNames);
     expect(session.previews[0]).toMatchObject({
       presetId: "rebuild_all",
-      relativePath: "ABC-300.mp4",
+      relativePath: sourceNames[0],
       status: "ready",
       proposedCrawlerData: { number: "ABC-300", title: "Remote Title ABC-300" },
     });
@@ -367,38 +436,93 @@ describe("buildServer maintenance integration", () => {
     const appliedSession = await waitForMaintenanceSession(fastify, token, sessionId, "apply", "completed");
     expect(appliedSession.currentBatch?.items[0]).toMatchObject({ status: "success" });
 
-    const organizedVideo = join(root, "JAV_output", "ABC-300", "ABC-300.mp4");
     const organizedNfo = join(root, "JAV_output", "ABC-300", "ABC-300.nfo");
-    await expect(access(organizedVideo)).resolves.toBeUndefined();
+    for (const name of sourceNames) {
+      await expect(access(join(root, "JAV_output", "ABC-300", name))).resolves.toBeUndefined();
+      await expect(access(join(root, name))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(aggregate).toHaveBeenCalledOnce();
+    expect(downloadAll).toHaveBeenCalledOnce();
     const organizedNfoContent = await readFile(organizedNfo, "utf8");
     expect(organizedNfoContent).toContain("Remote Title ABC-300");
     expect(organizedNfoContent).not.toContain("<director>Remote Director</director>");
     expect(organizedNfoContent).not.toContain("<trailer>");
     expect(organizedNfoContent).not.toContain("trailer_source_url");
     expect(organizedNfoContent).not.toContain("scene_images");
-    await expect(access(join(root, "ABC-300.mp4"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(join(root, "ABC-300.nfo"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("keeps refresh_data on the source path", async () => {
+  it("refreshes mirrored metadata while preserving video names and kept artwork", async () => {
     const root = await createTempRoot("maintenance-override-root");
-    await writeMaintenanceInput(root, "ABC-400", "Local Title ABC-400");
+    const metadataRoot = await createTempRoot("maintenance-refresh-metadata");
+    const baseName = "ABC-400_LocalName";
+    await writeFile(join(root, `${baseName}.mp4`), "video");
+    const posterPath = join(metadataRoot, `${baseName}-poster.jpg`);
+    const posterBytes = createTestPngBytes();
+    await writeFile(posterPath, posterBytes);
 
     const imageServer = await startTestImageServer();
+    const imageUrl = `${imageServer.url}/image.png`;
+    await writeFile(
+      join(metadataRoot, `${baseName}.nfo`),
+      new NfoGenerator().buildXml(
+        {
+          number: "ABC-400",
+          title: "Local Title ABC-400",
+          actors: [],
+          genres: [],
+          scene_images: [],
+          website: Website.JAVDB,
+          poster_source_url: imageUrl,
+        },
+        { assets: { poster: posterPath, sceneImages: [], downloaded: [] } },
+      ),
+    );
     const aggregation = createTestAggregation(`${imageServer.url}/image.png`, {
       titlePrefix: "Remote Title",
       titleZhPrefix: "远程标题",
     }) as AggregationService;
+    const network = new NetworkClient();
+    const download = vi.spyOn(network, "download");
+    const manager = new DownloadManager(network, { imageHostCooldownStore: new MemoryImageHostCooldownStore() });
     const { fastify } = await createTestServer({
-      createMaintenanceRuntime: (config) => createMaintenanceRuntime(config, aggregation),
+      createMaintenanceRuntime: (config) =>
+        createMaintenanceRuntime(config, aggregation, manager.downloadAll.bind(manager)),
     });
     const token = await loginAsAdmin(fastify);
     const rootId = await syncMediaRootFromConfig(fastify, token, root);
 
     await configureOrganizedOutput(fastify, token, root, {
+      paths: { mediaPath: root, metadataPath: metadataRoot },
+      naming: { folderTemplate: "{number}", fileTemplate: "{number}_Changed", assetNamingMode: "followVideo" },
       translate: { enableTranslation: false },
-      download: { downloadSceneImages: false, downloadTrailer: false },
+      download: {
+        downloadThumb: false,
+        downloadFanart: false,
+        downloadPoster: true,
+        downloadSceneImages: false,
+        downloadTrailer: false,
+        nfoNaming: "filename",
+      },
     });
-    const { session } = await startMaintenancePreview(fastify, token, rootId, "refresh_data", ["ABC-400.mp4"]);
+    const { session, sessionId } = await startMaintenancePreview(fastify, token, rootId, "refresh_data", [
+      `${baseName}.mp4`,
+    ]);
     expect(session.previews[0].pathDiff).toBeFalsy();
+    expect(session.previews[0].fieldDiffs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "title", oldValue: "Local Title ABC-400" })]),
+    );
+    const applied = await fastify.inject({
+      method: "POST",
+      url: "/trpc/maintenance.execute",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { sessionId, confirmationToken: `maintenance:${sessionId}` },
+    });
+    expect(applied.statusCode).toBe(200);
+    await waitForMaintenanceSession(fastify, token, sessionId, "apply", "completed");
+    await expect(readFile(posterPath)).resolves.toEqual(posterBytes);
+    await expect(readFile(join(root, `${baseName}.mp4`), "utf8")).resolves.toBe("video");
+    expect(await readFile(join(metadataRoot, `${baseName}.nfo`), "utf8")).toContain("Remote Title ABC-400");
+    expect(download).not.toHaveBeenCalled();
   });
 });

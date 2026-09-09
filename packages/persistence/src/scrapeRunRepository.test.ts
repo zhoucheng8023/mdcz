@@ -181,7 +181,7 @@ describe("ScrapeRunRepository", () => {
     await expect(library.getEntryById("conflict")).rejects.toThrow("Library entry not found");
   });
 
-  it("revises only successful facts while preserving outcome identity", async () => {
+  it("revises successful facts as one atomic batch while preserving outcome identity", async () => {
     const repository = createRepository();
     const run = await createRun(repository);
     const failed = await repository.commitOutcome({
@@ -198,19 +198,7 @@ describe("ScrapeRunRepository", () => {
       size: 1,
       libraryEntry: { id: "library-success", rootId: "output", rootRelativePath: "before.mp4" },
     });
-
-    await expect(
-      repository.reviseSuccess({
-        outcomeId: failed.id,
-        crawlerDataJson: "{}",
-        outputRootId: "output",
-        outputRelativePath: "failed.mp4",
-        uncensoredAmbiguous: false,
-        size: 1,
-        libraryEntry: { rootId: "output", rootRelativePath: "failed.mp4" },
-      }),
-    ).rejects.toThrow("Only successful scrape outcomes can be revised");
-    const revised = await repository.reviseSuccess({
+    const revision = {
       outcomeId: success.outcomeId,
       crawlerDataJson: JSON.stringify({ title: "Confirmed" }),
       outputRootId: "output",
@@ -218,8 +206,30 @@ describe("ScrapeRunRepository", () => {
       uncensoredAmbiguous: false,
       size: 2,
       libraryEntry: { id: "library-success", rootId: "output", rootRelativePath: "confirmed.mp4" },
-    });
-    expect(revised.outcome).toMatchObject({ id: success.outcomeId, outputRelativePath: "confirmed.mp4", size: 2 });
+    };
+
+    expect(() =>
+      repository.reviseSuccess([
+        revision,
+        {
+          outcomeId: failed.id,
+          crawlerDataJson: "{}",
+          outputRootId: "output",
+          outputRelativePath: "failed.mp4",
+          uncensoredAmbiguous: false,
+          size: 1,
+          libraryEntry: { rootId: "output", rootRelativePath: "failed.mp4" },
+        },
+      ]),
+    ).toThrow("Only successful scrape outcomes can be revised");
+    expect((await repository.get(run.id)).outcomes).toContainEqual(
+      expect.objectContaining({ id: success.outcomeId, outputRelativePath: "before.mp4", size: 1 }),
+    );
+
+    repository.reviseSuccess([revision]);
+    expect((await repository.get(run.id)).outcomes).toContainEqual(
+      expect.objectContaining({ id: success.outcomeId, outputRelativePath: "confirmed.mp4", size: 2 }),
+    );
   });
 
   it("finalizes once and derives summary facts from latest outcomes", async () => {

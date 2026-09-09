@@ -3,7 +3,7 @@ import type { ScrapeResult } from "@mdcz/shared/types";
 import { describe, expect, it } from "vitest";
 import { getScrapeItemExecutionContext } from "./network";
 import { activateNetworkFixtureContext } from "./network/networkFixtureContext";
-import { applyScrapeNetworkPolicy, createScrapeExecutionPolicy } from "./scrape";
+import { applyScrapeNetworkPolicy, buildScrapePublicationKey, createScrapeExecutionPolicy } from "./scrape";
 import { MAX_LIVE_SCRAPE_LOGS, ScrapeRunSession, TaskExecutor } from "./tasks";
 
 describe("task executor", () => {
@@ -124,6 +124,85 @@ const terminalResult = (
 });
 
 describe("scrape run session", () => {
+  it("holds shared output ownership through commit while independent directories execute", async () => {
+    const committing = deferred<void>();
+    const releaseCommit = deferred<void>();
+    const independent = deferred<void>();
+    const executed: string[] = [];
+    const session = new ScrapeRunSession({
+      runId: "publication-ownership",
+      items: [runItem("ABC-001"), runItem("XYZ-002"), runItem("independent")],
+      concurrency: 3,
+      admitItem,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      getPublicationKey: (item) =>
+        buildScrapePublicationKey({
+          outputDir: item.id === "independent" ? "/output/independent" : "/output/shared",
+          targetVideoPath: `/output/${item.id}.mp4`,
+          nfoPath: `/output/${item.id}.nfo`,
+        }),
+      executePreparedItem: async (item) => {
+        executed.push(item.id);
+        if (item.id === "independent") independent.resolve();
+        return terminalResult(item, "success");
+      },
+      commitItem: async (item, result) => {
+        if (item.id === "ABC-001") {
+          committing.resolve();
+          await releaseCommit.promise;
+        }
+        return result;
+      },
+      onSnapshot: () => undefined,
+    });
+    await session.start();
+    await Promise.all([committing.promise, independent.promise]);
+    expect(executed).toEqual(["ABC-001", "independent"]);
+    releaseCommit.resolve();
+    await session.waitForIdle();
+    expect(executed).toEqual(["ABC-001", "independent", "XYZ-002"]);
+    expect(session.snapshot().status).toBe("completed");
+  });
+
+  it("finishes an in-flight preflight while paused and resumes execution without repeating it", async () => {
+    const checking = deferred<void>();
+    const checked = deferred<void>();
+    let checks = 0;
+    const executed: string[] = [];
+    const session = new ScrapeRunSession({
+      runId: "paused-preflight",
+      items: [runItem("one")],
+      concurrency: 1,
+      admitItem,
+      prepareItem,
+      commitPreparationItem,
+      validatePrepared: async () => {
+        checks += 1;
+        checking.resolve();
+        await checked.promise;
+      },
+      executePreparedItem: async (item) => {
+        executed.push(item.id);
+        return terminalResult(item, "success");
+      },
+      commitItem: async (_item, result) => result,
+      onSnapshot: () => undefined,
+    });
+    await session.start();
+    await checking.promise;
+    await session.pause();
+    checked.resolve();
+    await session.waitForIdle();
+    expect(executed).toEqual([]);
+    await session.resume();
+    await session.waitForIdle();
+    expect(checks).toBe(1);
+    expect(executed).toEqual(["one"]);
+    expect(session.snapshot().status).toBe("completed");
+  });
+
   it("isolates fixture case context for every concurrently executing item", async () => {
     activateNetworkFixtureContext();
     const items = [
@@ -177,13 +256,16 @@ describe("scrape run session", () => {
     const executed: string[] = [];
     const committed: string[] = [];
     const observedStatuses: string[] = [];
+    let preflightCount = 0;
     const items = [runItem("one"), runItem("two")];
     const session = new ScrapeRunSession({
       runId: "run-1",
       items,
       concurrency: 1,
       prepareItem,
-      validatePrepared,
+      validatePrepared: async () => {
+        if (++preflightCount > 1) throw new Error("Output changed after initial preflight");
+      },
       commitPreparationItem,
       admitItem,
       executePreparedItem: async (item, _prepared) => {
@@ -253,6 +335,7 @@ describe("scrape run session", () => {
     });
     expect(executed).toEqual(["one", "two"]);
     expect(committed).toEqual(["one", "two"]);
+    expect(preflightCount).toBe(1);
     expect(observedStatuses[0]).toBe("queued");
     expect(observedStatuses).toContain("running");
     expect(observedStatuses.at(-1)).toBe("completed");

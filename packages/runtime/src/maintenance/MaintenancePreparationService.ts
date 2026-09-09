@@ -1,3 +1,5 @@
+import { basename, dirname, join, resolve } from "node:path";
+import { isMovieNfoBaseName } from "@mdcz/shared/assetNaming";
 import type { Configuration } from "@mdcz/shared/config";
 import { toErrorMessage } from "@mdcz/shared/error";
 import type {
@@ -219,16 +221,35 @@ export class MaintenancePreparationService {
       throw new Error("本地 NFO 不存在或无法解析，无法执行后续步骤");
     }
 
-    const rawPlan = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState);
-    if (this.preset.id === "refresh_data") {
+    if (!this.preset.steps.organize) {
+      const metadataDir = entry.nfoPath
+        ? dirname(entry.nfoPath)
+        : this.deps.fileOrganizer.resolveMetadataDir(entry.currentDir, config);
+      const layout = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState);
       return {
-        plan: rawPlan,
+        plan: {
+          outputDir: entry.currentDir,
+          metadataDir,
+          targetVideoPath: entry.fileInfo.filePath,
+          nfoPath:
+            entry.nfoPath && !isMovieNfoBaseName(basename(entry.nfoPath, ".nfo"))
+              ? entry.nfoPath
+              : join(metadataDir, basename(layout.nfoPath)),
+          ...(metadataDir === entry.currentDir
+            ? {}
+            : { strmPath: join(metadataDir, `${basename(entry.fileInfo.filePath, entry.fileInfo.extension)}.strm`) }),
+        },
         pathDiff: undefined,
       };
     }
 
+    const rawPlan = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState, {
+      outputBaseDirectory: resolve(config.paths.mediaPath, config.paths.successOutputFolder),
+    });
+
     const plan = await this.deps.fileOrganizer.resolveOutputPlan(rawPlan, entry.fileInfo.filePath, {
       createDirectories: options.createDirectories,
+      allowSharedDirectory: config.naming.assetNamingMode === "followVideo" && config.download.nfoNaming === "filename",
     });
 
     return {

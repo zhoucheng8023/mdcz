@@ -303,16 +303,7 @@ export type ScrapeTaskControlInput = z.infer<typeof scrapeTaskControlInputSchema
 
 export const scrapeConfirmUncensoredInputSchema = z.object({
   taskId: z.string().trim().min(1),
-  refs: z.array(scrapeFileRefSchema).min(1).optional(),
-  items: z
-    .array(
-      z.object({
-        ref: scrapeFileRefSchema,
-        choice: z.enum(["umr", "leak", "uncensored"]),
-      }),
-    )
-    .min(1)
-    .optional(),
+  items: z.array(z.object({ itemId: z.string().trim().min(1), choice: z.enum(["umr", "leak", "uncensored"]) })).min(1),
 });
 
 export type ScrapeConfirmUncensoredInput = z.infer<typeof scrapeConfirmUncensoredInputSchema>;
@@ -504,6 +495,8 @@ export const maintenanceStartInputSchema = z.object({
   rootId: z.string().trim().min(1),
   presetId: maintenancePresetIdSchema,
   refs: z.array(scrapeFileRefSchema).min(1),
+  outputRootId: z.string().trim().min(1).optional(),
+  outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
 });
 
 export type MaintenanceStartInput = z.infer<typeof maintenanceStartInputSchema>;

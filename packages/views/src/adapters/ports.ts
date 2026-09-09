@@ -59,7 +59,7 @@ export interface MaintenanceActionPort {
     },
   ): Promise<void>;
   discardSession(): Promise<void>;
-  preview(refs: RootFileRef[], presetId: MaintenancePresetId): Promise<{ sessionId: string }>;
+  preview(refs: RootFileRef[], presetId: MaintenancePresetId, targetDir?: string): Promise<{ sessionId: string }>;
   execute(selections: MaintenanceApplySelection[], presetId: MaintenancePresetId): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;

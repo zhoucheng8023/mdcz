@@ -1,4 +1,4 @@
-import type { AmbiguousUncensoredItemDto, ScrapeFileRefDto } from "@mdcz/shared/serverDtos";
+import type { AmbiguousUncensoredItemDto } from "@mdcz/shared/serverDtos";
 import type { MaintenancePresetId, MediaCandidate, UncensoredChoice } from "@mdcz/shared/types";
 import {
   changeMaintenancePreset,
@@ -136,10 +136,10 @@ export interface UncensoredConfirmationSelection {
 export const buildUncensoredConfirmationItems = (
   ambiguousItems: AmbiguousUncensoredItemDto[],
   selections: UncensoredConfirmationSelection[],
-): Array<{ ref: ScrapeFileRefDto; choice: UncensoredChoice }> => {
+): Array<{ itemId: string; choice: UncensoredChoice }> => {
   const choicesById = new Map(selections.map((selection) => [selection.id, selection.choice]));
   return ambiguousItems.map((item) => ({
-    ref: item.ref,
+    itemId: item.fileId,
     choice: choicesById.get(item.id) ?? "uncensored",
   }));
 };
@@ -153,6 +153,7 @@ export const resetScrapeWorkbenchToSetup = (): void => {
 export interface StartMaintenanceFlowOptions {
   candidates: MediaCandidate[];
   presetId: MaintenancePresetId;
+  targetDir?: string;
   port: MaintenanceActionPort;
   isScraping: boolean;
   setWorkbenchMode?: (mode: WorkbenchMode) => void;
@@ -187,16 +188,11 @@ export const startMaintenanceFlow = async (options: StartMaintenanceFlowOptions)
       return;
     }
 
-    if (options.presetId === "read_local") {
-      await options.port.preview(refs, options.presetId);
-      options.toast.success(`本地读取已启动，共 ${options.candidates.length} 项`);
-      await options.onRefreshConfig?.();
-      return;
-    }
-
-    await options.port.preview(refs, options.presetId);
+    await options.port.preview(refs, options.presetId, options.targetDir);
     await options.onRefreshConfig?.();
-    options.toast.success("维护预览已启动");
+    options.toast.success(
+      options.presetId === "read_local" ? `本地读取已启动，共 ${options.candidates.length} 项` : "维护预览已启动",
+    );
   } catch (error) {
     if (options.toErrorMessage(error) === "Operation aborted") {
       executionStore.setPending(false);

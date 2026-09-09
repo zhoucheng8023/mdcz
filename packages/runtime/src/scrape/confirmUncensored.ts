@@ -1,7 +1,8 @@
-import { dirname } from "node:path";
-import type { MediaRoot } from "@mdcz/media-store";
+import { dirname, posix } from "node:path";
+import { type MediaRoot, toRootRelativePath } from "@mdcz/media-store";
 import type { Configuration } from "@mdcz/shared/config";
 import { toErrorMessage } from "@mdcz/shared/error";
+import { crawlerDataSchema } from "@mdcz/shared/serverDtos";
 import type {
   CrawlerData,
   DiscoveredAssets,
@@ -12,6 +13,7 @@ import type {
   UncensoredChoice,
   UncensoredConfirmResultItem,
 } from "@mdcz/shared/types";
+import { toLibraryAssets } from "../library";
 import type { LocalScanService } from "../maintenance/LocalScanService";
 import { buildMovieTags } from "../maintenance/movieTags";
 import { type PreparedPublicationPlan, preparePublicationPlan } from "../publication";
@@ -35,9 +37,11 @@ export interface RuntimeUncensoredConfirmFailure {
   message: string;
 }
 
+export type UncensoredConfirmUpdate = UncensoredConfirmResultItem & { assets: DiscoveredAssets };
+
 export interface RuntimeUncensoredConfirmResult {
   updatedCount: number;
-  items: Array<UncensoredConfirmResultItem & { assets: DiscoveredAssets }>;
+  items: UncensoredConfirmUpdate[];
   failures: RuntimeUncensoredConfirmFailure[];
 }
 
@@ -54,8 +58,90 @@ export interface UncensoredConfirmDependencies {
   logger: Pick<RuntimeLogger, "info" | "warn">;
   nfoGenerator: Pick<NfoGenerator, "writeNfo">;
   pathExists: (filePath: string) => Promise<boolean>;
-  publish(input: { operationId: string; plan: PreparedPublicationPlan }): Promise<void>;
+  /**
+   * `updates` describes what the batch is about to write, so hosts can stage
+   * their business revisions and hand them to the publication commit hook.
+   */
+  publish(input: {
+    operationId: string;
+    plan: PreparedPublicationPlan;
+    updates: readonly UncensoredConfirmUpdate[];
+  }): Promise<void>;
 }
+
+/**
+ * A separate metadata root keeps a STRM stub next to the NFO instead of the
+ * video, so scans and confirmations must follow the stub, not the media file.
+ */
+export const resolveScrapeMetadataVideoPath = (outcome: {
+  relativePath: string;
+  outputRelativePath: string | null;
+  nfoRootId: string | null;
+}): string => {
+  const outputRelativePath = outcome.outputRelativePath ?? outcome.relativePath;
+  if (!outcome.nfoRootId) return outputRelativePath;
+  const base = posix.basename(outputRelativePath, posix.extname(outputRelativePath));
+  return posix.join(posix.dirname(outputRelativePath), `${base}.strm`);
+};
+
+export interface UncensoredRevisionSources {
+  update: UncensoredConfirmUpdate;
+  outcome: { id: string; crawlerDataJson: string | null };
+  outputRoot: Pick<MediaRoot, "id" | "hostPath">;
+  nfoRoot: Pick<MediaRoot, "id" | "hostPath">;
+  entry: {
+    id: string;
+    mediaIdentity: string | null;
+    title: string | null;
+    number: string | null;
+    actors: string[];
+    createdAt: Date;
+  };
+  size: number;
+  modifiedAt: Date | null;
+}
+
+/**
+ * Both hosts persist the same facts after a confirmation, so the mapping from
+ * published paths to outcome and library revisions lives here rather than being
+ * mirrored in the desktop and server services.
+ */
+export const buildUncensoredRevision = (sources: UncensoredRevisionSources) => {
+  const { update, outcome, outputRoot, nfoRoot, entry, size, modifiedAt } = sources;
+  const outputRelativePath = toRootRelativePath(outputRoot, update.targetVideoPath);
+  const nfoRelativePath = update.targetNfoPath ? toRootRelativePath(nfoRoot, update.targetNfoPath) : null;
+  const crawlerDataJson = outcome.crawlerDataJson ?? "{}";
+  const crawlerData = crawlerDataSchema.parse(JSON.parse(crawlerDataJson));
+  const thumbnailSource = update.assets.poster ?? update.assets.thumb;
+  return {
+    outcomeId: outcome.id,
+    crawlerDataJson,
+    nfoRootId: nfoRelativePath && nfoRoot.id !== outputRoot.id ? nfoRoot.id : null,
+    nfoRelativePath,
+    outputRootId: outputRoot.id,
+    outputRelativePath,
+    uncensoredAmbiguous: false,
+    size,
+    modifiedAt,
+    libraryEntry: {
+      id: entry.id,
+      rootId: outputRoot.id,
+      rootRelativePath: outputRelativePath,
+      mediaIdentity: entry.mediaIdentity,
+      size,
+      modifiedAt,
+      title: entry.title ?? crawlerData.title,
+      number: entry.number ?? crawlerData.number,
+      actors: entry.actors,
+      crawlerDataJson,
+      thumbnailPath: thumbnailSource ? toRootRelativePath(nfoRoot, thumbnailSource) : null,
+      assets: toLibraryAssets(nfoRoot, { ...update.assets, downloaded: [] }),
+      lastKnownPath: outputRelativePath,
+      createdAt: entry.createdAt,
+      lastRefreshedAt: new Date(),
+    },
+  };
+};
 
 const buildBatchKey = (nfoPath: string, choice: UncensoredChoice): string => `${nfoPath.trim()}::${choice}`;
 
@@ -248,6 +334,15 @@ export const confirmUncensoredOutputs = async (
         }
       }
       const retained = new Set([...moves.keys(), ...artifacts.keys()]);
+      const confirmed: UncensoredConfirmUpdate[] = finalizedItems.map(({ processed, publication }) => ({
+        fileId: processed.item.fileId,
+        sourceVideoPath: processed.item.videoPath,
+        sourceNfoPath: processed.effectiveNfoPath,
+        targetVideoPath: processed.outputVideoPath,
+        targetNfoPath: publication.nfoPath,
+        choice: processed.item.choice,
+        assets: publication.assets,
+      }));
       await dependencies.publish({
         operationId: `uncensored-confirm:${processedItems.map(({ item }) => item.fileId).join(":")}`,
         plan: {
@@ -260,20 +355,11 @@ export const confirmUncensoredOutputs = async (
           ),
           replaceExistingTargetPaths: [...new Set(plans.flatMap((plan) => plan.replaceExistingTargetPaths ?? []))],
         },
+        updates: confirmed,
       });
-      for (const { processed, publication } of finalizedItems) {
-        updatedItems.push({
-          fileId: processed.item.fileId,
-          sourceVideoPath: processed.item.videoPath,
-          sourceNfoPath: processed.effectiveNfoPath,
-          targetVideoPath: processed.outputVideoPath,
-          targetNfoPath: publication.nfoPath,
-          choice: processed.item.choice,
-          assets: publication.assets,
-        });
-        dependencies.logger.info(
-          `Updated uncensored choice to "${processed.item.choice}" for ${processed.item.videoPath}`,
-        );
+      for (const update of confirmed) {
+        updatedItems.push(update);
+        dependencies.logger.info(`Updated uncensored choice to "${update.choice}" for ${update.sourceVideoPath}`);
       }
     } catch (error) {
       for (const processed of processedItems)

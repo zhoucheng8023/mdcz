@@ -29,9 +29,9 @@ export class SceneImageAssetDownloader implements AssetDownloader {
     const keepSceneImages = shouldKeepAsset(plan.assetDecisions.sceneImages, plan.config.download.keepSceneImages);
 
     if (keepSceneImages) {
-      const preservedSceneImages = await listExistingSceneImages(
-        join(plan.existingAssetDir, plan.config.paths.sceneImagesFolder),
-      );
+      const preservedSceneImages =
+        plan.existingAssets?.sceneImages ??
+        (await listExistingSceneImages(join(plan.existingAssetDir, plan.config.paths.sceneImagesFolder)));
       if (preservedSceneImages.length > 0) {
         assets.sceneImages.push(...preservedSceneImages);
         return;
@@ -43,7 +43,8 @@ export class SceneImageAssetDownloader implements AssetDownloader {
     const existingSceneImages = await listExistingSceneImages(sceneDir);
     const sceneImageComparisonPaths = uniqueFilePaths([
       assets.thumb,
-      await resolveExistingImageAsset(join(plan.existingAssetDir, plan.assetFileNames.fanart)),
+      plan.existingAssets?.fanart ??
+        (await resolveExistingImageAsset(join(plan.existingAssetDir, plan.assetFileNames.fanart))),
     ]);
     const targetSceneCount = Math.max(0, plan.config.aggregation.behavior.maxSceneImages);
     const sceneImageSets = getSceneImageSets(plan.data, plan.imageAlternatives, targetSceneCount);

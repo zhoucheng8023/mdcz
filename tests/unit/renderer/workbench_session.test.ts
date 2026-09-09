@@ -1,4 +1,5 @@
 import { MaintenanceSession } from "@mdcz/runtime/maintenance";
+import type { CrawlerData } from "@mdcz/shared/types";
 import {
   buildScrapeResultGroups,
   buildUncensoredConfirmItemsForScrapeGroups,
@@ -115,7 +116,7 @@ describe("workbench session scrape setup", () => {
 });
 
 describe("desktop uncensored confirmation items", () => {
-  it.each([1, 2])("includes the old metadata STRM path for %s video part(s)", (partCount) => {
+  it.each([1, 2])("submits every ambiguous run item of a group by id for %s video part(s)", (partCount) => {
     const results = Array.from({ length: partCount }, (_, index) => {
       const part = index + 1;
       const base = partCount === 1 ? "FC2-123456" : `FC2-123456-CD${part}`;
@@ -127,6 +128,7 @@ describe("desktop uncensored confirmation items", () => {
         status: "success" as const,
         output: { rootId: "media", relativePath: `organized/FC2-123456/${base}.mp4` },
         nfo: { rootId: "metadata", relativePath: "organized/FC2-123456/FC2-123456.nfo" },
+        crawlerData: { number: "FC2-123456" } as CrawlerData,
         assets: [],
         uncensoredAmbiguous: true,
         ...(partCount > 1 ? { part: { number: part, suffix: `-CD${part}` } } : {}),
@@ -134,12 +136,11 @@ describe("desktop uncensored confirmation items", () => {
     });
 
     const groups = buildScrapeResultGroups(results);
+    expect(groups).toHaveLength(1);
     const group = groups[0];
     if (!group) throw new Error("Expected an uncensored scrape group");
     const items = buildUncensoredConfirmItemsForScrapeGroups(groups, { [group.id]: "leak" });
 
-    expect(items.map(({ metadataVideoPath }) => metadataVideoPath)).toEqual(
-      results.map(({ fileName }) => `organized/FC2-123456/${fileName}.strm`),
-    );
+    expect(items).toEqual(results.map(({ fileId }) => ({ itemId: fileId, choice: "leak" })));
   });
 });

@@ -31,6 +31,7 @@ import type { MaintenanceRuntime, MaintenanceRuntimePreviewItem } from "./Mainte
 export interface MaintenanceRootPort {
   get(rootId: string): Promise<MediaRoot>;
   list(): Promise<MediaRoot[]>;
+  ensurePathRecord(input: { hostPath: string }): Promise<MediaRoot>;
 }
 
 export interface MaintenanceLibraryPort {
@@ -186,10 +187,11 @@ const scanRefs = async (
 
 const libraryCommitFailure = (error: unknown): MaintenanceApplyItemResult => ({
   status: "failed",
-  error: `文件操作已完成，但媒体库提交失败：${errorMessage(error)}。请重新扫描并预览，以磁盘实际状态重新协调。`,
+  error: `维护发布失败：${errorMessage(error)}`,
 });
 
 export class MaintenanceSessionCoordinator {
+  private runtime: MaintenanceRuntime;
   private session: MaintenanceSession | null = null;
   private active: ActiveExecution | null = null;
   private executionPromise: Promise<void> | null = null;
@@ -198,6 +200,7 @@ export class MaintenanceSessionCoordinator {
   private revision = 0;
   private releaseOwnedPaths: (() => void) | null = null;
   private closing = false;
+  private previewStarting = false;
 
   constructor(
     private readonly deps: {
@@ -207,38 +210,59 @@ export class MaintenanceSessionCoordinator {
       events?: { publish(event: MaintenanceCoordinatorEvent): void | Promise<void> };
       acquireAll?: (refs: readonly RootFileRef[], owner: string) => () => void;
     },
-  ) {}
+  ) {
+    this.runtime = deps.runtime;
+  }
 
   async startPreview(input: {
     rootId: string;
     presetId: MaintenancePresetId;
     refs: readonly MaintenanceSessionRef[];
+    outputRootId?: string;
+    outputRelativeDirectory?: string;
   }): Promise<MaintenanceRunHandle<MaintenancePreviewBatch>> {
     this.assertOpen();
     if (input.refs.length === 0) throw new Error("维护文件不能为空");
-    const refs = await canonicalizeRefs(this.deps.roots, input.refs);
-    await this.deps.roots.get(input.rootId);
-    for (const rootId of new Set(refs.map((ref) => ref.rootId))) await this.deps.roots.get(rootId);
-    if (this.session?.isActive()) {
+    if (this.previewStarting || this.session?.isActive()) {
       throw new Error("已有活动的维护会话，请先完成或停止当前会话");
     }
-    const generation = (this.session?.generation ?? 0) + 1;
-    this.session?.invalidate();
-    const entries = (await scanRefs(this.deps.runtime, this.deps.roots, refs)).sort((left, right) =>
-      refKey(left.ref).localeCompare(refKey(right.ref), "zh-CN"),
-    );
-    this.session = new MaintenanceSession({
-      id: randomUUID(),
-      rootId: input.rootId,
-      presetId: input.presetId,
-      generation,
-      refs,
-      initialEntries: entries,
-    });
-    await this.publishStatus(this.session, "queued", `Maintenance session queued. Preset: ${input.presetId}`);
-    await this.publishLog(this.session, "preset", `Maintenance preset: ${input.presetId}`);
-    await this.startCurrentPhase(this.session.id, generation);
-    return { session: this.session.snapshot(), completion: this.waitForPreview(this.session.id) };
+    this.previewStarting = true;
+    try {
+      const refs = await canonicalizeRefs(this.deps.roots, input.refs);
+      const root = await this.deps.roots.get(input.rootId);
+      const outputRoot = input.outputRootId ? await this.deps.roots.get(input.outputRootId) : root;
+      const outputRelativeDirectory = input.outputRelativeDirectory ?? "";
+      this.runtime = await this.deps.runtime.createSession({
+        root,
+        outputRoot,
+        outputRelativeDirectory,
+        registerRoot: async (hostPath) => await this.deps.roots.ensurePathRecord({ hostPath }),
+      });
+      for (const rootId of new Set(refs.map((ref) => ref.rootId))) await this.deps.roots.get(rootId);
+      this.assertOpen();
+      const generation = (this.session?.generation ?? 0) + 1;
+      this.session?.invalidate();
+      const entries = (await scanRefs(this.runtime, this.deps.roots, refs)).sort((left, right) =>
+        refKey(left.ref).localeCompare(refKey(right.ref), "zh-CN"),
+      );
+      this.assertOpen();
+      this.session = new MaintenanceSession({
+        id: randomUUID(),
+        rootId: input.rootId,
+        presetId: input.presetId,
+        generation,
+        refs,
+        outputRootId: outputRoot.id,
+        outputRelativeDirectory,
+        initialEntries: entries,
+      });
+      await this.publishStatus(this.session, "queued", `Maintenance session queued. Preset: ${input.presetId}`);
+      await this.publishLog(this.session, "preset", `Maintenance preset: ${input.presetId}`);
+      await this.startCurrentPhase(this.session.id, generation);
+      return { session: this.session.snapshot(), completion: this.waitForPreview(this.session.id) };
+    } finally {
+      this.previewStarting = false;
+    }
   }
 
   async readPreview(sessionId: string): Promise<MaintenancePreviewBatch> {
@@ -264,6 +288,7 @@ export class MaintenanceSessionCoordinator {
     selections: readonly MaintenanceApplySelection[];
   }): Promise<MaintenanceRunHandle<MaintenanceApplyBatch>> {
     this.assertOpen();
+    if (this.previewStarting) throw new Error("维护预览正在启动，请稍后重试");
     if (input.selections.length === 0) throw new Error("请选择要应用的维护预览");
     const previewIds = input.selections.map((selection) => selection.previewId);
     const session = this.require(input.sessionId);
@@ -271,7 +296,21 @@ export class MaintenanceSessionCoordinator {
       .map((previewId) => session.preview(previewId))
       .filter((preview) => preview !== undefined);
     if (previews.length !== previewIds.length) throw new Error("部分维护预览不存在、已提交或不属于当前会话");
+    const groupSelections = new Map<string, string>();
+    for (const preview of previews) {
+      const entry = preview.entry;
+      if (!entry?.fileInfo.part || !entry.nfoPath) continue;
+      const selection = input.selections.find((selection) => selection.previewId === preview.id);
+      const data = JSON.stringify(buildMaintenanceApplyData(entry, preview, selection?.fieldSelections));
+      const previous = groupSelections.get(entry.nfoPath);
+      if (previous !== undefined && previous !== data)
+        throw new Error(`共享 NFO 的分片必须使用相同的字段选择：${entry.nfoPath}`);
+      groupSelections.set(entry.nfoPath, data);
+    }
     const refs = ownedPreviewPaths(await this.deps.roots.list(), previews);
+    this.assertOpen();
+    if (this.previewStarting) throw new Error("维护预览正在启动，请稍后重试");
+    if (this.session !== session) throw new Error("维护会话已变化");
     const acquireAll = this.deps.acquireAll ?? ((owned, owner) => mediaPathOwnership.acquireAll(owned, owner));
     const release = acquireAll(refs, session.id);
     let apply: { generation: number; batchId: string };
@@ -391,7 +430,7 @@ export class MaintenanceSessionCoordinator {
     const session = this.assertCurrent(sessionId, generation, ["queued", "paused"]);
     const expectedStatus = session.status;
     if (this.executionPromise) throw new Error("Maintenance coordinator already has an active executor");
-    await this.deps.runtime.applyNetworkPolicy?.();
+    await this.runtime.applyNetworkPolicy?.();
     if (!this.isCurrent(sessionId, generation) || this.require(sessionId).status !== expectedStatus) return;
     session.startRunning(generation);
     await this.publishStatus(session, "running", message ?? `Starting maintenance ${session.phase}`);
@@ -416,7 +455,7 @@ export class MaintenanceSessionCoordinator {
       const entries =
         existingEntries.length === initial.refs.length
           ? existingEntries
-          : (await scanRefs(this.deps.runtime, this.deps.roots, [...initial.refs], scanController.signal)).sort(
+          : (await scanRefs(this.runtime, this.deps.roots, [...initial.refs], scanController.signal)).sort(
               (left, right) => refKey(left.ref).localeCompare(refKey(right.ref), "zh-CN"),
             );
       let current = this.assertCurrent(sessionId, generation, ["running", "paused"]);
@@ -438,10 +477,19 @@ export class MaintenanceSessionCoordinator {
           const root = await this.deps.roots.get(entry.ref.rootId);
           try {
             const active = this.assertCurrent(sessionId, generation, ["running"]);
-            const [item] = await this.deps.runtime.previewEntries({
+            const sharedPreview =
+              entry.fileInfo.part && entry.nfoPath
+                ? active
+                    .activePreviews()
+                    .find((preview) => preview.status === "ready" && preview.entry?.nfoPath === entry.nfoPath)
+                : undefined;
+            const [item] = await this.runtime.previewEntries({
               root,
               presetId: active.presetId,
               entries: [entry],
+              sharedData: sharedPreview?.proposedCrawlerData
+                ? { crawlerData: sharedPreview.proposedCrawlerData, imageAlternatives: sharedPreview.imageAlternatives }
+                : undefined,
               signal: context.signal,
             });
             if (!item) throw new Error("维护预览未返回结果");
@@ -508,7 +556,7 @@ export class MaintenanceSessionCoordinator {
           try {
             const root = await this.deps.roots.get(active.preview.rootId);
             const [entry] = await scanRefs(
-              this.deps.runtime,
+              this.runtime,
               this.deps.roots,
               [{ rootId: active.preview.rootId, relativePath: active.preview.relativePath }],
               context.signal,
@@ -525,11 +573,22 @@ export class MaintenanceSessionCoordinator {
             });
             const latest = this.assertCurrent(sessionId, generation, ["running", "paused"]);
             const progress = latest.progress();
-            const applied = await this.deps.runtime.applyEntry({
+            const sharedNfoPath = active.preview.entry?.fileInfo.part ? active.preview.entry.nfoPath : undefined;
+            const sharedOutput = sharedNfoPath
+              ? latest
+                  .snapshot()
+                  .currentBatch?.items.find(
+                    (candidate) =>
+                      candidate.status === "success" &&
+                      latest.preview(candidate.selection.previewId)?.entry?.nfoPath === sharedNfoPath,
+                  )?.result?.entry
+              : undefined;
+            const applied = await this.runtime.applyEntry({
               root,
               presetId: latest.presetId,
               entry,
               committed,
+              sharedOutput,
               progress: {
                 fileIndex: Math.min(progress.totalEntries, progress.completedEntries + 1),
                 totalFiles: progress.totalEntries,

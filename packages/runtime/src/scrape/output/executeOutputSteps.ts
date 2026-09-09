@@ -1,5 +1,12 @@
 import type { Configuration } from "@mdcz/shared/config";
-import type { CrawlerData, DownloadedAssets, FileInfo, NfoLocalState, VideoMeta } from "@mdcz/shared/types";
+import type {
+  CrawlerData,
+  DiscoveredAssets,
+  DownloadedAssets,
+  FileInfo,
+  NfoLocalState,
+  VideoMeta,
+} from "@mdcz/shared/types";
 import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "../actorOutput";
 import type { ImageAlternatives, SourceMap } from "../aggregation";
 import type { DownloadCallbacks, DownloadManager } from "../download";
@@ -7,7 +14,7 @@ import { type NfoGenerator, type NfoOptions, nfoIgnoreFieldsToEnabledFields } fr
 import { prepareCrawlerDataForMovieOutput } from "./prepareCrawlerDataForMovieOutput";
 import { prepareImageAlternativesForDownload } from "./prepareImageAlternativesForDownload";
 
-export const updateBatchProgress = (
+export const reportItemProgress = (
   sink: { setProgress(value: number, current: number, total: number): void },
   progress: { fileIndex: number; totalFiles: number },
   stepPercent: number,
@@ -15,10 +22,7 @@ export const updateBatchProgress = (
   const normalizedPercent = Math.max(0, Math.min(100, stepPercent));
   const fileIndex = Math.max(1, progress.fileIndex);
   const totalFiles = Math.max(1, progress.totalFiles);
-  const globalValue = (fileIndex - 1 + normalizedPercent / 100) / totalFiles;
-  const value = Math.max(0, Math.min(100, Math.round(globalValue * 100)));
-
-  sink.setProgress(value, fileIndex, totalFiles);
+  sink.setProgress(normalizedPercent, fileIndex, totalFiles);
 };
 
 export const prepareOutputCrawlerData = async (input: {
@@ -51,6 +55,7 @@ export const downloadCrawlerAssets = async (input: {
   fileInfo: FileInfo;
   outputDir: string;
   existingAssetDir?: string;
+  existingAssets?: DiscoveredAssets;
   imageAlternatives?: Partial<ImageAlternatives>;
   sources?: Pick<SourceMap, "thumb_url" | "poster_url" | "scene_images">;
   callbacks?: DownloadCallbacks;
@@ -65,6 +70,7 @@ export const downloadCrawlerAssets = async (input: {
     input.sources,
   );
   let resolvedSceneImageUrls: string[] | undefined;
+  let derivedPosterSource: string | undefined;
   const assets = await input.downloadManager.downloadAll(
     input.outputDir,
     input.crawlerData,
@@ -72,6 +78,10 @@ export const downloadCrawlerAssets = async (input: {
     preparedImageAlternatives,
     {
       ...input.callbacks,
+      onDerivedPosterSource: (url) => {
+        derivedPosterSource = url;
+        input.callbacks?.onDerivedPosterSource?.(url);
+      },
       onResolvedSceneImageUrls: (urls) => {
         resolvedSceneImageUrls = urls;
         input.callbacks?.onResolvedSceneImageUrls?.(urls);
@@ -84,12 +94,14 @@ export const downloadCrawlerAssets = async (input: {
     {
       movieBaseName: input.movieBaseName,
       existingAssetDir: input.existingAssetDir,
+      existingAssets: input.existingAssets,
     },
   );
-  const crawlerData =
-    resolvedSceneImageUrls === undefined
-      ? input.crawlerData
-      : { ...input.crawlerData, scene_images: [...resolvedSceneImageUrls] };
+  const crawlerData = {
+    ...input.crawlerData,
+    ...(resolvedSceneImageUrls === undefined ? {} : { scene_images: [...resolvedSceneImageUrls] }),
+    ...(derivedPosterSource === undefined ? {} : { poster_source_url: derivedPosterSource }),
+  };
   const processedAssets = input.postProcessAssets ? await input.postProcessAssets(assets, crawlerData) : assets;
 
   return { assets: processedAssets, crawlerData };

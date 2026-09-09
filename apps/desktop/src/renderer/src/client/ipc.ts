@@ -13,9 +13,10 @@ import type {
   LibraryListInput,
   MediaRootEnsurePathInput,
   MediaRootEnsurePathResponse,
+  ScrapeConfirmUncensoredInput,
   ScrapeRunSnapshotDto,
 } from "@mdcz/shared/serverDtos";
-import type { CrawlerData, MaintenancePresetId, MediaCandidate, UncensoredConfirmItem } from "@mdcz/shared/types";
+import type { CrawlerData, MaintenancePresetId, MediaCandidate } from "@mdcz/shared/types";
 import { useMaintenanceStore } from "@mdcz/views/state/maintenanceStore";
 import { beginScrapeTask, useScrapeStore } from "@mdcz/views/state/scrapeStore";
 
@@ -94,7 +95,7 @@ export const ipc = {
         () => client[IpcChannel.Scraper_Retry]({ runId, ...(itemIds ? { itemIds: [...itemIds] } : {}) }),
         runId,
       ),
-    confirmUncensored: (items: UncensoredConfirmItem[]) => client[IpcChannel.Scraper_ConfirmUncensored]({ items }),
+    confirmUncensored: (input: ScrapeConfirmUncensoredInput) => client[IpcChannel.Scraper_ConfirmUncensored](input),
   },
   crawler: {
     test: (site: Website, number: string) => client[IpcChannel.Crawler_Test]({ site, number }),
@@ -155,9 +156,13 @@ export const ipc = {
     toggleDevTools: () => client[IpcChannel.Tool_ToggleDevTools](undefined),
   },
   maintenance: {
-    preview: async (refs: RootFileRef[], presetId: MaintenancePresetId) => {
+    preview: async (
+      refs: RootFileRef[],
+      presetId: MaintenancePresetId,
+      output?: { outputRootId: string; outputRelativeDirectory: string },
+    ) => {
       const previous = useMaintenanceStore.getState().snapshot;
-      const response = await client[IpcChannel.Maintenance_StartPreview]({ refs, presetId });
+      const response = await client[IpcChannel.Maintenance_StartPreview]({ refs, presetId, ...output });
       if (useMaintenanceStore.getState().snapshot === previous)
         useMaintenanceStore.getState().setSnapshot(response.snapshot);
       return response;

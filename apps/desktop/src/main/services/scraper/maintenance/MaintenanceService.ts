@@ -75,6 +75,7 @@ export class MaintenanceService {
             return await mediaRoots.get(rootId);
           },
           list: async () => await mediaRoots.listRoots(),
+          ensurePathRecord: async (input) => await mediaRoots.ensurePathRecord(input),
         },
         runtime: this.runtime,
         library: createMaintenanceLibraryPort({
@@ -117,12 +118,13 @@ export class MaintenanceService {
   async startPreview(
     refs: RootFileRef[],
     presetId: MaintenancePresetId,
+    output?: { outputRootId?: string; outputRelativeDirectory?: string },
   ): Promise<MaintenanceRunHandle<MaintenancePreviewBatch>> {
     if (refs.length === 0) throw new Error("No files selected");
     const rootId = refs[0]?.rootId;
     if (!rootId) throw new Error("维护文件缺少媒体目录");
     this.signalService.resetProgress();
-    return await this.coordinator.startPreview({ rootId, presetId, refs });
+    return await this.coordinator.startPreview({ rootId, presetId, refs, ...output });
   }
 
   async execute(

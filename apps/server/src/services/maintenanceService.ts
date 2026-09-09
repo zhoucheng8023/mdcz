@@ -32,6 +32,7 @@ export class MaintenanceService {
       roots: {
         get: async (rootId) => await this.mediaRoots.get(rootId),
         list: async () => await this.mediaRoots.listRoots(),
+        ensurePathRecord: async (input) => await this.mediaRoots.ensurePathRecord(input),
       },
       runtime: this.runtime,
       library: createMaintenanceLibraryPort({
@@ -52,7 +53,7 @@ export class MaintenanceService {
 
   async start(input: MaintenanceStartInput): Promise<MaintenanceMutationAckDto> {
     const root = await this.mediaRoots.get(input.rootId);
-    const handle = await this.coordinator.startPreview({ rootId: root.id, presetId: input.presetId, refs: input.refs });
+    const handle = await this.coordinator.startPreview({ ...input, rootId: root.id });
     void handle.completion.catch(() => undefined);
     return { sessionId: handle.session.id };
   }

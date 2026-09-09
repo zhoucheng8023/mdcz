@@ -6,7 +6,7 @@ import type { MaintenancePresetId } from "../types";
 
 export type MaintenanceIpcContract = {
   [IpcChannel.Maintenance_StartPreview]: IpcProcedure<
-    { refs?: RootFileRef[]; presetId?: MaintenancePresetId },
+    { refs?: RootFileRef[]; presetId?: MaintenancePresetId; outputRootId?: string; outputRelativeDirectory?: string },
     { sessionId: string; snapshot: MaintenanceActiveSessionSnapshot }
   >;
   [IpcChannel.Maintenance_Apply]: IpcProcedure<

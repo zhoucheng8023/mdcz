@@ -21,8 +21,17 @@ export interface OrganizePlan {
 
 export const resolveMetadataOutputDir = (plan: OrganizePlan): string => plan.metadataDir ?? plan.outputDir;
 
+/**
+ * Parts of one number share the metadata directory and its fixed asset names
+ * (poster.jpg, extrafanart, .actors), so serializing publication per NFO file
+ * is too narrow: the whole directory has to be covered.
+ */
+export const buildScrapePublicationKey = (plan: OrganizePlan): string =>
+  `scrape-publication:${resolve(resolveMetadataOutputDir(plan))}`;
+
 interface ResolveOutputPlanOptions {
   createDirectories?: boolean;
+  allowSharedDirectory?: boolean;
 }
 
 export interface OrganizePlanOptions {
@@ -117,7 +126,7 @@ export class FileOrganizer {
     const sourceDir = resolve(dirname(sourceFilePath));
     const sameDirectoryOutput = sourceDir === resolve(outputRoot);
 
-    if (sameDirectoryOutput) {
+    if (sameDirectoryOutput && !options.allowSharedDirectory) {
       const sourceFileInfo = parseFileInfo(sourceFilePath);
       const videoFiles = await listVideoFiles(sourceDir, false);
       const otherVideos = videoFiles.filter((filePath) => {
@@ -164,17 +173,21 @@ export class FileOrganizer {
 
   async moveToFailedFolder(sourcePath: string, failureRootPath: string, config: Configuration): Promise<string> {
     const fileInfo = parseFileInfo(sourcePath, config.scrape.filenameIgnoreTokens);
-    const failedDir = resolve(failureRootPath, config.paths.failedOutputFolder.trim());
-    const targetVideoPath = join(failedDir, fileInfo.fileName + fileInfo.extension);
+    const targetVideoPath = this.resolveFailedVideoPath(sourcePath, failureRootPath, config);
     await ensureParentDirectory(targetVideoPath);
     const movedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, targetVideoPath, {
       sharedMovieBaseName: fileInfo.number,
     });
-    this.logger.info(`Moved failed file to ${failedDir}: ${fileInfo.fileName}`);
+    this.logger.info(`Moved failed file to ${dirname(targetVideoPath)}: ${fileInfo.fileName}`);
     return movedPath;
   }
 
-  private resolveMetadataDir(outputDir: string, config: Configuration): string {
+  resolveFailedVideoPath(sourcePath: string, failureRootPath: string, config: Configuration): string {
+    const fileInfo = parseFileInfo(sourcePath, config.scrape.filenameIgnoreTokens);
+    return resolve(failureRootPath, config.paths.failedOutputFolder.trim(), fileInfo.fileName + fileInfo.extension);
+  }
+
+  resolveMetadataDir(outputDir: string, config: Configuration): string {
     const configuredMetadataRoot = config.paths.metadataPath.trim();
     if (!configuredMetadataRoot) {
       return outputDir;

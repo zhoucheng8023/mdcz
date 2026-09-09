@@ -104,7 +104,11 @@ describe("ScrapeCoordinator", () => {
     expect(store.finalize).toHaveBeenCalledOnce();
   });
 
-  it.each(["preflight", "publication"] as const)("stops the whole run on a %s conflict", async (stage) => {
+  it.each([
+    "prepare",
+    "preflight",
+    "publication",
+  ] as const)("isolates item failures and stops publication conflicts (%s)", async (stage) => {
     const run: Run = {
       id: `conflict-${stage}`,
       items: [
@@ -119,11 +123,16 @@ describe("ScrapeCoordinator", () => {
     const create = host.createExecution;
     host.createExecution = async (entry, reporter) => ({
       ...(await create(entry, reporter)),
+      prepareItem: async (item) =>
+        stage === "prepare" && item.id === "one"
+          ? { status: "failed", result: resultFor(item, "failed") }
+          : { status: "prepared", prepared: undefined },
       validatePrepared: async () => {
         if (stage === "preflight") throw new PublicationConflictError("/one", "/two");
       },
       commitItem: async (item, result) => {
-        if (item.id === "one" && result.status === "success") throw new PublicationConflictError("/one", "/two");
+        if (stage === "publication" && item.id === "one" && result.status === "success")
+          throw new PublicationConflictError("/one", "/two");
         return result;
       },
     });
@@ -136,9 +145,11 @@ describe("ScrapeCoordinator", () => {
       expect.objectContaining({
         status: "failed",
         items:
-          stage === "preflight"
-            ? [expect.objectContaining({ status: "failed" }), expect.objectContaining({ status: "failed" })]
-            : [expect.objectContaining({ status: "skipped" }), expect.objectContaining({ status: "skipped" })],
+          stage === "prepare"
+            ? [expect.objectContaining({ status: "failed" }), expect.objectContaining({ status: "success" })]
+            : stage === "preflight"
+              ? [expect.objectContaining({ status: "failed" }), expect.objectContaining({ status: "failed" })]
+              : [expect.objectContaining({ status: "skipped" }), expect.objectContaining({ status: "skipped" })],
       }),
     );
     expect(store.finalize).toHaveBeenCalledOnce();

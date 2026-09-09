@@ -157,7 +157,14 @@ export const createDesktopMaintenanceActionPort = (): MaintenanceActionPort => (
   discardSession: async () => {
     await ipc.maintenance.discardSession();
   },
-  preview: (refs, presetId) => ipc.maintenance.preview(refs, presetId),
+  preview: async (refs, presetId, targetDir) => {
+    const output = targetDir ? await ipc.mediaRoots.prepareOutputDirectory({ hostPath: targetDir }) : undefined;
+    return await ipc.maintenance.preview(
+      refs,
+      presetId,
+      output ? { outputRootId: output.id, outputRelativeDirectory: output.relativeDirectory } : undefined,
+    );
+  },
   execute: async (selections: MaintenanceApplySelection[], presetId: MaintenancePresetId) => {
     await ipc.maintenance.execute(selections, presetId);
   },

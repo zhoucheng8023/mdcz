@@ -22,6 +22,7 @@ import {
   selectIsScraping,
   selectScrapeResults,
   selectScrapeStatus,
+  selectScrapeTaskId,
   useScrapeStore,
 } from "@mdcz/views/state/scrapeStore";
 import { useUIStore } from "@mdcz/views/state/uiStore";
@@ -51,11 +52,12 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
   const configQ = useCurrentConfig();
   const workbenchPorts = useMemo(() => createDesktopWorkbenchPorts(), []);
 
-  const { isScraping, scrapeStatus, results } = useScrapeStore(
+  const { isScraping, scrapeStatus, results, scrapeTaskId } = useScrapeStore(
     useShallow((state) => ({
       isScraping: selectIsScraping(state),
       scrapeStatus: selectScrapeStatus(state),
       results: selectScrapeResults(state),
+      scrapeTaskId: selectScrapeTaskId(state),
     })),
   );
   const maintenanceStatus = useMaintenanceStore(selectMaintenanceExecutionStatus);
@@ -149,7 +151,11 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
     }
   };
 
-  const handleStartSelectedMaintenance = async (candidates: MediaCandidate[], presetId: MaintenancePresetId) => {
+  const handleStartSelectedMaintenance = async (
+    candidates: MediaCandidate[],
+    presetId: MaintenancePresetId,
+    targetDir?: string,
+  ) => {
     if (isScraping) {
       toast.warning("正常刮削正在运行中，无法启动维护模式。请先停止当前刮削任务。");
       return;
@@ -158,6 +164,7 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
     await startMaintenanceFlow({
       candidates,
       presetId,
+      targetDir,
       port: workbenchPorts.maintenance,
       isScraping,
       setWorkbenchMode,
@@ -220,13 +227,14 @@ export function DesktopWorkbenchRoute({ routeIntent }: { routeIntent?: "maintena
   const handleConfirmUncensored = async (selections: UncensoredConfirmSelection[]) => {
     const choicesByGroupId = Object.fromEntries(selections.map((selection) => [selection.id, selection.choice]));
     const confirmItems = buildUncensoredConfirmItemsForScrapeGroups(ambiguousItems, choicesByGroupId);
+    const taskId = scrapeTaskId;
 
-    if (confirmItems.length === 0) {
+    if (confirmItems.length === 0 || !taskId) {
       toast.info("没有可提交的条目");
       return;
     }
 
-    const result = await ipc.scraper.confirmUncensored(confirmItems);
+    const result = await ipc.scraper.confirmUncensored({ taskId, items: confirmItems });
     const { successCount, failedCount } = summarizeUncensoredConfirmResultForScrapeGroups(ambiguousItems, result.items);
 
     if (result.updatedCount > 0) {

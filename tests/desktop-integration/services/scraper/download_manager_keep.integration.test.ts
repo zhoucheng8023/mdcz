@@ -621,6 +621,7 @@ describe("DownloadManager keep flags", () => {
       thumb_source_url: "https://source.example.com/thumb.jpg",
       poster_url: undefined,
     });
+    const onDerivedPosterSource = vi.fn();
     const assets = await manager.downloadAll(
       root,
       data,
@@ -631,6 +632,8 @@ describe("DownloadManager keep flags", () => {
         downloadSceneImages: false,
         downloadTrailer: false,
       }),
+      {},
+      { onDerivedPosterSource },
     );
     validateSpy.mockRestore();
     const cropRegion = resolveThumbToPosterCropRegion(800, 439);
@@ -638,7 +641,8 @@ describe("DownloadManager keep flags", () => {
     expect(assets.thumb).toBe(join(root, "thumb.jpg"));
     expect(assets.poster).toBe(join(root, "poster.jpg"));
     expect(assets.downloaded).toEqual([join(root, "thumb.jpg"), join(root, "poster.jpg")]);
-    expect(data.poster_source_url).toBe("https://source.example.com/thumb.jpg");
+    expect(data.poster_source_url).toBeUndefined();
+    expect(onDerivedPosterSource).toHaveBeenCalledWith("https://source.example.com/thumb.jpg");
     expect(await imageUtils.validateImage(join(root, "poster.jpg"), 1)).toMatchObject({
       valid: true,
       width: cropRegion?.width,
@@ -670,12 +674,14 @@ describe("DownloadManager keep flags", () => {
       thumb_url: "https://example.com/thumb.jpg",
       poster_url: "https://example.com/poster.jpg",
     });
-    const assets = await manager.downloadAll(root, data, primaryOnly());
+    const onDerivedPosterSource = vi.fn();
+    const assets = await manager.downloadAll(root, data, primaryOnly(), {}, { onDerivedPosterSource });
     validateSpy.mockRestore();
     const cropRegion = resolveThumbToPosterCropRegion(800, 500);
     expect(assets.poster).toBe(join(root, "poster.jpg"));
     expect(assets.downloaded).toEqual([join(root, "thumb.jpg"), join(root, "poster.jpg")]);
-    expect(data.poster_source_url).toBe("https://example.com/thumb.jpg");
+    expect(data.poster_source_url).toBeUndefined();
+    expect(onDerivedPosterSource).toHaveBeenCalledWith("https://example.com/thumb.jpg");
     expect(await imageUtils.validateImage(join(root, "poster.jpg"), 1)).toMatchObject({
       valid: true,
       width: cropRegion?.width,

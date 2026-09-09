@@ -6,7 +6,12 @@ export * from "./confirmUncensored";
 export * from "./crawlerOptions";
 export * from "./download";
 export * from "./executionPolicy";
-export { FileOrganizer, type OrganizePlan, resolveMetadataOutputDir } from "./FileOrganizer";
+export {
+  buildScrapePublicationKey,
+  FileOrganizer,
+  type OrganizePlan,
+  resolveMetadataOutputDir,
+} from "./FileOrganizer";
 export * from "./FileScraper";
 export * from "./media";
 export * from "./mountedRootScrapeRuntime";

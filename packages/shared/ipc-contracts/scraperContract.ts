@@ -1,8 +1,8 @@
 import { IpcChannel } from "../IpcChannel";
 import type { IpcProcedure } from "../ipcTypes";
 import type { RootFileRef } from "../mediaRef";
-import type { ScrapeRunSnapshotDto } from "../serverDtos";
-import type { UncensoredConfirmItem, UncensoredConfirmResponse } from "../types";
+import type { ScrapeConfirmUncensoredInput, ScrapeRunSnapshotDto } from "../serverDtos";
+import type { UncensoredConfirmResponse } from "../types";
 
 export type ScraperStartInput =
   | {
@@ -31,5 +31,5 @@ export type ScraperIpcContract = {
     { runId: string; itemIds?: string[] },
     { taskId: string; totalFiles: number; message: string; snapshot: ScrapeRunSnapshotDto }
   >;
-  [IpcChannel.Scraper_ConfirmUncensored]: IpcProcedure<{ items?: UncensoredConfirmItem[] }, UncensoredConfirmResponse>;
+  [IpcChannel.Scraper_ConfirmUncensored]: IpcProcedure<ScrapeConfirmUncensoredInput, UncensoredConfirmResponse>;
 };

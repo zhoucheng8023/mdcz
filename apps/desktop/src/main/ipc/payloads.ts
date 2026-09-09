@@ -53,19 +53,6 @@ export const scraperRetryInputSchema = z.object({
   runId: z.string().min(1),
   itemIds: z.array(z.string().min(1)).min(1).optional(),
 });
-export const scraperConfirmUncensoredInputSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        fileId: z.string().min(1),
-        nfoPath: z.string().min(1),
-        videoPath: z.string().min(1),
-        metadataVideoPath: z.string().min(1).optional(),
-        choice: z.enum(["umr", "leak", "uncensored"]),
-      }),
-    )
-    .optional(),
-});
 
 export const crawlerTestInputSchema = z.object({
   site: z.nativeEnum(Website).optional(),
@@ -157,6 +144,8 @@ export const toolMediaServerModeInputSchema = z.object({ mode: z.enum(["all", "m
 export const maintenanceStartPreviewInputSchema = z.object({
   refs: z.array(rootFileRefSchema).optional(),
   presetId: maintenancePresetIdSchema.optional(),
+  outputRootId: z.string().trim().min(1).optional(),
+  outputRelativeDirectory: z.string().optional(),
 });
 export const maintenanceApplyInputSchema = z.object({
   selections: z

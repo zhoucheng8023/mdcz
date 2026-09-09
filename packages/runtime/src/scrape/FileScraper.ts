@@ -28,7 +28,7 @@ import { findExistingNfoPath, type NfoGenerator, type NfoOptions } from "./nfo";
 import {
   downloadCrawlerAssets,
   prepareOutputCrawlerData,
-  updateBatchProgress,
+  reportItemProgress,
   writePreparedNfo,
 } from "./output/executeOutputSteps";
 import type { TranslateService } from "./TranslateService";
@@ -126,7 +126,6 @@ const AGGREGATION_FAILURE_CACHE_WINDOW_MS = 1000;
 
 export class FileScraper {
   private readonly aggregationPromises = new Map<string, Promise<AggregationResult | null>>();
-  private readonly numberExecutionChains = new Map<string, Promise<void>>();
 
   constructor(
     private readonly deps: FileScraperDependencies,
@@ -139,6 +138,8 @@ export class FileScraper {
     signal?: AbortSignal,
     options: FileScrapeOptions = {},
   ): Promise<FilePreparationResult> {
+    const roots = options.roots;
+    if (!roots?.length) throw new Error("Scrape publication requires registered media roots");
     const configuration = structuredClone(await this.deps.getConfiguration());
     const parsedFileInfo = parseFileInfo(filePath, configuration.scrape.filenameIgnoreTokens);
     const fileId = buildFileId(parsedFileInfo.filePath);
@@ -185,9 +186,11 @@ export class FileScraper {
           subtitleSidecars: resolved.subtitleSidecars,
         },
         fileInfo.filePath,
+        {
+          allowSharedDirectory:
+            configuration.naming.assetNamingMode === "followVideo" && configuration.download.nfoNaming === "filename",
+        },
       );
-      const roots = options.roots;
-      if (!roots?.length) throw new Error("Scrape publication requires registered media roots");
       throwIfAborted(signal);
       this.setProgress(progress, 50);
       return {
@@ -221,15 +224,6 @@ export class FileScraper {
     signal?: AbortSignal,
   ): Promise<FileScrapeResult> {
     const { configuration, fileInfo, identity, aggregation, outputPlan: plan, roots } = prepared;
-    const lockKey = fileInfo.number.trim().toUpperCase();
-    const previous = this.numberExecutionChains.get(lockKey) ?? Promise.resolve();
-    let release: (() => void) | undefined;
-    const current = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const chain = previous.catch(() => undefined).then(async () => await current);
-    this.numberExecutionChains.set(lockKey, chain);
-    await previous.catch(() => undefined);
     let stagingDir: string | undefined;
 
     try {
@@ -291,6 +285,7 @@ export class FileScraper {
         existingNfoPath: preservedNfoPath,
         organizePlan: plan,
         nfoNaming: configuration.download.nfoNaming,
+        assetNamingMode: configuration.naming.assetNamingMode,
         remoteData: crawlerData,
         writeNfo: async (assets, writeFile) =>
           await writePreparedNfo({
@@ -341,8 +336,6 @@ export class FileScraper {
       return this.failed(identity, fileInfo, toErrorMessage(error));
     } finally {
       if (stagingDir) await rm(stagingDir, { recursive: true, force: true });
-      release?.();
-      if (this.numberExecutionChains.get(lockKey) === chain) this.numberExecutionChains.delete(lockKey);
     }
   }
 
@@ -358,11 +351,11 @@ export class FileScraper {
     const number = fileInfo.number.trim().toUpperCase();
     const key = manualScrape ? `${number}::${manualScrape.site}::${manualScrape.detailUrl ?? ""}` : number;
     const existing = this.aggregationPromises.get(key);
-    if (existing) return await existing;
+    if (existing) return structuredClone(await existing);
     const request = this.deps.aggregationService.aggregate(fileInfo.number, configuration, signal, manualScrape);
     this.aggregationPromises.set(key, request);
     try {
-      return await request;
+      return structuredClone(await request);
     } catch (error) {
       setTimeout(() => {
         if (this.aggregationPromises.get(key) === request) this.aggregationPromises.delete(key);
@@ -390,7 +383,7 @@ export class FileScraper {
   }
 
   private setProgress(progress: FileScrapeProgress, percent: number): void {
-    updateBatchProgress(this.deps.signalService, progress, percent);
+    reportItemProgress(this.deps.signalService, progress, percent);
   }
 
   private requireWebsite(crawlerData: CrawlerData): Website {

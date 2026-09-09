@@ -1,12 +1,9 @@
-import type { ScrapeResult } from "@mdcz/shared/types";
 import { runtimeLoggerService } from "../../shared";
 import { TaskScheduler } from "../scheduler";
 import {
-  type ScrapePreparationResult,
-  type ScrapeRunItem,
-  type ScrapeRunItemInitialState,
   type ScrapeRunLogEntry,
   ScrapeRunSession,
+  type ScrapeRunSessionOptions,
   type ScrapeRunSnapshot,
   type ScrapeRunStageSnapshot,
 } from "./ScrapeRunSession";
@@ -29,31 +26,10 @@ export interface ScrapeWorkflowReporter {
   stage(stage: Omit<ScrapeRunStageSnapshot, "itemId" | "relativePath"> & { itemId?: string | null }): void;
 }
 
-export interface ScrapeHostExecution<TManualScrape, TPrepared> {
-  items: readonly ScrapeRunItem<TManualScrape>[];
-  initialItems?: readonly ScrapeRunItemInitialState<TManualScrape>[];
-  concurrency: number;
-  admitItem(item: ScrapeRunItem<TManualScrape>): Promise<string>;
-  prepareItem(
-    item: ScrapeRunItem<TManualScrape>,
-    signal: AbortSignal,
-    attemptId: string,
-  ): Promise<ScrapePreparationResult<TPrepared>>;
-  validatePrepared(items: readonly { item: ScrapeRunItem<TManualScrape>; prepared: TPrepared }[]): Promise<void>;
-  executePreparedItem(
-    item: ScrapeRunItem<TManualScrape>,
-    prepared: TPrepared,
-    signal: AbortSignal,
-    attemptId: string,
-  ): Promise<ScrapeResult>;
-  commitPreparationItem(
-    item: ScrapeRunItem<TManualScrape>,
-    result: ScrapeResult,
-    attemptId: string,
-  ): Promise<ScrapeResult>;
-  commitItem(item: ScrapeRunItem<TManualScrape>, result: ScrapeResult, attemptId: string): Promise<ScrapeResult>;
-  acquireItem?(item: ScrapeRunItem<TManualScrape>): () => void;
-}
+export type ScrapeHostExecution<TManualScrape, TPrepared> = Omit<
+  ScrapeRunSessionOptions<TManualScrape, TPrepared>,
+  "runId" | "onSnapshot"
+>;
 
 export interface ScrapeHostPort<TStart, TRun, TManualScrape = unknown, TPrepared = unknown> {
   create(input: TStart): Promise<TRun>;
@@ -211,6 +187,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown, TPrepared 
       initialItems: execution.initialItems,
       concurrency: execution.concurrency,
       acquireItem: execution.acquireItem,
+      getPublicationKey: execution.getPublicationKey,
       admitItem: execution.admitItem,
       prepareItem: execution.prepareItem,
       validatePrepared: execution.validatePrepared,

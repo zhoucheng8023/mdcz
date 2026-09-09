@@ -40,7 +40,7 @@ export const createMaintenanceHandlers = (
             throw new Error("presetId is required");
           }
 
-          const handle = await maintenanceService.startPreview(refs, presetId);
+          const handle = await maintenanceService.startPreview(refs, presetId, input);
           void handle.completion.catch(() => undefined);
           return { sessionId: handle.session.id, snapshot: handle.session };
         } catch (error) {

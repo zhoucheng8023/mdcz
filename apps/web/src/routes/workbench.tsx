@@ -136,10 +136,15 @@ function WorkbenchPage() {
     }
   };
 
-  const handleStartSelectedMaintenance = async (candidates: MediaCandidate[], presetId: MaintenancePresetId) => {
+  const handleStartSelectedMaintenance = async (
+    candidates: MediaCandidate[],
+    presetId: MaintenancePresetId,
+    targetDir?: string,
+  ) => {
     await startMaintenanceFlow({
       candidates,
       presetId,
+      targetDir,
       port: ports.maintenance,
       isScraping,
       setWorkbenchMode,

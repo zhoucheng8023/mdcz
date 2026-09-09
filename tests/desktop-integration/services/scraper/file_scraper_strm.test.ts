@@ -201,7 +201,7 @@ describe("FileScraper .strm support", () => {
             rootId: "test-root",
             relativePath: relative(tmpdir(), movieNfoPath).replaceAll("\\", "/"),
           },
-          content: { kind: "bytes", data: Buffer.from(await readFile(nfoPath, "utf8")) },
+          content: { kind: "text", data: await readFile(nfoPath, "utf8") },
         });
         await expect(readFile(movieNfoPath)).rejects.toMatchObject({ code: "ENOENT" });
         continue;

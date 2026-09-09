@@ -29,7 +29,8 @@ export class FanartAssetDownloader implements AssetDownloader {
         : shouldKeepAsset(plan.assetDecisions.fanart, plan.config.download.keepFanart);
       const fanartPath = buildImageAssetPathFromSource(fanartTargetPath, thumbPath);
       const existingFanart = await resolveExistingImageAsset(
-        buildImageAssetPathFromSource(join(plan.existingAssetDir, plan.assetFileNames.fanart), thumbPath),
+        plan.existingAssets?.fanart ??
+          buildImageAssetPathFromSource(join(plan.existingAssetDir, plan.assetFileNames.fanart), thumbPath),
       );
 
       if (keepFanart && existingFanart) {
@@ -51,7 +52,9 @@ export class FanartAssetDownloader implements AssetDownloader {
       return;
     }
 
-    const existingFanart = await resolveExistingImageAsset(join(plan.existingAssetDir, plan.assetFileNames.fanart));
+    const existingFanart = await resolveExistingImageAsset(
+      plan.existingAssets?.fanart ?? join(plan.existingAssetDir, plan.assetFileNames.fanart),
+    );
     if (existingFanart) {
       assets.fanart = existingFanart;
     }
