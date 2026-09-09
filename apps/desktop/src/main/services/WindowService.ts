@@ -5,6 +5,7 @@ import { app, BrowserWindow, nativeImage, nativeTheme } from "electron";
 import windowStateKeeper from "electron-window-state";
 
 import iconPath from "../../../build/icon.png?asset";
+import { buildRendererContentSecurityPolicy } from "../../shared/rendererCsp";
 import { isTrustedRendererUrl, resolvePackagedRendererPath } from "../rendererTrust";
 import {
   buildTitleBarOverlay,
@@ -28,32 +29,7 @@ export const denyWindowOpen = (): { action: "deny" } => ({ action: "deny" });
 
 export const isRendererNavigationAllowed = isTrustedRendererUrl;
 
-export const buildRendererContentSecurityPolicy = (rendererUrl = process.env.ELECTRON_RENDERER_URL): string => {
-  const configured = rendererUrl?.trim();
-  const scriptSources = ["'self'"];
-  const connectSources = ["'self'"];
-  if (configured) {
-    const origin = new URL(configured).origin;
-    const wsOrigin = origin.replace(/^http/u, "ws");
-    scriptSources.push(origin);
-    connectSources.push(origin, wsOrigin);
-  }
-
-  return [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "frame-src 'none'",
-    "frame-ancestors 'none'",
-    "form-action 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self'",
-    `script-src ${scriptSources.join(" ")}`,
-    `connect-src ${connectSources.join(" ")}`,
-    "img-src 'self' local-file: data: blob: http: https:",
-    "media-src 'self' local-file: blob: http: https:",
-  ].join("; ");
-};
+export { buildRendererContentSecurityPolicy } from "../../shared/rendererCsp";
 
 const installRendererIsolation = (mainWindow: BrowserWindow): void => {
   const { webContents } = mainWindow;

@@ -66,6 +66,7 @@ export interface ScrapeTerminalCommitStore {
   commitOutcome(input: { outcome: "failed" | "skipped"; attemptId: string; error?: string | null }): { id: string };
   commitSuccessOutcome(input: {
     outcome: "success";
+    error?: string | null;
     attemptId: string;
     crawlerDataJson: string;
     nfoRootId: string | null;
@@ -170,6 +171,7 @@ export const commitScrapeTerminalResult = async (input: {
       commit: () =>
         scrapeRuns.commitSuccessOutcome({
           outcome: "success",
+          error: result.error ?? null,
           attemptId,
           crawlerDataJson,
           nfoRootId,

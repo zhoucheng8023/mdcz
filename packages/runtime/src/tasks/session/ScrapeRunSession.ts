@@ -24,7 +24,7 @@ export interface ScrapeRunItem<TManualScrape = unknown> {
   sourcePath: string;
   manualScrape?: TManualScrape;
   executionSource?: RootFileRef;
-  outputBaseDirectory?: string;
+  outputTemplateRoot?: string;
   caseId?: string;
 }
 
@@ -64,7 +64,9 @@ export interface ScrapeRunLogEntry {
 
 export interface ScrapeRunSnapshot<TManualScrape = unknown> {
   runId: string;
+  executionGeneration: number;
   generation: number;
+  revision: number;
   status: ScrapeRunLiveStatus;
   progress: ScrapeRunProgress;
   items: ScrapeRunItemSnapshot<TManualScrape>[];
@@ -79,6 +81,7 @@ export type ScrapePreparationResult<TPrepared> =
 
 export interface ScrapeRunSessionOptions<TManualScrape = unknown, TPrepared = unknown> {
   runId: string;
+  executionGeneration?: number;
   items: readonly ScrapeRunItem<TManualScrape>[];
   initialItems?: readonly ScrapeRunItemInitialState<TManualScrape>[];
   concurrency: number;
@@ -99,7 +102,7 @@ export interface ScrapeRunSessionOptions<TManualScrape = unknown, TPrepared = un
     prepared: TPrepared,
     signal: AbortSignal,
     attemptId: string,
-  ) => Promise<ScrapeResult>;
+  ) => Promise<ScrapeResult & { release?: () => Promise<void> }>;
   commitPreparationItem: (
     item: ScrapeRunItem<TManualScrape>,
     result: ScrapeResult,
@@ -114,7 +117,7 @@ interface MutableScrapeRunItem<TManualScrape> extends ScrapeRunItem<TManualScrap
   error: string | null;
   result?: ScrapeResult;
 }
-type ScrapeExecution = { result: ScrapeResult; release: () => void };
+type ScrapeExecution = { result: ScrapeResult; release: () => Promise<void> };
 
 class StaleScrapeRunGenerationError extends Error {}
 
@@ -154,6 +157,7 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
   private readonly itemsById: Map<string, MutableScrapeRunItem<TManualScrape>>;
   private readonly logs: ScrapeRunLogEntry[] = [];
   private generation = 0;
+  private revision = 0;
   private status: ScrapeRunLiveStatus = "queued";
   private latestStage: ScrapeRunStageSnapshot | null = null;
   private error: string | null = null;
@@ -285,7 +289,9 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
     );
     return {
       runId: this.options.runId,
+      executionGeneration: this.options.executionGeneration ?? 0,
       generation: this.generation,
+      revision: this.revision,
       status: this.status,
       progress: {
         percent: completedItems === totalItems ? 100 : Math.min(99, reportedPercent),
@@ -448,22 +454,31 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
         let releasePublication: () => void = () => undefined;
         try {
           const failure = this.preparationFailureByItemId.get(item.id);
-          if (failure) return { result: failure, release: releaseSource };
+          if (failure)
+            return {
+              result: failure,
+              release: async () => releaseSource(),
+            };
           if (!this.preparedByItemId.has(item.id)) {
             throw new Error(`Scrape item was not prepared: ${item.id}`);
           }
           const prepared = this.preparedByItemId.get(item.id) as TPrepared;
           const publicationKey = this.options.getPublicationKey?.(item, prepared);
           if (publicationKey) releasePublication = await this.acquirePublication(publicationKey, context.signal);
-          const result = await runWithScrapeItem(
+          const executed = await runWithScrapeItem(
             { itemId: item.id, relativePath: item.relativePath, caseId: item.caseId },
             async () => await this.options.executePreparedItem(item, prepared, context.signal, attemptId),
           );
+          const { release: releaseStaging, ...result } = executed;
           return {
             result,
-            release: () => {
-              releasePublication();
-              releaseSource();
+            release: async () => {
+              try {
+                await releaseStaging?.();
+              } finally {
+                releasePublication();
+                releaseSource();
+              }
             },
           };
         } catch (error) {
@@ -472,18 +487,21 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
           throw error;
         }
       },
-      discardResult: (_item, execution) => execution.release(),
+      finalizeResult: async (_item, execution) => await execution.release(),
+      onFinalizeError: (item, releaseError) => {
+        this.recordLog({
+          level: "warn",
+          message: `Staging cleanup failed: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`,
+          itemId: item.id,
+        });
+      },
       applyResult: async (item, execution) => {
-        try {
-          this.assertCurrent(generation, ["running", "paused", "stopping"]);
-          const attemptId = this.attemptIdByItemId.get(item.id);
-          if (!attemptId) throw new Error(`Scrape item was not admitted: ${item.id}`);
-          const committed = await this.options.commitItem(item, execution.result, attemptId);
-          this.assertCurrent(generation, ["running", "paused", "stopping"]);
-          this.applyCommittedResult(item, committed);
-        } finally {
-          execution.release();
-        }
+        this.assertCurrent(generation, ["running", "paused", "stopping"]);
+        const attemptId = this.attemptIdByItemId.get(item.id);
+        if (!attemptId) throw new Error(`Scrape item was not admitted: ${item.id}`);
+        const committed = await this.options.commitItem(item, execution.result, attemptId);
+        this.assertCurrent(generation, ["running", "paused", "stopping"]);
+        this.applyCommittedResult(item, committed);
       },
     });
     this.executor = executor;
@@ -517,7 +535,6 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
           async () => await this.options.prepareItem(item, context.signal, attemptId),
         );
       },
-      discardResult: () => undefined,
       applyResult: async (item, result) => {
         this.assertCurrent(generation, ["running", "paused", "stopping"]);
         if (result.status === "prepared") this.preparedByItemId.set(item.id, result.prepared);
@@ -663,6 +680,7 @@ export class ScrapeRunSession<TManualScrape = unknown, TPrepared = unknown> {
   }
 
   private emitSnapshot(): void {
+    this.revision += 1;
     this.options.onSnapshot(this.snapshot());
   }
 }

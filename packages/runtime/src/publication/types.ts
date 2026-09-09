@@ -5,6 +5,7 @@ import type { AssetRef, RootFileRef } from "@mdcz/shared/mediaRef";
 export type PublicationContent =
   | { kind: "bytes"; data: Buffer }
   | { kind: "text"; data: string }
+  | { kind: "file"; path: string; size: number }
   | { kind: "download"; url: string };
 
 export interface PublicationMove {

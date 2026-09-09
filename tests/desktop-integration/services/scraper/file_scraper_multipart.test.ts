@@ -110,7 +110,7 @@ const createScraper = (
       aggregate,
     } as unknown as AggregationService,
     translateService: {
-      translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+      translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
     } as unknown as TranslateService,
     nfoGenerator: {
       writeNfo: vi.fn(),

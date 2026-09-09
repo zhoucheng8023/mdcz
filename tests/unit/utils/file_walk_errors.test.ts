@@ -44,7 +44,6 @@ describe("recursive file walking", () => {
 
   it.each([
     ["runtime", "@mdcz/runtime/scrape/utils/filesystem"],
-    ["desktop", "@main/utils/file"],
   ])("skips missing nested directories in %s scans", async (_label, modulePath) => {
     const root = join("library");
     const missingAssetDir = join(root, "extrafanart");

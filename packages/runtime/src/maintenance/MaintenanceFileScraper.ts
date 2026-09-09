@@ -59,7 +59,10 @@ export interface MaintenanceFileScraperDependencies {
   postProcessAssets?: FileScraperDependencies["postProcessAssets"];
 }
 
-export type MaintenanceFileScrapeResult = MaintenanceItemResult & { publicationPlan?: PreparedPublicationPlan };
+export type MaintenanceFileScrapeResult = MaintenanceItemResult & {
+  publicationPlan?: PreparedPublicationPlan;
+  release?: () => Promise<void>;
+};
 
 export class MaintenanceFileScraper {
   private readonly logger = runtimeLoggerService.getLogger("MaintenanceFileScraper");
@@ -99,6 +102,7 @@ export class MaintenanceFileScraper {
     this.setProgress(progress, 0);
 
     let stagingDir: string | undefined;
+    let stagingHandedOff = false;
     try {
       throwIfAborted(signal);
       const prepared = committed
@@ -189,8 +193,7 @@ export class MaintenanceFileScraper {
         assets: publication.assets,
       });
       this.setProgress(progress, 100);
-
-      return {
+      const result: MaintenanceFileScrapeResult = {
         fileId: entry.fileId,
         status: "success",
         crawlerData: preparedCrawlerData,
@@ -199,7 +202,12 @@ export class MaintenanceFileScraper {
         unchangedFieldDiffs,
         pathDiff,
         publicationPlan: publication.plan,
+        release: async () => {
+          await rm(stagingDir as string, { recursive: true, force: true });
+        },
       };
+      stagingHandedOff = true;
+      return result;
     } catch (error) {
       if (isAbortError(error)) {
         this.logger.info(`Maintenance aborted for ${fileInfo.filePath}`);
@@ -212,7 +220,7 @@ export class MaintenanceFileScraper {
       this.setProgress(progress, 100);
       return this.buildFailedResult(entry, message);
     } finally {
-      if (stagingDir) await rm(stagingDir, { recursive: true, force: true });
+      if (stagingDir && !stagingHandedOff) await rm(stagingDir, { recursive: true, force: true });
     }
   }
 

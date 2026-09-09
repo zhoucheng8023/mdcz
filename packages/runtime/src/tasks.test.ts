@@ -87,6 +87,34 @@ describe("task executor", () => {
     releaseSibling.resolve();
     await expect(run).rejects.toThrow("worker failed");
   });
+
+  it.each([
+    2, 4,
+  ])("serializes publication and stops admission after the first failure at concurrency %s", async (concurrency) => {
+    const started: number[] = [];
+    const applied: number[] = [];
+    const finalized: number[] = [];
+    const executor = new TaskExecutor<number, number>({
+      concurrency,
+      runItem: async (item) => {
+        started.push(item);
+        return item;
+      },
+      applyResult: async (_item, result) => {
+        applied.push(result);
+        if (result === 1) throw new Error("publication conflict");
+      },
+      finalizeResult: async (_item, result) => {
+        finalized.push(result);
+        if (result === 1) throw new Error("cleanup failed");
+      },
+    });
+
+    await expect(executor.execute([1, 2, 3, 4, 5, 6])).rejects.toThrow("publication conflict");
+    expect(applied).toEqual([1]);
+    expect(started.length).toBeLessThanOrEqual(concurrency);
+    expect(finalized.sort()).toEqual([...started].sort());
+  });
 });
 
 const deferred = <T>() => {
@@ -256,6 +284,7 @@ describe("scrape run session", () => {
     const executed: string[] = [];
     const committed: string[] = [];
     const observedStatuses: string[] = [];
+    const observedRevisions: number[] = [];
     let preflightCount = 0;
     const items = [runItem("one"), runItem("two")];
     const session = new ScrapeRunSession({
@@ -282,6 +311,7 @@ describe("scrape run session", () => {
       },
       onSnapshot: (snapshot) => {
         observedStatuses.push(snapshot.status);
+        observedRevisions.push(snapshot.revision);
       },
     });
 
@@ -339,6 +369,9 @@ describe("scrape run session", () => {
     expect(observedStatuses[0]).toBe("queued");
     expect(observedStatuses).toContain("running");
     expect(observedStatuses.at(-1)).toBe("completed");
+    expect(observedRevisions).toEqual([...observedRevisions].sort((left, right) => left - right));
+    expect(new Set(observedRevisions).size).toBe(observedRevisions.length);
+    expect(observedRevisions.at(-1)).toBeGreaterThan(0);
   });
 
   it("keeps reported progress monotonic and floors it by terminal items", async () => {
@@ -480,6 +513,70 @@ describe("scrape run session", () => {
       status: "interrupted",
       progress: { completedItems: 0, totalItems: 2, percent: 0 },
     });
+  });
+
+  it("releases staging when stop discards a finished item before apply", async () => {
+    const started = deferred<void>();
+    const released: string[] = [];
+    const committed: string[] = [];
+    const session = new ScrapeRunSession({
+      runId: "staging-discard",
+      items: [runItem("one")],
+      concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      admitItem,
+      executePreparedItem: async (item, _prepared, signal) => {
+        started.resolve();
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+        return {
+          ...terminalResult(item, "success"),
+          release: async () => {
+            released.push(item.id);
+          },
+        };
+      },
+      commitItem: async (item, result) => {
+        committed.push(`${item.id}:${result.status}`);
+        return result;
+      },
+      onSnapshot: () => undefined,
+    });
+
+    await session.start();
+    await started.promise;
+    await session.stop();
+    expect(released).toEqual(["one"]);
+    expect(committed).toEqual(["one:skipped"]);
+  });
+
+  it("keeps a committed item successful when staging cleanup fails", async () => {
+    const session = new ScrapeRunSession({
+      runId: "staging-cleanup",
+      items: [runItem("one")],
+      concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      admitItem,
+      executePreparedItem: async (item) => ({
+        ...terminalResult(item, "success"),
+        release: async () => {
+          throw new Error("staging busy");
+        },
+      }),
+      commitItem: async (_item, result) => result,
+      onSnapshot: () => undefined,
+    });
+
+    await session.start();
+    await session.waitForIdle();
+    expect(session.snapshot()).toMatchObject({
+      status: "completed",
+      items: [{ id: "one", status: "success" }],
+    });
+    expect(session.snapshot().logs.some((entry) => entry.message.includes("Staging cleanup failed"))).toBe(true);
   });
 
   it("surfaces terminal persistence failure and interrupts the run", async () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { PersistenceDatabase } from "./database";
 import { PersistenceError, persistenceErrorCodes } from "./errors";
 import type { UpsertLibraryEntryInput } from "./libraryRepository";
@@ -47,6 +47,8 @@ export interface ScrapeItemOutcomeRecord {
 
 export interface ScrapeRunRecord {
   id: string;
+  executionGeneration: number;
+  revision: number;
   rootId: string;
   requestedOutputRootId: string | null;
   requestedOutputRelativeDirectory: string | null;
@@ -109,6 +111,7 @@ export type CommitScrapeOutcomeInput =
   | (CommitBase & { outcome: "skipped"; error?: string | null })
   | (CommitBase & {
       outcome: "success";
+      error?: string | null;
       crawlerDataJson: string;
       nfoRootId?: string | null;
       nfoRelativePath?: string | null;
@@ -135,6 +138,7 @@ export interface ReviseScrapeSuccessInput {
 
 export interface FinalizeScrapeRunInput {
   runId: string;
+  revision?: number;
   disposition: ScrapeRunDisposition;
   error?: string | null;
   startedAt?: Date | null;
@@ -212,6 +216,8 @@ export class ScrapeRunRepository {
       .all();
     return {
       id: run.id,
+      executionGeneration: run.executionGeneration,
+      revision: run.revision,
       rootId: run.rootId,
       requestedOutputRootId: run.outputRootId,
       requestedOutputRelativeDirectory: run.outputRelativeDirectory,
@@ -353,7 +359,7 @@ export class ScrapeRunRepository {
         id,
         attemptId: attempt.id,
         outcome: "success",
-        errorMessage: null,
+        errorMessage: input.error ?? null,
         crawlerDataJson: input.crawlerDataJson,
         nfoRootId: input.nfoRootId ?? null,
         nfoRelativePath: input.nfoRelativePath ?? null,
@@ -442,6 +448,7 @@ export class ScrapeRunRepository {
       .update(scrapeRuns)
       .set({
         disposition: projectedDisposition,
+        revision: input.revision ?? run.revision + 1,
         startedAt: input.startedAt ?? null,
         completedAt: input.completedAt ?? new Date(),
         errorMessage: input.error ?? null,
@@ -473,7 +480,13 @@ export class ScrapeRunRepository {
       for (const id of runIds) {
         this.database.db
           .update(scrapeRuns)
-          .set({ disposition: "interrupted", completedAt: interruptedAt, errorMessage: "Interrupted by shutdown" })
+          .set({
+            disposition: "interrupted",
+            completedAt: interruptedAt,
+            errorMessage: "Interrupted by shutdown",
+            executionGeneration: sql`${scrapeRuns.executionGeneration} + 1`,
+            revision: 0,
+          })
           .where(eq(scrapeRuns.id, id))
           .run();
       }
@@ -504,6 +517,17 @@ export class ScrapeRunRepository {
     }
     this.database.sqlite.transaction(() => {
       for (const item of items) this.admitAttempt(item.id, admittedAt);
+      this.database.db
+        .update(scrapeRuns)
+        .set({
+          executionGeneration: run.executionGeneration + 1,
+          revision: 0,
+          disposition: null,
+          completedAt: null,
+          errorMessage: null,
+        })
+        .where(eq(scrapeRuns.id, run.id))
+        .run();
     })();
     return await this.get(run.id);
   }

@@ -98,6 +98,7 @@ export interface MaintenanceRuntimeApplySuccess {
   pathDiff?: PathDiff;
   outputRelativePath: string;
   plan?: PreparedPublicationPlan;
+  release?: () => Promise<void>;
 }
 
 export interface MaintenanceRuntimeApplyFailure {
@@ -248,6 +249,7 @@ export class MaintenanceRuntime {
       pathDiff: result.pathDiff,
       outputRelativePath: this.toRelativePath(input.root, updatedEntry.fileInfo.filePath),
       plan,
+      release: result.release,
     };
   }
 

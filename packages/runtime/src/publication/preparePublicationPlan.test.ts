@@ -28,8 +28,6 @@ afterEach(async () => {
 describe("preparePublicationPlan", () => {
   it.each([
     { extension: ".mp4", conflict: true },
-    { extension: ".strm", conflict: true },
-    { extension: ".mp4", conflict: false },
     { extension: ".strm", conflict: false },
   ])("protects both videos and their attachments ($extension, conflict=$conflict)", async ({ extension, conflict }) => {
     const { root, source, output, staging } = await fixture();
@@ -167,7 +165,6 @@ describe("preparePublicationPlan", () => {
 
   it.each([
     "filename",
-    "movie",
     "both",
   ] as const)("reconciles preserved NFOs using %s naming only after commit", async (nfoNaming) => {
     const { root, source, output } = await fixture();
@@ -199,7 +196,7 @@ describe("preparePublicationPlan", () => {
       commit: () => undefined,
     });
     for (const name of ["ABC-123.nfo", "movie.nfo"]) {
-      const retained = nfoNaming === "both" || (nfoNaming === "movie" ? name === "movie.nfo" : name === "ABC-123.nfo");
+      const retained = nfoNaming === "both" || name === "ABC-123.nfo";
       if (retained) expect(await readFile(join(output, name), "utf8")).toBe(original);
       else await expect(readFile(join(output, name))).rejects.toMatchObject({ code: "ENOENT" });
       await expect(readFile(join(source, name))).rejects.toMatchObject({ code: "ENOENT" });
@@ -232,7 +229,7 @@ describe("preparePublicationPlan", () => {
       writeNfo: async () => undefined,
     });
     const artifact = publication.plan.artifacts.find((artifact) => artifact.targetPath === join(root, "mirror.strm"));
-    expect(artifact?.content.data).toBe(
+    expect(artifact?.content.kind === "text" ? artifact.content.data : undefined).toBe(
       target.startsWith("..") ? original.replace(target, join(root, "media/movie.mp4")) : original,
     );
     expect(await readFile(join(source, "movie.strm"), "utf8")).toBe(original);

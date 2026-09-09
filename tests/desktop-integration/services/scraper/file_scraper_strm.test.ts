@@ -90,7 +90,7 @@ const createScraper = ({
       aggregate: vi.fn().mockResolvedValue(createAggregationResult(crawlerData)),
     } as unknown as AggregationService,
     translateService: {
-      translateCrawlerData: vi.fn().mockResolvedValue(crawlerData),
+      translateCrawlerData: vi.fn().mockResolvedValue({ data: crawlerData, error: null }),
     } as unknown as TranslateService,
     nfoGenerator: {
       writeNfo,
@@ -242,7 +242,7 @@ describe("FileScraper .strm support", () => {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(crawlerData)),
       } as unknown as AggregationService,
       translateService: {
-        translateCrawlerData: vi.fn().mockResolvedValue(crawlerData),
+        translateCrawlerData: vi.fn().mockResolvedValue({ data: crawlerData, error: null }),
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo,

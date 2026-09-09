@@ -7,6 +7,7 @@ import type {
   ScrapeActionPort,
   SharedWorkbenchPorts,
 } from "@mdcz/views/adapters";
+import { resolveBatchRescrapeOutput } from "@mdcz/views/adapters";
 import { type DetailViewItem, getDetailLocalAssetRef } from "@mdcz/views/detail";
 import { deleteFile, deleteFileAndFolder, readNfo, retryScrapeSelection, updateNfo } from "@/api/manual";
 import { ipc } from "@/client/ipc";
@@ -117,7 +118,7 @@ export const createDesktopScrapeActionPort = (): ScrapeActionPort => ({
     const response = await ipc.scraper.start(
       refs.length === 1
         ? { mode: "single", ref: first, manualUrl }
-        : { mode: "selection", refs, outputRootId: first.rootId, manualUrl },
+        : { mode: "selection", refs, ...resolveBatchRescrapeOutput(targets), manualUrl },
     );
     return { message: response.message };
   },

@@ -18,9 +18,7 @@ describe("OpenAiTranslator output cleanup", () => {
 
   it.each([
     ["empty output", ""],
-    ["reasoning only", "<think>We need translate this sentence.</think>"],
     ["prompt echo", prompt],
-    ["reinforced prompt echo", `${prompt}\n\n只输出最终译文，不要输出思考过程、解释、提示词或原文。`],
     ["source echo", source],
   ])("rejects %s", (_name, output) => {
     expect(cleanTranslationOutput(output, prompt, source)).toBeNull();

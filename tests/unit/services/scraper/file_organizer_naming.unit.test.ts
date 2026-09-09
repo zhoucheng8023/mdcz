@@ -569,4 +569,29 @@ describe("FileOrganizer naming rules", () => {
     );
     expect(parse(plan.targetVideoPath).name).toBe("ABC-123-SUB Actor A Actor B 2024-01-02 A 4K -SUB 有码 4.5 中文简介");
   });
+
+  it("does not nest a folder template when the output directory is the source directory", () => {
+    const organizer = new FileOrganizer();
+    const sourceDir = resolve("/media/Actor/Movie");
+    const plan = organizer.plan(
+      createFileInfo({
+        filePath: join(sourceDir, "ABC-123.mp4"),
+        fileName: "ABC-123",
+      }),
+      createCrawlerData({
+        number: "ABC-123",
+        actors: ["Actor"],
+        title: "Movie",
+      }),
+      createConfig({
+        behavior: { successFileMove: true },
+        naming: { folderTemplate: "{actor}/{title}", fileTemplate: "{number}", censoredStyle: "" },
+      }),
+      undefined,
+      { outputDirectory: sourceDir },
+    );
+
+    expect(plan.outputDir).toBe(sourceDir);
+    expect(plan.targetVideoPath).toBe(join(sourceDir, "ABC-123.mp4"));
+  });
 });

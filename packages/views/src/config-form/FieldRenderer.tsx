@@ -26,7 +26,11 @@ import { shouldRenderFieldInSectionMode, useSettingsSectionMode } from "../setti
 import { useSettingsServices } from "../settings/SettingsServices";
 import { isFieldManagedBySettingsSearch } from "../settings/settingsRegistry";
 import { useAutoSaveField } from "../settings/useAutoSaveField";
-import { BufferedFieldControl, parseBufferedNumberValue } from "./BufferedFieldControls";
+import {
+  BufferedFieldControl,
+  parseBufferedNumberValue,
+  parseBufferedOptionalNumberValue,
+} from "./BufferedFieldControls";
 import { ChipArrayField, type ChipArrayOption } from "./ChipArrayField";
 import { DurationField } from "./DurationField";
 import { OrderedSiteField } from "./OrderedSiteField";
@@ -263,6 +267,7 @@ export function NumberField({
   min,
   max,
   step,
+  optional,
 }: {
   name: string;
   label: string;
@@ -270,11 +275,15 @@ export function NumberField({
   min?: number;
   max?: number;
   step?: number;
+  optional?: boolean;
 }) {
   return (
     <BaseField name={name} label={label} description={description} commitMode="debounce">
       {(field) => (
-        <BufferedFieldControl field={field} parse={parseBufferedNumberValue}>
+        <BufferedFieldControl
+          field={field}
+          parse={optional ? parseBufferedOptionalNumberValue : parseBufferedNumberValue}
+        >
           {(control) => (
             <FormControl>
               <Input

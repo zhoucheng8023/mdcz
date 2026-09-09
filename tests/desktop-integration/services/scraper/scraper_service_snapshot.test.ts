@@ -96,8 +96,10 @@ const seedFinalizedRun = async (
 const attachLiveRun = (service: ScraperService, status: "running" | "paused") => {
   const startedAt = new Date("2026-08-29T00:01:00.000Z");
   const snapshot: ScrapeRunSnapshot = {
+    executionGeneration: 0,
     runId: "live-run",
     generation: 1,
+    revision: 1,
     status,
     progress: { percent: 0, completedItems: 0, totalItems: 1 },
     items: [
@@ -115,6 +117,8 @@ const attachLiveRun = (service: ScraperService, status: "running" | "paused") =>
     error: null,
   };
   const run: ScrapeRunManifest = {
+    executionGeneration: 0,
+    revision: 0,
     id: snapshot.runId,
     rootId: "desktop-input",
     requestedOutputRootId: null,

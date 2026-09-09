@@ -1,8 +1,8 @@
-import { parseWireRelativePath, type RootFileRef, rootFileRefSchema } from "@mdcz/shared/mediaRef";
+import { type RootFileRef, rootFileRefSchema, wireRelativePathSchema } from "@mdcz/shared/mediaRef";
 import { z } from "zod";
 import type { PublicationJournalManifest } from "./types";
 
-const wireRelativePath = z.string().transform(parseWireRelativePath);
+const wireRelativePath = wireRelativePathSchema;
 
 const publicationObsoleteObservationSchema = z.union([
   z.object({ exists: z.literal(false) }).strict(),

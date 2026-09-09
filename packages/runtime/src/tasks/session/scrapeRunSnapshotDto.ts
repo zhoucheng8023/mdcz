@@ -86,6 +86,8 @@ export const toScrapeRunSnapshotDto = (input: {
       kind: "scrape",
       rootId: input.manifest.rootId,
       rootDisplayName: input.rootDisplayName,
+      revision: input.snapshot.revision,
+      executionGeneration: input.snapshot.executionGeneration,
       status: input.snapshot.status,
       createdAt: input.manifest.createdAt.toISOString(),
       updatedAt: updatedAt.toISOString(),
@@ -114,6 +116,8 @@ export const toScrapeRunSnapshotDto = (input: {
 
 export interface FinalizedScrapeRun {
   id: string;
+  executionGeneration: number;
+  revision: number;
   disposition: Extract<ScrapeRunLiveStatus, "completed" | "failed" | "stopped" | "interrupted">;
   error: string | null;
   items: Array<{ id: string; rootId: string; relativePath: string }>;
@@ -209,7 +213,9 @@ export const toFinalizedScrapeRunSnapshot = (run: FinalizedScrapeRun): ScrapeRun
   ).length;
   return {
     runId: run.id,
+    executionGeneration: run.executionGeneration,
     generation: 0,
+    revision: run.revision,
     status: run.disposition,
     progress: {
       completedItems,

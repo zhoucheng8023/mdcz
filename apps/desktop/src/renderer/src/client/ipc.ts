@@ -18,7 +18,7 @@ import type {
 } from "@mdcz/shared/serverDtos";
 import type { CrawlerData, MaintenancePresetId, MediaCandidate } from "@mdcz/shared/types";
 import { useMaintenanceStore } from "@mdcz/views/state/maintenanceStore";
-import { beginScrapeTask, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import { runScrapeRequest, useScrapeStore } from "@mdcz/views/state/scrapeStore";
 
 type Unsubscribe = () => void;
 
@@ -30,15 +30,11 @@ const launchScrape = async <T extends { snapshot: ScrapeRunSnapshotDto }>(
   launch: () => Promise<T>,
   retryTaskId?: string,
 ): Promise<T> => {
-  beginScrapeTask(retryTaskId);
-  try {
+  return await runScrapeRequest(async () => {
     const response = await launch();
-    if (!useScrapeStore.getState().snapshot) useScrapeStore.getState().setSnapshot(response.snapshot);
+    useScrapeStore.getState().setSnapshot(response.snapshot);
     return response;
-  } catch (error) {
-    useScrapeStore.getState().setError(error instanceof Error ? error.message : String(error));
-    throw error;
-  }
+  }, retryTaskId);
 };
 
 export const ipc = {

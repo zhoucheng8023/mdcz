@@ -37,6 +37,25 @@ export interface ScrapeActionTarget {
   ref: ScrapeFileRefDto;
 }
 
+export const resolveBatchRescrapeOutput = (
+  targets: readonly ScrapeActionTarget[],
+): { outputRootId: string; outputRelativeDirectory: string } => {
+  const first = targets[0]?.ref;
+  if (!first) throw new Error("请选择要刮削的文件");
+  const slash = first.relativePath.lastIndexOf("/");
+  const outputRelativeDirectory = slash < 0 ? "" : first.relativePath.slice(0, slash);
+  if (
+    targets.some((target) => {
+      const targetSlash = target.ref.relativePath.lastIndexOf("/");
+      const targetDirectory = targetSlash < 0 ? "" : target.ref.relativePath.slice(0, targetSlash);
+      return target.ref.rootId !== first.rootId || targetDirectory !== outputRelativeDirectory;
+    })
+  ) {
+    throw new Error("多文件按 URL 刮削仅支持同一媒体根目录下的同一目录");
+  }
+  return { outputRootId: first.rootId, outputRelativeDirectory };
+};
+
 export interface ScrapeActionPort {
   rescrapeByUrl(targets: ScrapeActionTarget[], manualUrl: string): Promise<{ message: string }>;
   retryFailed(itemIds?: readonly string[]): Promise<{ message: string }>;

@@ -133,7 +133,10 @@ export const preparePublicationPlan = async (input: {
                   (collection ? join(basename(dirname(sourcePath)), basename(sourcePath)) : basename(sourcePath)),
               );
         if (stagedName) {
-          artifacts.push({ targetPath, content: { kind: "bytes", data: await readFile(sourcePath) } });
+          artifacts.push({
+            targetPath,
+            content: { kind: "file", path: sourcePath, size: (await stat(sourcePath)).size },
+          });
         } else if (sourcePath !== targetPath) {
           sidecars.push({
             sourcePath,

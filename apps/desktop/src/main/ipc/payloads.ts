@@ -1,6 +1,11 @@
 import { Website } from "@mdcz/shared/enums";
-import { LLM_REASONING_EFFORT_OPTIONS } from "@mdcz/shared/llm";
-import { localFileTargetSchema, parseWireRelativeDirectory, rootFileRefSchema } from "@mdcz/shared/mediaRef";
+import {
+  LLM_API_FORMAT_OPTIONS,
+  LLM_OUTPUT_FORMAT_OPTIONS,
+  LLM_REASONING_OPTIONS,
+  LLM_SERVICE_TYPE_OPTIONS,
+} from "@mdcz/shared/llm";
+import { localFileTargetSchema, rootFileRefSchema, wireRelativeDirectorySchema } from "@mdcz/shared/mediaRef";
 import { normalizedCropRegionSchema } from "@mdcz/shared/posterCrop";
 import {
   configPathInputSchema,
@@ -38,7 +43,7 @@ export const scraperStartInputSchema = z.discriminatedUnion("mode", [
     mode: z.literal("selection"),
     refs: z.array(rootFileRefSchema).min(1),
     outputRootId: z.string().trim().min(1),
-    outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
+    outputRelativeDirectory: wireRelativeDirectorySchema.optional(),
     manualUrl: z.string().trim().min(1).optional(),
   }),
   z.object({
@@ -64,9 +69,12 @@ export const translateTestLlmInputSchema = z.object({
   llmModelName: optionalString,
   llmApiKey: optionalString,
   llmBaseUrl: optionalString,
+  llmApiFormat: z.enum(LLM_API_FORMAT_OPTIONS).optional(),
+  llmServiceType: z.enum(LLM_SERVICE_TYPE_OPTIONS).optional(),
   llmPrompt: optionalString,
-  llmTemperature: z.number().optional(),
-  llmReasoningEffort: z.enum(LLM_REASONING_EFFORT_OPTIONS).optional(),
+  llmTemperature: z.number().min(0).max(2).nullable().optional(),
+  llmReasoning: z.enum(LLM_REASONING_OPTIONS).optional(),
+  llmOutputFormat: z.enum(LLM_OUTPUT_FORMAT_OPTIONS).optional(),
   llmTimeout: z.number().optional(),
 });
 

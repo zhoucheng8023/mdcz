@@ -207,6 +207,20 @@ describe("commitPublishedMedia", () => {
     }
     expect(copy).not.toHaveBeenCalled();
   });
+
+  it("leaves staging owned by the pending result in place after commit", async () => {
+    const test = await fixture();
+    const staging = path.join(path.dirname(test.source), "staging");
+    await mkdir(staging);
+    await writeFile(path.join(staging, "tmp"), "tmp");
+    await commitPublishedMedia(test.plan, {
+      resolveRoot: test.resolveRoot,
+      journal: createMemoryPublicationJournal(),
+      commit: () => "ok",
+    });
+    await expect(readFile(path.join(staging, "tmp"), "utf8")).resolves.toBe("tmp");
+  });
+
   it("publishes across roots, commits once, then removes sources and obsolete files", async () => {
     const test = await fixture();
     const commit = vi.fn(() => "committed");

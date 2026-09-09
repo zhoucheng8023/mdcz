@@ -104,6 +104,30 @@ describe("ScrapeCoordinator", () => {
     expect(store.finalize).toHaveBeenCalledOnce();
   });
 
+  it("lets overlapping stop and shutdown share one settlement", async () => {
+    const run: Run = {
+      id: "stop-close",
+      items: [{ id: "one", rootId: "root", relativePath: "one.mp4" }],
+    };
+    const store = createStore(run);
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const host = createHost(run, async (item, signal) => {
+      started.resolve();
+      await waitForAbort(signal, release.promise);
+      return resultFor(item, "success");
+    });
+    const coordinator = new ScrapeCoordinator(store, host);
+    await coordinator.start("start");
+    await started.promise;
+    const stopping = coordinator.stop(run.id);
+    const shuttingDown = coordinator.abortForShutdown();
+    release.resolve();
+    await Promise.all([stopping, shuttingDown]);
+    expect(store.finalize).toHaveBeenCalledOnce();
+    expect(store.interruptUnfinished).toHaveBeenCalledOnce();
+  });
+
   it.each([
     "prepare",
     "preflight",

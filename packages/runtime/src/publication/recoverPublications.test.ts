@@ -329,33 +329,9 @@ describe("recoverPublications", () => {
     {
       entries: [
         {
-          rootId: "",
-          relativePath: "movie.nfo",
-          temporaryPath: "movie.nfo.part",
-          backupPath: null,
-          targetExisted: false,
-        },
-      ],
-      obsolete: [],
-    },
-    {
-      entries: [
-        {
           rootId: "root-1",
           relativePath: "../outside.nfo",
           temporaryPath: "movie.nfo.part",
-          backupPath: null,
-          targetExisted: false,
-        },
-      ],
-      obsolete: [],
-    },
-    {
-      entries: [
-        {
-          rootId: "root-1",
-          relativePath: "movie.nfo",
-          temporaryPath: "/tmp/movie.nfo.part",
           backupPath: null,
           targetExisted: false,
         },

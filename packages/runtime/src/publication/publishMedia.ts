@@ -196,6 +196,27 @@ export const commitPublishedMedia = async <TResult>(
         backupPath: targetExisted ? createTargetBackupPath(targetPath, plan.operationId) : null,
         targetExisted,
         stage: async () => {
+          if (artifact.content.kind === "file") {
+            const source = await fileSystem.stat(artifact.content.path);
+            if (!source.isFile() || source.size !== artifact.content.size) {
+              throw new Error(`Publication artifact source changed before mutation: ${artifact.content.path}`);
+            }
+            const capacity = await fileSystem.statfs(path.dirname(targetPath));
+            if (capacity.bavail * capacity.bsize < artifact.content.size) {
+              throw new Error(`Insufficient space for publication target: ${targetPath}`);
+            }
+            const writeStartedAt = startPhase("sidecar-copy");
+            await fileSystem.copyFile(artifact.content.path, temporaryPath);
+            recordPhase("sidecar-copy", writeStartedAt);
+            await fileSystem.flush?.(temporaryPath);
+            const staged = await fileSystem.stat(temporaryPath);
+            if (!staged.isFile() || staged.size !== artifact.content.size) {
+              throw new Error(
+                `Staged artifact size mismatch for ${artifact.target.rootId}:${artifact.target.relativePath}`,
+              );
+            }
+            return;
+          }
           let data: Buffer | string;
           if (artifact.content.kind === "download") {
             const downloaded = options.download

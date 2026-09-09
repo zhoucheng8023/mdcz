@@ -1,7 +1,12 @@
 import type { Configuration } from "@mdcz/shared/config";
 import type { CrawlerData } from "@mdcz/shared/types";
-import { type RuntimeNetworkClient, type RuntimeRequestInit, runWithNetworkChannel } from "../network";
-import { detectLanguage, noopRuntimeLogger, type RuntimeLogger } from "../shared";
+import {
+  isUnrecoverableNetworkError,
+  type RuntimeNetworkClient,
+  type RuntimeRequestInit,
+  runWithNetworkChannel,
+} from "../network";
+import { detectLanguage, noopRuntimeLogger, type RuntimeLogger, toErrorMessage } from "../shared";
 import { ActorNameNormalizer } from "./translate/ActorNameNormalizer";
 import { GoogleTranslator } from "./translate/engines/GoogleTranslator";
 import { LlmApiClient, type RuntimeNetworkJsonResponse } from "./translate/engines/LlmApiClient";
@@ -9,7 +14,7 @@ import { type LlmMetadataTranslationResult, OpenAiTranslator } from "./translate
 import { GenreTranslator } from "./translate/GenreTranslator";
 import { ensureTargetChinese, normalizeNewlines } from "./translate/shared";
 import { type LanguageTarget, type TranslationMappingStore, toTarget } from "./translate/types";
-import { throwIfAborted } from "./utils/abort";
+import { isAbortError, throwIfAborted } from "./utils/abort";
 
 export interface TranslateServiceOptions {
   logger?: RuntimeLogger;
@@ -63,9 +68,13 @@ export class TranslateService {
     this.genreTranslator = new GenreTranslator(resolvedOptions.mappingStore);
   }
 
-  async translateCrawlerData(data: CrawlerData, config: Configuration, signal?: AbortSignal): Promise<CrawlerData> {
+  async translateCrawlerData(
+    data: CrawlerData,
+    config: Configuration,
+    signal?: AbortSignal,
+  ): Promise<{ data: CrawlerData; error: string | null }> {
     if (!config.translate.enableTranslation) {
-      return data;
+      return { data, error: null };
     }
 
     return await runWithNetworkChannel("translation", async () => {
@@ -74,7 +83,7 @@ export class TranslateService {
       const target = toTarget(config.translate.targetLanguage);
       const startedAt = Date.now();
       this.logger.info(
-        `[translation] number=${data.number} engine=${config.translate.engine} target=${target} model=${config.translate.engine === "google" ? "none" : config.translate.llmModelName} reasoning=${config.translate.engine === "google" ? "none" : config.translate.llmReasoningEffort} titleChars=${data.title.length} plotChars=${data.plot?.length ?? 0} genres=${data.genres?.length ?? 0}`,
+        `[translation] number=${data.number} engine=${config.translate.engine} target=${target} model=${config.translate.engine === "google" ? "none" : config.translate.llmModelName} reasoning=${config.translate.engine === "google" ? "none" : config.translate.llmReasoning} titleChars=${data.title.length} plotChars=${data.plot?.length ?? 0} genres=${data.genres?.length ?? 0}`,
       );
 
       const mappedActors = await Promise.all(
@@ -94,7 +103,6 @@ export class TranslateService {
       };
       const fields = { title: prepareField(data.title), plot: prepareField(data.plot) };
       const metadataTranslation: { value: LlmMetadataTranslationResult | null } = { value: null };
-      let mappedGenres: string[];
 
       if (config.translate.engine === "google") {
         metadataTranslation.value = {
@@ -106,33 +114,29 @@ export class TranslateService {
             : null,
           genres: [],
         };
-        mappedGenres = await this.genreTranslator.translateTerms(
-          data.genres ?? [],
-          target,
-          config,
-          this.translateText.bind(this),
-          async () => null,
-          signal,
-        );
-      } else {
-        mappedGenres = await this.genreTranslator.translateTerms(
-          data.genres ?? [],
-          target,
-          config,
-          this.translateText.bind(this),
-          async (genres) => {
-            metadataTranslation.value = await this.openAiTranslator.translateMetadata(
-              { title: fields.title.source, plot: fields.plot.source, genres },
-              target,
-              config,
-              signal,
-            );
-            return metadataTranslation.value?.genres ?? null;
-          },
-          signal,
-        );
       }
+      const mappedGenres = await this.genreTranslator.translateTerms(
+        data.genres ?? [],
+        target,
+        config,
+        (text, target, configuration, requestSignal) =>
+          this.translateText(text, target, configuration, requestSignal, {
+            field: "genre",
+            number: data.number,
+          }),
+        async (genres) => {
+          metadataTranslation.value = await this.openAiTranslator.translateMetadata(
+            { title: fields.title.source, plot: fields.plot.source, genres },
+            target,
+            config,
+            signal,
+          );
+          return metadataTranslation.value?.genres ?? null;
+        },
+        signal,
+      );
 
+      let translationError: string | null = null;
       for (const field of ["title", "plot"] as const) {
         const prepared = fields[field];
         if (!prepared.source) continue;
@@ -141,9 +145,9 @@ export class TranslateService {
           prepared.translated = ensureTargetChinese(returned, target);
           continue;
         }
-        this.logger.warn(
-          `Translation engine failed for ${field} (${data.number}), returning original text: ${returned ? "source echoed" : "engine returned no translation"}`,
-        );
+        const message = `Translation engine failed for ${field} (${data.number}), returning original text: ${returned ? "source echoed" : "engine returned no translation"}`;
+        this.logger.warn(message);
+        translationError = translationError ? `${translationError}; ${message}` : message;
       }
 
       throwIfAborted(signal);
@@ -154,13 +158,21 @@ export class TranslateService {
       );
 
       return {
-        ...data,
-        title_zh,
-        plot_zh,
-        actors: mappedActors,
-        actor_profiles: mappedActorProfiles.length > 0 ? mappedActorProfiles : data.actor_profiles,
-        genres: mappedGenres,
+        data: {
+          ...data,
+          title_zh,
+          plot_zh,
+          actors: mappedActors,
+          actor_profiles: mappedActorProfiles.length > 0 ? mappedActorProfiles : data.actor_profiles,
+          genres: mappedGenres,
+        },
+        error: translationError,
       };
+    }).catch((error: unknown) => {
+      if (isAbortError(error) || isUnrecoverableNetworkError(error)) throw error;
+      const message = toErrorMessage(error);
+      this.logger.warn(`Translation failed for ${data.number}: ${message}`);
+      return { data, error: message };
     });
   }
 
@@ -196,9 +208,7 @@ export class TranslateService {
       }
     } else {
       const openAi = await this.openAiTranslator.translateText(text, target, config, signal);
-      if (openAi) {
-        return ensureTargetChinese(openAi.trim(), target);
-      }
+      if (openAi) return ensureTargetChinese(openAi.trim(), target);
     }
 
     const field = context?.field ?? "text";

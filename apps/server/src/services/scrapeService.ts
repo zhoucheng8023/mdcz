@@ -249,6 +249,8 @@ export class ScrapeService {
       manifest,
       snapshot: toFinalizedScrapeRunSnapshot({
         id: manifest.id,
+        executionGeneration: manifest.executionGeneration,
+        revision: manifest.revision,
         items: manifest.items,
         outcomes,
         disposition: summary?.disposition ?? "interrupted",
@@ -562,6 +564,7 @@ export class ScrapeService {
     return {
       items,
       initialItems,
+      executionGeneration: manifest.executionGeneration,
       concurrency: manifest.executionMode === "single" ? 1 : policy.concurrency,
       admitItem: async (item: ScrapeRunItem<ServerManualScrape>) => {
         const existing = openAttemptByItemId.get(item.id);
@@ -721,7 +724,11 @@ export class ScrapeService {
         localState: item.manualScrape?.uncensoredChoice
           ? { uncensoredChoice: item.manualScrape.uncensoredChoice }
           : undefined,
-        outputBaseDirectory: item.outputBaseDirectory,
+        outputDirectory:
+          item.manualScrape?.manualUrl && manifest.requestedOutputRootId
+            ? resolveRootRelativePath(outputRoot, manifest.requestedOutputRelativeDirectory ?? "")
+            : undefined,
+        outputTemplateRoot: item.outputTemplateRoot,
         signal,
         onEvent: (type, message) => {
           this.addEvent(manifest.id, type, message, item.id);

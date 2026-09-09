@@ -3,7 +3,13 @@ import { normalizeActorAliasMap, normalizeActorName, toTrimmedActorName } from "
 import { ACTOR_IMAGE_SOURCE_OPTIONS, ACTOR_OVERVIEW_SOURCE_OPTIONS } from "./actorSource";
 import { ASSET_NAMING_MODES, isSharedDirectoryMode } from "./assetNaming";
 import { ProxyType, ThemeMode, TRANSLATION_TARGET_OPTIONS, TranslateEngine, UiLanguage, Website } from "./enums";
-import { DEFAULT_LLM_BASE_URL, LLM_REASONING_EFFORT_OPTIONS } from "./llm";
+import {
+  DEFAULT_LLM_BASE_URL,
+  LLM_API_FORMAT_OPTIONS,
+  LLM_OUTPUT_FORMAT_OPTIONS,
+  LLM_REASONING_OPTIONS,
+  LLM_SERVICE_TYPE_OPTIONS,
+} from "./llm";
 import {
   DEFAULT_POSTER_TAG_BADGE_TYPES,
   POSTER_TAG_BADGE_POSITION_OPTIONS,
@@ -105,9 +111,12 @@ const translateSchema = z.object({
   llmModelName: z.string().default("gpt-5.2"),
   llmApiKey: z.string().default(""),
   llmBaseUrl: z.url().or(z.literal("")).default(DEFAULT_LLM_BASE_URL),
+  llmApiFormat: z.enum(LLM_API_FORMAT_OPTIONS).default("responses"),
+  llmServiceType: z.enum(LLM_SERVICE_TYPE_OPTIONS).default("openai-compatible"),
   llmPrompt: z.string().default("自动识别原文语言，将以下内容翻译为{lang}。只输出最终翻译结果。\\n{content}"),
-  llmTemperature: z.number().min(0).max(2).default(1.0),
-  llmReasoningEffort: z.enum(LLM_REASONING_EFFORT_OPTIONS).default("low"),
+  llmTemperature: z.number().min(0).max(2).nullable().default(null),
+  llmReasoning: z.enum(LLM_REASONING_OPTIONS).default("default"),
+  llmOutputFormat: z.enum(LLM_OUTPUT_FORMAT_OPTIONS).default("none"),
   llmTimeout: z.number().int().min(1).max(300).default(120),
   llmMaxRetries: z.number().int().min(1).max(20).default(3),
   llmMaxRequestsPerSecond: z.number().int().min(1).max(100).default(1),

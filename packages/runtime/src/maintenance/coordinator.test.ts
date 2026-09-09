@@ -302,6 +302,39 @@ describe("MaintenanceSessionCoordinator", () => {
     await fixture.coordinator.close();
   });
 
+  it("releases prepared staging when output stat fails", async () => {
+    const release = vi.fn(async () => undefined);
+    const fixture = createCoordinator({
+      applyEntry: vi.fn(async ({ entry }) => ({
+        status: "success" as const,
+        entry,
+        outputRelativePath: "missing.mp4",
+        plan: {
+          videos: [{ sourcePath: "/missing/mdcz-output.mp4", targetPath: "/missing/mdcz-output.mp4", size: 1 }],
+          artifacts: [],
+          assets: [],
+          obsoletePaths: [],
+        },
+        release,
+      })),
+    });
+    const preview = await fixture.coordinator.startPreview({
+      rootId: root.id,
+      presetId: "organize_files",
+      refs: [ref("one.mp4")],
+    });
+    const previewBatch = await preview.completion;
+    const apply = await fixture.coordinator.beginApply({
+      sessionId: preview.session.id,
+      selections: [{ previewId: previewBatch.items[0]?.id ?? "" }],
+    });
+    const batch = await apply.completion;
+
+    expect(batch.applied).toEqual([expect.objectContaining({ status: "failed" })]);
+    expect(release).toHaveBeenCalledOnce();
+    await fixture.coordinator.close();
+  });
+
   it("commits the active preview once while paused and resumes only pending refs", async () => {
     const { promise: blocked, resolve: releaseFirst } = promiseWithResolvers<void>();
     const { promise: started, resolve: firstStarted } = promiseWithResolvers<void>();

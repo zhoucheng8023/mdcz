@@ -1,13 +1,13 @@
 import { toErrorMessage } from "@mdcz/shared/error";
 import type { LibraryEntryDto } from "@mdcz/shared/serverDtos";
-import type { LibraryAvailabilityFilter } from "@mdcz/views/library";
+import type { LibraryAvailabilityFilter, LibraryDeleteMode } from "@mdcz/views/library";
 import {
   chunkLibraryEntryIds,
   LibraryDeleteDialog,
   LibraryIndexView,
   mergeLibraryAvailability,
 } from "@mdcz/views/library";
-import { useInfiniteQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -18,13 +18,28 @@ export function LibraryPage() {
   const [query, setQuery] = useState("");
   const [availabilityFilter, setAvailabilityFilter] = useState<LibraryAvailabilityFilter>("all");
   const [deleteTarget, setDeleteTarget] = useState<LibraryEntryDto | null>(null);
-  const [deleteAssets, setDeleteAssets] = useState(false);
+  const [deleteMode, setDeleteMode] = useState<LibraryDeleteMode>("none");
   const queryClient = useQueryClient();
   const libraryQ = useInfiniteQuery({
     queryKey: ["library", "list", query],
     queryFn: ({ pageParam }) => ipc.library.list({ cursor: pageParam, query, limit: 100 }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+  const deleteLibraryM = useMutation({
+    mutationFn: async ({ entry, mode }: { entry: LibraryEntryDto; mode: LibraryDeleteMode }) => {
+      await ipc.library.delete({ deleteMode: mode, id: entry.id });
+    },
+    onSuccess: async () => {
+      toast.success("已从媒体库移除");
+      setDeleteTarget(null);
+      setDeleteMode("none");
+      await libraryQ.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["library", "availability"] });
+    },
+    onError: (error) => {
+      toast.error(toErrorMessage(error));
+    },
   });
   const pageEntries = libraryQ.data?.pages.flatMap((page) => page.entries) ?? [];
   const availabilityQs = useQueries({
@@ -78,37 +93,23 @@ export function LibraryPage() {
       />
       <LibraryDeleteDialog
         open={Boolean(deleteTarget)}
-        deleteMediaFiles={deleteAssets}
-        showDeleteMediaFiles
-        onDeleteMediaFilesChange={setDeleteAssets}
+        deleteMode={deleteMode}
+        showFileDeleteModes
+        submitting={deleteLibraryM.isPending}
+        onDeleteModeChange={setDeleteMode}
         onCancel={() => {
+          if (deleteLibraryM.isPending) return;
           setDeleteTarget(null);
-          setDeleteAssets(false);
+          setDeleteMode("none");
         }}
         onConfirm={() => {
           const target = deleteTarget;
-          if (!target) return;
-          void deleteLibraryEntry(target, deleteAssets, () => {
-            setDeleteTarget(null);
-            setDeleteAssets(false);
-            void libraryQ.refetch();
-            void queryClient.invalidateQueries({ queryKey: ["library", "availability"] });
-          });
+          if (!target || deleteLibraryM.isPending) return;
+          deleteLibraryM.mutate({ entry: target, mode: deleteMode });
         }}
       />
     </>
   );
-}
-
-async function deleteLibraryEntry(entry: LibraryEntryDto, deleteAssets: boolean, onSuccess: () => void) {
-  try {
-    const deleteMode = !deleteAssets ? "none" : window.confirm("是否同时删除视频文件？") ? "all" : "assets";
-    await ipc.library.delete({ deleteMode, id: entry.id });
-    toast.success("已从媒体库移除");
-    onSuccess();
-  } catch (error) {
-    toast.error(toErrorMessage(error));
-  }
 }
 
 export const Route = createFileRoute("/library")({

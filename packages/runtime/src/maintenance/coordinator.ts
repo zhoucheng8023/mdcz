@@ -84,6 +84,7 @@ type PreviewExecutionResult = {
 type ApplyExecutionResult = {
   result: MaintenanceApplyItemResult;
   publication?: Parameters<MaintenanceLibraryPort["publishRefresh"]>[0];
+  release?: () => Promise<void>;
 };
 
 const PREVIEW_ALL_FAILED = "维护预览全部失败";
@@ -200,6 +201,7 @@ export class MaintenanceSessionCoordinator {
   private revision = 0;
   private releaseOwnedPaths: (() => void) | null = null;
   private closing = false;
+  private closePromise: Promise<void> | null = null;
   private previewStarting = false;
 
   constructor(
@@ -357,25 +359,33 @@ export class MaintenanceSessionCoordinator {
   }
 
   stop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
+    return this.requestTermination(sessionId, STOPPED, STOPPED_ITEM);
+  }
+
+  private requestTermination(
+    sessionId: string,
+    reason: string,
+    itemReason: string,
+  ): Promise<MaintenanceSessionSnapshot> {
     const current = this.require(sessionId);
     if (this.stopOperation?.sessionId === sessionId && this.stopOperation.generation === current.generation)
       return this.stopOperation.promise;
-    const promise = this.finishStop(sessionId);
+    const promise = this.terminate(sessionId, reason, itemReason);
     this.stopOperation = { sessionId, generation: current.generation, promise };
     return promise;
   }
 
-  private async finishStop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
+  private async terminate(sessionId: string, reason: string, itemReason: string): Promise<MaintenanceSessionSnapshot> {
     const current = this.require(sessionId);
     if (current.status === "completed" || current.status === "failed") return current.statusSnapshot();
-    const generation = current.beginStopping(STOPPED);
+    const generation = current.beginStopping(reason);
     await this.publishStatus(current, "stopping", "Stopping maintenance session");
     this.active?.executor.stop();
     await this.awaitCurrentExecution();
     const latest = this.require(sessionId);
     if (latest.generation !== generation) return latest.statusSnapshot();
-    if (latest.phase === "apply") await this.skipOutstanding(latest.id, generation, STOPPED_ITEM);
-    await this.finishSession(latest.id, generation, "failed", STOPPED);
+    if (latest.phase === "apply") await this.skipOutstanding(latest.id, generation, itemReason);
+    await this.finishSession(latest.id, generation, "failed", reason);
     return latest.statusSnapshot();
   }
 
@@ -409,21 +419,16 @@ export class MaintenanceSessionCoordinator {
     await this.awaitCurrentExecution();
   }
 
-  async close(): Promise<void> {
-    if (this.closing) return;
+  close(): Promise<void> {
+    this.closePromise ??= this.finishClose();
+    return this.closePromise;
+  }
+
+  private async finishClose(): Promise<void> {
     this.closing = true;
     const session = this.session;
-    if (!session?.isActive()) {
-      session?.invalidate();
-      this.releasePaths();
-      return;
-    }
-    const generation = session.beginStopping(INTERRUPTED);
-    this.active?.executor.stop();
-    await this.awaitCurrentExecution();
-    if (!this.isCurrent(session.id, generation)) return;
-    if (session.phase === "apply") await this.skipOutstanding(session.id, generation, INTERRUPTED);
-    await this.finishSession(session.id, generation, "failed", INTERRUPTED);
+    if (session) await this.requestTermination(session.id, INTERRUPTED, INTERRUPTED);
+    this.releasePaths();
   }
 
   private async startCurrentPhase(sessionId: string, generation: number, message?: string): Promise<void> {
@@ -596,15 +601,18 @@ export class MaintenanceSessionCoordinator {
               signal: context.signal,
             });
             if (applied.status === "failed") return { result: { status: "failed", error: applied.error } };
+            const release = applied.release;
             const plan = applied.plan;
-            if (!plan) return { result: { status: "failed", error: "维护应用未生成发布计划" } };
+            if (!plan) {
+              return { result: { status: "failed", error: "维护应用未生成发布计划" }, release };
+            }
             const video = plan.videos?.[0];
             const outputRelativePath = applied.outputRelativePath || active.preview.relativePath;
             let file: Awaited<ReturnType<typeof stat>>;
             try {
               file = await stat(video?.sourcePath ?? sourceAbsolutePath);
             } catch (error) {
-              return { result: libraryCommitFailure(error) };
+              return { result: libraryCommitFailure(error), release };
             }
             const crawlerData = applied.crawlerData ?? applied.entry.crawlerData ?? committed.crawlerData;
             return {
@@ -635,6 +643,7 @@ export class MaintenanceSessionCoordinator {
                   refreshedAt: new Date(),
                 },
               },
+              release,
             };
           } catch (error) {
             const stopped = isAbortError(error) || context.signal.aborted;
@@ -717,6 +726,13 @@ export class MaintenanceSessionCoordinator {
       gate: {
         beforeItem: async () => void this.assertCurrent(sessionId, generation, ["running"]),
         beforeResult: async () => void this.assertCurrent(sessionId, generation, ["running", "paused"]),
+      },
+      finalizeResult: async (_item, result) => {
+        await (result as ApplyExecutionResult).release?.();
+      },
+      onFinalizeError: async (_item, error) => {
+        if (!this.isCurrent(sessionId, generation)) return;
+        await this.publishLog(this.require(sessionId), "warning", `Staging cleanup failed: ${errorMessage(error)}`);
       },
       ...execution,
     });

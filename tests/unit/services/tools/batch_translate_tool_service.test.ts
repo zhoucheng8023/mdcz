@@ -207,7 +207,7 @@ describe("BatchTranslateToolService", () => {
         nfoIgnoreFields: ["director"],
       },
     });
-    const generateText = vi.fn().mockResolvedValue('["相同标题","剧情一"]');
+    const generateText = vi.fn().mockResolvedValue('{"translations":["相同标题","剧情一"]}');
     const writeNfo = vi.fn(writePreparedNfo);
 
     const entriesByPath = new Map<string, LocalScanEntry>([
@@ -308,7 +308,6 @@ describe("BatchTranslateToolService", () => {
       expect.objectContaining({
         prompt: expect.stringContaining('"Same English Title"'),
       }),
-      undefined,
     );
     expect(writeNfo).toHaveBeenCalledTimes(2);
 

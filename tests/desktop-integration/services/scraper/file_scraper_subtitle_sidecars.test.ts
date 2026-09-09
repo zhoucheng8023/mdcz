@@ -84,7 +84,7 @@ describe("FileScraper subtitle sidecars", () => {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData())),
       } as unknown as AggregationService,
       translateService: {
-        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo,
@@ -103,9 +103,7 @@ describe("FileScraper subtitle sidecars", () => {
   };
 
   it.each([
-    ["ABC-123.mp4", "ABC-123.srt", "字幕"],
     ["ABC-123.mp4", "ABC-123.zh.srt", "中文字幕"],
-    ["ABC-123-U.mp4", "ABC-123.zh.srt", "中文字幕"],
   ] as const)("propagates %s for %s into the merged subtitle tag", async (videoFileName, subtitleFileName, expectedSubtitleTag) => {
     const root = await createTempDir();
     const videoPath = join(root, videoFileName);

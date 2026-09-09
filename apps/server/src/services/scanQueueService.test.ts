@@ -60,4 +60,54 @@ describe("ScanQueueService", () => {
     expect(lifecycle).toHaveBeenCalledTimes(2);
     await service.close();
   });
+
+  it("rejects start after a drain fault and recovers through retry", async () => {
+    const created: ScanTask[] = [];
+    let claims = 0;
+    const persistence = {
+      getState: async () => ({
+        repositories: {
+          mediaRoots: { get: async () => ({ displayName: "Media" }) },
+          scanTasks: {
+            interruptUnfinished: async () => [],
+            create: async ({ rootId }: { rootId: string }) => {
+              const item = task(`created-${created.length + 1}`, "queued");
+              item.rootId = rootId;
+              created.push(item);
+              return item;
+            },
+            get: async (id: string) => created.find((item) => item.id === id) ?? task(id, "queued"),
+            claim: async () => {
+              claims += 1;
+              if (claims === 1) throw new Error("catalog unavailable");
+              return null;
+            },
+            addEvent: async ({ taskId, type, message }: { taskId: string; type: string; message: string }) => ({
+              id: `${taskId}:${type}`,
+              taskId,
+              type,
+              message,
+              createdAt: new Date(),
+            }),
+            listScanResults: async () => [],
+            requeue: async (taskId: string) => created.find((item) => item.id === taskId) ?? task(taskId, "queued"),
+          },
+        },
+      }),
+    };
+    const service = new ScanQueueService(
+      persistence as never,
+      { get: async () => ({ displayName: "Media" }) } as never,
+      createTaskEventBus(),
+      {} as never,
+    );
+
+    await expect(service.start("root-1")).resolves.toMatchObject({ status: "queued" });
+    await vi.waitFor(async () => {
+      await expect(service.start("root-1")).rejects.toThrow("Scan queue requires repair: catalog unavailable");
+    });
+    await expect(service.retry("created-1")).resolves.toMatchObject({ status: "queued" });
+    await expect(service.start("root-1")).resolves.toMatchObject({ status: "queued" });
+    await service.close();
+  });
 });

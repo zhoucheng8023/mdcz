@@ -61,6 +61,8 @@ export const scrapeRuns = sqliteTable(
   "scrape_runs",
   {
     id: text("id").primaryKey(),
+    executionGeneration: integer("execution_generation").notNull().default(0),
+    revision: integer("revision").notNull().default(0),
     rootId: text("root_id").notNull(),
     outputRootId: text("output_root_id"),
     outputRelativeDirectory: text("output_relative_directory"),

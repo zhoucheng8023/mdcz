@@ -7,13 +7,14 @@ import type {
   ScrapeActionPort,
   SharedWorkbenchPorts,
 } from "@mdcz/views/adapters";
+import { resolveBatchRescrapeOutput } from "@mdcz/views/adapters";
 import type { DetailViewItem } from "@mdcz/views/detail";
 import {
   applyMaintenanceSessionSnapshot,
   selectMaintenanceSessionId,
   useMaintenanceStore,
 } from "@mdcz/views/state/maintenanceStore";
-import { selectScrapeTaskId, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import { runScrapeRequest, selectScrapeTaskId, useScrapeStore } from "@mdcz/views/state/scrapeStore";
 import { api, getLibraryAssetSrc } from "../client";
 import { requestScrapeLiveRunsRefresh } from "../hooks/useWebTaskSync";
 
@@ -188,10 +189,12 @@ export const createWebScrapeActionPort = (): ScrapeActionPort => ({
     const refs = targets.map((target) => target.ref);
     const first = refs[0];
     if (!first) throw new Error("请选择要刮削的文件");
-    const snapshot = await api.scrape.start(
-      refs.length === 1
-        ? { executionMode: "single", refs, manualUrl }
-        : { executionMode: "batch", refs, outputRootId: first.rootId, manualUrl },
+    const snapshot = await runScrapeRequest(async () =>
+      api.scrape.start(
+        refs.length === 1
+          ? { executionMode: "single", refs, manualUrl }
+          : { executionMode: "batch", refs, ...resolveBatchRescrapeOutput(targets), manualUrl },
+      ),
     );
     requestScrapeLiveRunsRefresh();
     return { message: `按 URL 刮削任务已启动：${snapshot.runId}` };
@@ -199,7 +202,10 @@ export const createWebScrapeActionPort = (): ScrapeActionPort => ({
   retryFailed: async (itemIds) => {
     const runId = selectScrapeTaskId(useScrapeStore.getState());
     if (!runId) throw new Error("没有可重试的刮削任务");
-    const retry = await api.scrape.retry({ taskId: runId, ...(itemIds ? { itemIds: [...itemIds] } : {}) });
+    const retry = await runScrapeRequest(
+      async () => api.scrape.retry({ taskId: runId, ...(itemIds ? { itemIds: [...itemIds] } : {}) }),
+      runId,
+    );
     requestScrapeLiveRunsRefresh();
     return { message: `重试任务已启动：${retry.runId}` };
   },

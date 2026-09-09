@@ -172,6 +172,8 @@ ALTER TABLE `task_events` RENAME TO `scan_task_events`;
 --> statement-breakpoint
 CREATE TABLE `scrape_runs` (
   `id` text PRIMARY KEY NOT NULL,
+  `execution_generation` integer DEFAULT 0 NOT NULL,
+  `revision` integer DEFAULT 0 NOT NULL,
   `root_id` text NOT NULL,
   `output_root_id` text,
   `output_relative_directory` text,

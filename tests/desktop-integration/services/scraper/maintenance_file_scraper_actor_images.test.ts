@@ -70,7 +70,7 @@ const createScraperHarness = (root: string, downloadAll: ReturnType<typeof vi.fn
     {
       aggregationService: { aggregate: vi.fn() } as never,
       translateService: {
-        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo: vi.fn(async () => {

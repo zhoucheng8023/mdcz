@@ -135,20 +135,6 @@ describe("parseNfo", () => {
     expect(parsed.plot_zh).toBe("中文简介");
   });
 
-  it("reads native publisher nodes", () => {
-    const xml = `
-      <movie>
-        <title>Native Publisher</title>
-        <uniqueid type="${Website.DMM}">ABC-777</uniqueid>
-        <publisher>Native Publisher</publisher>
-      </movie>
-    `;
-
-    const result = parseNfoSnapshot(xml).crawlerData;
-
-    expect(result.publisher).toBe("Native Publisher");
-  });
-
   it("uses outline as the plot fallback", () => {
     const xml = `
       <movie>

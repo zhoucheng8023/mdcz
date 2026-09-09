@@ -1,4 +1,4 @@
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { type Configuration, configManager } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { OutputLibraryScanner } from "@main/services/library";
@@ -375,6 +375,7 @@ export class ScraperService {
     return {
       items,
       initialItems,
+      executionGeneration: manifest.executionGeneration,
       concurrency: manifest.executionMode === "single" ? 1 : policy.concurrency,
       admitItem: async (item: ScrapeRunItem<ManualScrapeOptions>) => {
         const existing = openAttemptByItemId.get(item.id);
@@ -391,7 +392,10 @@ export class ScraperService {
           source: item.executionSource ?? { rootId: item.rootId, relativePath: item.relativePath },
           roots: [...roots.values()],
           operationId: `${manifest.id}:${attemptId}`,
-          outputBaseDirectory: item.outputBaseDirectory,
+          outputDirectory: item.manualScrape
+            ? resolve(runConfiguration.paths.mediaPath, runConfiguration.paths.successOutputFolder)
+            : undefined,
+          outputTemplateRoot: item.outputTemplateRoot,
         });
         if (result.status === "prepared") return result;
         return {
@@ -537,6 +541,8 @@ export class ScraperService {
       manifest,
       toFinalizedScrapeRunSnapshot({
         id: manifest.id,
+        executionGeneration: manifest.executionGeneration,
+        revision: manifest.revision,
         items: manifest.items,
         outcomes,
         disposition: summary.disposition,

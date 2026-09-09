@@ -16,7 +16,6 @@ import type {
   ScrapeResult,
   VideoMeta,
 } from "@mdcz/shared/types";
-import { isUnrecoverableNetworkError } from "../network";
 import { createPublicationPlan, type PublicationPlan, preparePublicationPlan, toRootFileRef } from "../publication";
 import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "./actorOutput";
 import type { AggregationResult, AggregationService, ManualScrapeOptions } from "./aggregation";
@@ -86,10 +85,16 @@ export type FileScrapeOptions = {
   source?: RootFileRef;
   roots?: readonly Pick<MediaRoot, "id" | "hostPath">[];
   operationId?: string;
-  outputBaseDirectory?: string;
+  outputDirectory?: string;
+  outputTemplateRoot?: string;
 };
 export type FileScrapeResult = ScrapeResult &
-  ({ status: "success"; publicationPlan: PublicationPlan } | { status: "failed" | "skipped"; publicationPlan?: never });
+  (
+    | { status: "success"; publicationPlan: PublicationPlan }
+    | { status: "failed" | "skipped"; publicationPlan?: never }
+  ) & {
+    release?: () => Promise<void>;
+  };
 type FileScrapeFailure = ScrapeResult & { status: "failed" | "skipped"; publicationPlan?: never };
 type ScrapeIdentity = Pick<ScrapeResult, "fileId" | "rootId" | "relativePath" | "fileName" | "part" | "assets">;
 
@@ -101,6 +106,7 @@ export interface PreparedFileScrape {
   localState?: NfoLocalState;
   videoMeta?: VideoMeta;
   crawlerData: CrawlerData;
+  translationError?: string;
   aggregation: AggregationResult;
   outputPlan: OrganizePlan;
   roots: readonly Pick<MediaRoot, "id" | "hostPath">[];
@@ -167,21 +173,21 @@ export class FileScraper {
         return this.failed(identity(), fileInfo, error);
       }
 
-      let crawlerData: CrawlerData;
-      try {
-        crawlerData = await this.deps.translateService.translateCrawlerData(aggregation.data, configuration, signal);
-      } catch (error) {
-        if (isAbortError(error) || isUnrecoverableNetworkError(error)) throw error;
-        this.deps.logger.warn(`Translation failed for ${aggregation.data.number}: ${toErrorMessage(error)}`);
-        crawlerData = aggregation.data;
-      }
+      const translation = await this.deps.translateService.translateCrawlerData(
+        aggregation.data,
+        configuration,
+        signal,
+      );
+      let crawlerData = translation.data;
+      const translationError = translation.error;
       throwIfAborted(signal);
       crawlerData = canonicalizeCrawlerDataActorAliases(crawlerData, configuration);
       const outputPlan = await this.deps.fileOrganizer.resolveOutputPlan(
         {
           ...this.deps.fileOrganizer.plan(fileInfo, crawlerData, configuration, localState, {
             executionMode: this.options.mode ?? "batch",
-            outputBaseDirectory: options.outputBaseDirectory,
+            outputDirectory: options.outputDirectory,
+            outputTemplateRoot: options.outputTemplateRoot,
           }),
           subtitleSidecars: resolved.subtitleSidecars,
         },
@@ -203,6 +209,7 @@ export class FileScraper {
           localState,
           videoMeta,
           crawlerData,
+          translationError: translationError ? `Translation failed: ${translationError}` : undefined,
           aggregation,
           outputPlan,
           roots,
@@ -225,6 +232,7 @@ export class FileScraper {
   ): Promise<FileScrapeResult> {
     const { configuration, fileInfo, identity, aggregation, outputPlan: plan, roots } = prepared;
     let stagingDir: string | undefined;
+    let stagingHandedOff = false;
 
     try {
       throwIfAborted(signal);
@@ -325,17 +333,22 @@ export class FileScraper {
           !classification.umr &&
           !classification.leak &&
           !isLikelyUncensoredNumber(crawlerData.number || fileInfo.number),
+        ...(prepared.translationError ? { error: prepared.translationError } : {}),
         publicationPlan,
+        release: async () => {
+          await rm(stagingDir as string, { recursive: true, force: true });
+        },
       };
       this.setProgress(progress, 100);
       this.deps.signalService.showScrapeResult(result);
+      stagingHandedOff = true;
       return result;
     } catch (error) {
       this.setProgress(progress, 100);
       if (isAbortError(error)) return this.skipped(identity, "Operation aborted");
       return this.failed(identity, fileInfo, toErrorMessage(error));
     } finally {
-      if (stagingDir) await rm(stagingDir, { recursive: true, force: true });
+      if (stagingDir && !stagingHandedOff) await rm(stagingDir, { recursive: true, force: true });
     }
   }
 

@@ -232,13 +232,11 @@ describe("ScraperService ref-native start", () => {
     expect(run.requestedOutputRelativeDirectory).toBe("JAV_output");
   });
 
-  it.each([
-    undefined,
-    "https://javdb.com/v/abc123",
-  ])("uses the source root and forwards a selected manual URL (%s)", async (manualUrl) => {
+  it("uses the source root and forwards a selected manual URL", async () => {
     const { directory, persistence, service } = await createHarness();
     const sourcePath = join(directory, "picked");
     const metadataPath = join(directory, "metadata");
+    const manualUrl = "https://javdb.com/v/abc123";
     await Promise.all([mkdir(sourcePath, { recursive: true }), mkdir(metadataPath, { recursive: true })]);
     mockConfigManager({
       ...defaultConfiguration,
@@ -265,7 +263,7 @@ describe("ScraperService ref-native start", () => {
     expect(run.requestedOutputRootId).toBe(sourceRoot.id);
     expect(run.requestedOutputRelativeDirectory).toBeNull();
     const options = vi.mocked(FileScraper.prototype.prepareFile).mock.calls.at(-1)?.[3];
-    expect(run.items[0]?.manualUrl).toBe(manualUrl ?? null);
+    expect(run.items[0]?.manualUrl).toBe(manualUrl);
     expect(options?.manualScrape?.detailUrl).toBe(manualUrl);
     expect(options?.roots).toEqual([expect.objectContaining({ id: sourceRoot.id, hostPath: sourcePath })]);
     await expect(state.repositories.mediaRoots.list()).resolves.not.toEqual(

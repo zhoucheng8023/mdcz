@@ -111,21 +111,7 @@ export const useScrapeTerminalError = (showError: (error: string) => void): void
 };
 
 export const activateNewScrapeTask = (): void => {
-  useScrapeStore.getState().reset();
-  useScrapeStore.getState().setPending(true);
   useUIStore.getState().setSelectedResultId(null);
-};
-
-/**
- * Activates a retry that the backend runs as its own task, without discarding the results
- * already in the queue. Only the retried entries are reset to `processing`.
- */
-export const activateRetryScrapeTask = (): void => {
-  useScrapeStore.getState().setPending(true);
-};
-
-export const applyScrapeTaskStatus = (): void => {
-  useScrapeStore.getState().setPending(true);
 };
 
 export interface UncensoredConfirmationSelection {

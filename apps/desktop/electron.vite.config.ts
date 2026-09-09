@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import type { Plugin } from "vite";
 import pkg from "./package.json" with { type: "json" };
+import { buildRendererContentSecurityPolicy } from "./src/shared/rendererCsp";
 
 const appResolve = (subpath: string): string => resolve(__dirname, subpath);
 const workspaceResolve = (subpath: string): string => resolve(__dirname, "../..", subpath);
@@ -30,6 +31,25 @@ const desktopDistributionAssets = (): Plugin => ({
     await cp(workspaceResolve("packages/persistence/drizzle"), target, {
       recursive: true,
     });
+  },
+});
+
+const rendererContentSecurityPolicy = (): Plugin => ({
+  name: "mdcz-renderer-csp",
+  transformIndexHtml: {
+    order: "pre",
+    handler() {
+      return [
+        {
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: buildRendererContentSecurityPolicy(process.env.ELECTRON_RENDERER_URL, "meta"),
+          },
+          injectTo: "head-prepend",
+        },
+      ];
+    },
   },
 });
 
@@ -81,6 +101,7 @@ export default defineConfig({
     },
   },
   renderer: {
+    plugins: [rendererContentSecurityPolicy()],
     root: appResolve("src/renderer"),
     base: "./",
     resolve: {

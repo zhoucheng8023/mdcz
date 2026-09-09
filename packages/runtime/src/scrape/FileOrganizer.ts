@@ -36,7 +36,8 @@ interface ResolveOutputPlanOptions {
 
 export interface OrganizePlanOptions {
   executionMode?: ScrapeExecutionMode;
-  outputBaseDirectory?: string;
+  outputDirectory?: string;
+  outputTemplateRoot?: string;
 }
 
 export type ScrapeExecutionMode = "single" | "batch";
@@ -50,13 +51,10 @@ export const resolveOrganizeDirectory = (
   if (options.executionMode === "single" || !config.behavior.successFileMove) {
     return { directory: sourceDir, useFolderTemplate: false };
   }
-  if (options.outputBaseDirectory) {
-    return { directory: resolve(options.outputBaseDirectory), useFolderTemplate: true };
-  }
+  if (options.outputDirectory) return { directory: resolve(options.outputDirectory), useFolderTemplate: false };
+  if (options.outputTemplateRoot) return { directory: resolve(options.outputTemplateRoot), useFolderTemplate: true };
   const base = resolve(config.paths.mediaPath.trim() || sourceDir, config.paths.successOutputFolder.trim());
-  return isPathInside(base, sourceDir) && sourceDir !== base
-    ? { directory: sourceDir, useFolderTemplate: false }
-    : { directory: base, useFolderTemplate: true };
+  return { directory: base, useFolderTemplate: true };
 };
 
 interface ScrapeFileTransitionOptions {

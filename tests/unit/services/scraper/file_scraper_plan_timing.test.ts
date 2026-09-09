@@ -86,7 +86,7 @@ describe("FileScraper plan timing", () => {
         totalElapsedMs: 1,
       },
     });
-    const translateCrawlerData = vi.fn().mockResolvedValue(translatedData);
+    const translateCrawlerData = vi.fn().mockResolvedValue({ data: translatedData, error: null });
     let currentConfig = {
       ...config,
       paths: { ...config.paths, mediaPath: "/selected-output" },

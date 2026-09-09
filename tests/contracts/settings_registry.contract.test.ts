@@ -1,24 +1,21 @@
-import { defaultConfiguration } from "@mdcz/shared/config";
+import { configurationSchema } from "@mdcz/shared/config";
 import { diffSettingsRegistrySchemaPaths, FIELD_KEYS, SETTINGS_SCHEMA_EXEMPTIONS } from "@mdcz/shared/settingsRegistry";
 import { describe, expect, it } from "vitest";
 
-const collectStaticLeafPaths = (value: unknown, prefix = ""): string[] => {
-  if (Array.isArray(value) || value === null || typeof value !== "object") {
-    return prefix ? [prefix] : [];
+const collectJsonSchemaLeafPaths = (schema: unknown, prefix = ""): string[] => {
+  if (schema && typeof schema === "object" && "properties" in schema) {
+    const properties = (schema as { properties?: Record<string, unknown> }).properties;
+    if (!properties) throw new Error(`Object schema has no properties at ${prefix || "root"}`);
+    return Object.entries(properties).flatMap(([key, child]) =>
+      collectJsonSchemaLeafPaths(child, prefix ? `${prefix}.${key}` : key),
+    );
   }
-
-  if (Object.keys(value).length === 0) {
-    return prefix ? [prefix] : [];
-  }
-
-  return Object.entries(value).flatMap(([key, child]) =>
-    collectStaticLeafPaths(child, prefix ? `${prefix}.${key}` : key),
-  );
+  return prefix ? [prefix] : [];
 };
 
 describe("settings registry and configuration schema", () => {
   it("covers static configuration leaves in both directions", () => {
-    const schemaLeaves = collectStaticLeafPaths(defaultConfiguration);
+    const schemaLeaves = collectJsonSchemaLeafPaths(configurationSchema.toJSONSchema({ unrepresentable: "any" }));
     const diff = diffSettingsRegistrySchemaPaths(schemaLeaves, FIELD_KEYS);
 
     expect(
@@ -33,6 +30,7 @@ describe("settings registry and configuration schema", () => {
     expect(SETTINGS_SCHEMA_EXEMPTIONS).toContainEqual(
       expect.objectContaining({ path: "personSync.actorAliases", kind: "dynamic-record" }),
     );
+    expect(schemaLeaves).toContain("translate.llmTemperature");
   });
   it("reports each drift category by exact key", () => {
     const diff = diffSettingsRegistrySchemaPaths(

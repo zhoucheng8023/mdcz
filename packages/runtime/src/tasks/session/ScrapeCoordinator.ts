@@ -14,6 +14,7 @@ export interface ScrapeRunStore<TRun> {
   retry(runId: string, itemIds?: readonly string[]): Promise<TRun>;
   finalize(input: {
     runId: string;
+    revision?: number;
     disposition: ScrapeWorkflowDisposition;
     error?: string | null;
     startedAt?: Date | null;
@@ -69,6 +70,10 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown, TPrepared 
         this.repairRequired = error instanceof Error ? error.message : String(error);
         this.entries.delete(entry.id);
         this.host.onInvalidate(this.liveRuns());
+      },
+      onDrainError: async (error) => {
+        this.repairRequired = error instanceof Error ? error.message : String(error);
+        await this.host.onError?.("scrape-queue", error);
       },
     });
   }
@@ -183,6 +188,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown, TPrepared 
     const execution = await this.host.createExecution(run, reporter);
     const session = new ScrapeRunSession<TManualScrape, TPrepared>({
       runId: id,
+      executionGeneration: execution.executionGeneration,
       items: execution.items,
       initialItems: execution.initialItems,
       concurrency: execution.concurrency,
@@ -267,6 +273,7 @@ export class ScrapeCoordinator<TStart, TRun, TManualScrape = unknown, TPrepared 
       const logger = runtimeLoggerService.getLogger("Publication");
       const finalized = await this.store.finalize({
         runId: entry.id,
+        revision: snapshot.revision,
         disposition,
         error: snapshot.error,
         startedAt: entry.startedAt,

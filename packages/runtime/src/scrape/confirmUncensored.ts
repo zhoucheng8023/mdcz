@@ -328,8 +328,16 @@ export const confirmUncensoredOutputs = async (
         }
         for (const artifact of plan.artifacts) {
           const previous = artifacts.get(artifact.targetPath);
-          if (previous && !Buffer.from(previous.content.data).equals(Buffer.from(artifact.content.data)))
-            throw new Error(`Conflicting batch artifacts: ${artifact.targetPath}`);
+          if (previous) {
+            const sameContent =
+              previous.content.kind === artifact.content.kind &&
+              (previous.content.kind === "file" && artifact.content.kind === "file"
+                ? previous.content.path === artifact.content.path && previous.content.size === artifact.content.size
+                : previous.content.kind !== "file" &&
+                  artifact.content.kind !== "file" &&
+                  Buffer.from(previous.content.data).equals(Buffer.from(artifact.content.data)));
+            if (!sameContent) throw new Error(`Conflicting batch artifacts: ${artifact.targetPath}`);
+          }
           artifacts.set(artifact.targetPath, artifact);
         }
       }

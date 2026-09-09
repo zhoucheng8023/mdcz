@@ -4,6 +4,7 @@ import { createMediaRoot, deterministicMediaRootId, type MediaRoot } from "@mdcz
 import type { Configuration } from "@mdcz/shared/config";
 import type { BatchTranslateApplyResultItem, BatchTranslateField, BatchTranslateScanItem } from "@mdcz/shared/ipcTypes";
 import type { CrawlerData, FileInfo, LocalScanEntry, NfoLocalState } from "@mdcz/shared/types";
+import { z } from "zod";
 import { commitRegisteredPublication, type RegisteredPublicationContext } from "../publication";
 import {
   ensureTargetChinese,
@@ -13,6 +14,7 @@ import {
   type LlmApiClient,
   normalizeLlmBaseUrl,
   normalizeNewlines,
+  toLlmTextRequest,
   toTarget,
 } from "../scrape";
 import { getNfoWritePaths, NfoGenerator, nfoIgnoreFieldsToEnabledFields } from "../scrape/nfo";
@@ -77,7 +79,6 @@ export interface BatchNfoTranslatorDependencies {
 
 const MAX_BATCH_ITEMS = 20;
 const MAX_BATCH_CHARS = 12_000;
-const CODE_FENCE_PATTERN = /^```(?:json)?\s*|\s*```$/giu;
 const MOVIE_NFO_NAME = "movie.nfo";
 
 export interface BatchNfoTranslatorApplyOptions {
@@ -93,44 +94,7 @@ const noopLogger: RuntimeLogger = {
 
 const normalizeText = (value: string | undefined): string => normalizeNewlines(value ?? "").trim();
 
-const parseJsonStringArray = (content: string, expectedLength: number): string[] | null => {
-  const parseCandidate = (candidate: string): string[] | null => {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (!Array.isArray(parsed) || parsed.length !== expectedLength) return null;
-
-      const outputs: string[] = [];
-      for (const item of parsed) {
-        if (typeof item !== "string") return null;
-        outputs.push(item);
-      }
-      return outputs;
-    } catch {
-      return null;
-    }
-  };
-
-  const candidates = new Set<string>();
-  const trimmed = content.trim();
-  if (trimmed) {
-    candidates.add(trimmed);
-    candidates.add(trimmed.replace(CODE_FENCE_PATTERN, "").trim());
-  }
-
-  for (const candidate of [...candidates]) {
-    const start = candidate.indexOf("[");
-    const end = candidate.lastIndexOf("]");
-    if (start >= 0 && end > start) candidates.add(candidate.slice(start, end + 1).trim());
-  }
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const parsed = parseCandidate(candidate);
-    if (parsed) return parsed;
-  }
-
-  return null;
-};
+const batchTranslationSchema = z.strictObject({ translations: z.array(z.string().trim().min(1)) });
 
 const normalizeMaxBatchItems = (value: unknown): number => {
   const parsed = Number(value);
@@ -243,7 +207,7 @@ const buildBatchPrompt = (texts: string[], target: LanguageTarget): string => {
   return [
     `将输入 JSON 数组中的每一项翻译为${targetLabel}。`,
     "规则：",
-    `1. 只返回一个 JSON 字符串数组，长度必须为 ${texts.length}。`,
+    `1. 只返回 JSON 对象 {"translations":["译文"]}，translations 数组长度必须为 ${texts.length}。`,
     "2. 返回数组的顺序必须与输入数组完全一致。",
     "3. 每个元素只包含最终翻译文本，不要输出解释、代码块、Markdown、编号或额外字段。",
     "4. 自动识别原文语言；如果原文已经是目标中文，直接返回合适的中文结果。",
@@ -268,31 +232,16 @@ const translateChunk = async (
   config: Configuration,
 ): Promise<string[]> => {
   const content = await llmApiClient.generateText(
-    {
-      model: config.translate.llmModelName,
-      apiKey: config.translate.llmApiKey,
-      baseUrl: config.translate.llmBaseUrl,
-      temperature: 0,
-      prompt: buildBatchPrompt(texts, target),
-      reasoningEffort: config.translate.llmReasoningEffort,
-      responseFormat: {
-        name: "batch_translations",
-        schema: {
-          type: "array",
-          minItems: texts.length,
-          maxItems: texts.length,
-          items: { type: "string" },
-        },
-      },
-      timeout: Math.max(1, Math.trunc(config.translate.llmTimeout)) * 1000,
-    },
-    undefined,
+    toLlmTextRequest(config.translate, buildBatchPrompt(texts, target), {
+      name: "batch_translation",
+      schema: z.toJSONSchema(batchTranslationSchema),
+    }),
   );
 
   if (!content) throw new Error("LLM 返回空响应");
-  const parsed = parseJsonStringArray(content, texts.length);
-  if (!parsed) throw new Error("LLM 返回的批量翻译结果不是有效 JSON 数组");
-  return parsed;
+  const { translations } = batchTranslationSchema.parse(JSON.parse(content));
+  if (translations.length !== texts.length) throw new Error("LLM 返回的批量翻译数量与输入不一致");
+  return translations;
 };
 
 const translatePendingTexts = async (

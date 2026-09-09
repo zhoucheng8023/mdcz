@@ -24,7 +24,7 @@ export const resolveScrapeRetry = async (input: {
   outputRelativeDirectory: string;
   failedOutputFolder: string;
   resolveRoot(id: string): Promise<Pick<MediaRoot, "id" | "hostPath">>;
-}): Promise<{ sourcePath: string; executionSource?: RootFileRef; outputBaseDirectory?: string }> => {
+}): Promise<{ sourcePath: string; executionSource?: RootFileRef; outputTemplateRoot?: string }> => {
   const sourceRoot = await input.resolveRoot(input.item.rootId);
   const sourcePath = resolveRootRelativePath(sourceRoot, input.item.relativePath);
   if (!input.retrying) return { sourcePath };
@@ -51,7 +51,7 @@ export const resolveScrapeRetry = async (input: {
     return {
       sourcePath: candidatePath,
       executionSource: candidate,
-      outputBaseDirectory: resolveRootRelativePath(input.outputRoot, input.outputRelativeDirectory),
+      outputTemplateRoot: resolveRootRelativePath(input.outputRoot, input.outputRelativeDirectory),
     };
   }
   throw new Error(`Retry source is missing: ${sourcePath}`);

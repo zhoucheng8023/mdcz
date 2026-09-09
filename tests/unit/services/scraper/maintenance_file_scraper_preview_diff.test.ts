@@ -56,7 +56,7 @@ const createScraper = (crawlerData: CrawlerData, presetId: "refresh_data" | "reb
         }),
       } as never,
       translateService: {
-        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
       } as never,
       nfoGenerator: {
         writeNfo: vi.fn(),

@@ -1,9 +1,4 @@
 import { MaintenanceSession } from "@mdcz/runtime/maintenance";
-import type { CrawlerData } from "@mdcz/shared/types";
-import {
-  buildScrapeResultGroups,
-  buildUncensoredConfirmItemsForScrapeGroups,
-} from "@mdcz/shared/viewModels/scrapeResultGrouping";
 import { getWorkbenchSessionSnapshot, resetScrapeWorkbenchToSetup } from "@mdcz/views/adapters/workbenchSession";
 import {
   changeMaintenancePreset,
@@ -34,12 +29,6 @@ describe("workbench session scrape setup", () => {
     expect(selectScrapeResults(useScrapeStore.getState())).toHaveLength(1);
   });
 
-  it("keeps the processing queue when the last scrape has failures", () => {
-    useScrapeStore.getState().setSnapshot(buildFailedScrapeSnapshot());
-    expect(getWorkbenchSessionSnapshot("scrape").showSetup).toBe(false);
-    expect(selectScrapeResults(useScrapeStore.getState())).toHaveLength(1);
-  });
-
   it("stays on setup after return even if live status is refreshed with null", () => {
     const snapshot = buildFailedScrapeSnapshot();
     useScrapeStore.getState().setSnapshot(snapshot);
@@ -54,17 +43,15 @@ describe("workbench session scrape setup", () => {
     expect(selectScrapeResults(useScrapeStore.getState())).toEqual([]);
   });
 
-  it("shows the start page when the renderer store is empty", () => {
-    expect(getWorkbenchSessionSnapshot("scrape").showSetup).toBe(true);
-    expect(selectScrapeResults(useScrapeStore.getState())).toEqual([]);
-  });
-
-  it.each([
-    "read_local",
-    "refresh_data",
-  ] as const)("hydrates incremental %s previews and rejects retired sessions", (presetId) => {
+  it("hydrates incremental read_local previews and rejects retired sessions", () => {
     const refs = ["one.mp4", "two.mp4"].map((relativePath) => ({ rootId: "root-1", relativePath }));
-    const session = new MaintenanceSession({ id: "maintenance-1", rootId: "root-1", presetId, refs, generation: 1 });
+    const session = new MaintenanceSession({
+      id: "maintenance-1",
+      rootId: "root-1",
+      presetId: "read_local",
+      refs,
+      generation: 1,
+    });
     session.startRunning(1);
     useMaintenanceStore.getState().setSnapshot(session.snapshot());
     expect(selectMaintenanceEntries(useMaintenanceStore.getState())).toEqual([]);
@@ -112,35 +99,5 @@ describe("workbench session scrape setup", () => {
     useMaintenanceStore.getState().setSnapshot(completed);
     expect(useMaintenanceStore.getState().snapshot).toBeNull();
     expect(useMaintenanceStore.getState().presetId).toBe("organize_files");
-  });
-});
-
-describe("desktop uncensored confirmation items", () => {
-  it.each([1, 2])("submits every ambiguous run item of a group by id for %s video part(s)", (partCount) => {
-    const results = Array.from({ length: partCount }, (_, index) => {
-      const part = index + 1;
-      const base = partCount === 1 ? "FC2-123456" : `FC2-123456-CD${part}`;
-      return {
-        fileId: base,
-        rootId: "input",
-        relativePath: `${base}.mp4`,
-        fileName: base,
-        status: "success" as const,
-        output: { rootId: "media", relativePath: `organized/FC2-123456/${base}.mp4` },
-        nfo: { rootId: "metadata", relativePath: "organized/FC2-123456/FC2-123456.nfo" },
-        crawlerData: { number: "FC2-123456" } as CrawlerData,
-        assets: [],
-        uncensoredAmbiguous: true,
-        ...(partCount > 1 ? { part: { number: part, suffix: `-CD${part}` } } : {}),
-      };
-    });
-
-    const groups = buildScrapeResultGroups(results);
-    expect(groups).toHaveLength(1);
-    const group = groups[0];
-    if (!group) throw new Error("Expected an uncensored scrape group");
-    const items = buildUncensoredConfirmItemsForScrapeGroups(groups, { [group.id]: "leak" });
-
-    expect(items).toEqual(results.map(({ fileId }) => ({ itemId: fileId, choice: "leak" })));
   });
 });

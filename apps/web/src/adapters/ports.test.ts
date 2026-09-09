@@ -203,7 +203,7 @@ describe("web scrape action port", () => {
       executionMode: count === 1 ? "single" : "batch",
       refs: targets.map((target) => target.ref),
       manualUrl,
-      ...(count === 2 ? { outputRootId: "root-1" } : {}),
+      ...(count === 2 ? { outputRootId: "root-1", outputRelativeDirectory: "" } : {}),
     });
     expect(retry).not.toHaveBeenCalled();
   });

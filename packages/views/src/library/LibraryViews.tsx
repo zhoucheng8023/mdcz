@@ -3,7 +3,6 @@ import { formatBytes } from "@mdcz/shared/format";
 import {
   Badge,
   Button,
-  Checkbox,
   cn,
   Dialog,
   DialogContent,
@@ -45,12 +44,21 @@ export interface LibraryIndexViewProps {
 
 export interface LibraryDeleteDialogProps {
   open: boolean;
-  deleteMediaFiles?: boolean;
-  showDeleteMediaFiles?: boolean;
-  onDeleteMediaFilesChange?: (value: boolean) => void;
+  deleteMode?: LibraryDeleteMode;
+  showFileDeleteModes?: boolean;
+  submitting?: boolean;
+  onDeleteModeChange?: (value: LibraryDeleteMode) => void;
   onCancel: () => void;
   onConfirm: () => void;
 }
+
+export type LibraryDeleteMode = "none" | "assets" | "all";
+
+const libraryDeleteModes: Array<{ description: string; label: string; value: LibraryDeleteMode }> = [
+  { value: "none", label: "仅移除记录", description: "保留视频、NFO、图片及其他附属文件。" },
+  { value: "assets", label: "同时删除附属文件", description: "删除 NFO、图片等附属文件，保留主视频文件。" },
+  { value: "all", label: "同时删除全部文件", description: "删除主视频及其 NFO、图片等所有已登记文件。" },
+];
 
 const availabilityFilters: Array<{ label: string; value: LibraryAvailabilityFilter }> = [
   { label: "全部", value: "all" },
@@ -233,9 +241,10 @@ export function LibraryIndexView({
 
 export function LibraryDeleteDialog({
   open,
-  deleteMediaFiles = false,
-  showDeleteMediaFiles = false,
-  onDeleteMediaFilesChange,
+  deleteMode = "none",
+  showFileDeleteModes = false,
+  submitting = false,
+  onDeleteModeChange,
   onCancel,
   onConfirm,
 }: LibraryDeleteDialogProps) {
@@ -252,24 +261,36 @@ export function LibraryDeleteDialog({
         <DialogHeader>
           <DialogTitle>从媒体库移除</DialogTitle>
         </DialogHeader>
-        {showDeleteMediaFiles ? (
-          <div className="flex items-center gap-3 rounded-quiet bg-surface-low px-4 py-3 text-sm font-medium text-foreground">
-            <Checkbox
-              checked={deleteMediaFiles}
-              id="delete-media-files"
-              onCheckedChange={(checked) => onDeleteMediaFilesChange?.(checked === true)}
-            />
-            <label className="cursor-pointer" htmlFor="delete-media-files">
-              同时删除媒体文件
-            </label>
+        {showFileDeleteModes ? (
+          <div className="grid gap-2" role="radiogroup" aria-label="删除范围">
+            {libraryDeleteModes.map((mode) => (
+              <label
+                className="flex cursor-pointer items-start gap-3 rounded-quiet border border-border/60 bg-surface-low px-4 py-3"
+                key={mode.value}
+              >
+                <input
+                  checked={deleteMode === mode.value}
+                  className="mt-1"
+                  disabled={submitting}
+                  name="library-delete-mode"
+                  onChange={() => onDeleteModeChange?.(mode.value)}
+                  type="radio"
+                  value={mode.value}
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">{mode.label}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{mode.description}</span>
+                </span>
+              </label>
+            ))}
           </div>
         ) : null}
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
+          <Button disabled={submitting} variant="outline" onClick={onCancel}>
             取消
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
-            确认移除
+          <Button disabled={submitting} variant="destructive" onClick={onConfirm}>
+            {submitting ? "正在移除..." : "确认移除"}
           </Button>
         </DialogFooter>
       </DialogContent>

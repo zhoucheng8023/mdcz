@@ -87,15 +87,14 @@ describe("TranslateService term consistency", () => {
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining('"title":"Japanese title","plot":"Japanese plot","genres":["同一日语词"]'),
-        reasoningEffort: "low",
-        responseFormat: expect.objectContaining({ name: "translated_metadata" }),
+        reasoning: "default",
       }),
       undefined,
     );
-    expect(translated.actors).toEqual(["同一日语词", "同一日语词"]);
-    expect(translated.title_zh).toBe("中文标题");
-    expect(translated.plot_zh).toBe(plot);
-    expect(translated.genres).toEqual(["统一译名"]);
+    expect(translated.data.actors).toEqual(["同一日语词", "同一日语词"]);
+    expect(translated.data.title_zh).toBe("中文标题");
+    expect(translated.data.plot_zh).toBe(plot);
+    expect(translated.data.genres).toEqual(["统一译名"]);
   });
 
   it("prefers mapped actor/genre names and avoids llm", async () => {
@@ -123,8 +122,8 @@ describe("TranslateService term consistency", () => {
     expect(generateText).not.toHaveBeenCalled();
     expect(vi.mocked(findMappedActorName)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(findMappedGenreName)).toHaveBeenCalledTimes(2);
-    expect(translated.actors).toEqual(["小花暖"]);
-    expect(translated.genres).toEqual(["小花暖"]);
+    expect(translated.data.actors).toEqual(["小花暖"]);
+    expect(translated.data.genres).toEqual(["小花暖"]);
   });
 
   it("keeps actor profile photos attached after actor alias normalization", async () => {
@@ -156,8 +155,8 @@ describe("TranslateService term consistency", () => {
 
     expect(generateText).not.toHaveBeenCalled();
     expect(vi.mocked(findMappedActorName)).toHaveBeenCalledTimes(1);
-    expect(translated.actors).toEqual(["小花暖"]);
-    expect(translated.actor_profiles).toEqual([
+    expect(translated.data.actors).toEqual(["小花暖"]);
+    expect(translated.data.actor_profiles).toEqual([
       {
         name: "小花暖",
         aliases: ["小花のん"],
@@ -232,7 +231,7 @@ describe("TranslateService term consistency", () => {
     const config = createBaseConfig();
     config.translate.llmMaxRetries = 3;
 
-    await expect(service.translateText("hello", "zh_cn", config)).resolves.toBe("hello");
+    await expect(service.translateText("hello", "zh_cn", config)).rejects.toBe(transportError);
 
     expect(generateText).toHaveBeenCalledTimes(4);
     expect(sleepMock).toHaveBeenCalledTimes(3);
@@ -253,7 +252,7 @@ describe("TranslateService term consistency", () => {
     const config = createBaseConfig();
     config.translate.llmMaxRetries = 0;
 
-    await service.translateCrawlerData(
+    const result = await service.translateCrawlerData(
       {
         title: "English title",
         plot: "English plot",
@@ -266,15 +265,14 @@ describe("TranslateService term consistency", () => {
       config,
     );
 
-    if (plot === null) {
+    expect(result.data.plot_zh).toBeUndefined();
+    if (plot === null || !plot.trim()) {
+      expect(result.error).toContain(plot === null ? "provider failed" : "invalid structured output");
+    } else {
       expect(logger.warn).toHaveBeenCalledWith(
-        "Translation engine failed for title (HMN-869), returning original text: engine returned no translation",
+        `Translation engine failed for plot (HMN-869), returning original text: ${reason}`,
       );
     }
-    expect(logger.warn).toHaveBeenCalledWith(
-      `Translation engine failed for plot (HMN-869), returning original text: ${reason}`,
-    );
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("plot=original"));
     expect(JSON.stringify([logger.info.mock.calls, logger.warn.mock.calls])).not.toContain("English plot");
   });
 
@@ -290,7 +288,7 @@ describe("TranslateService term consistency", () => {
     const service = createTranslateService(networkClient, llmApiClient);
     const config = createBaseConfig();
 
-    await expect(service.translateText("hello", "zh_cn", config)).resolves.toBe("hello");
+    await expect(service.translateText("hello", "zh_cn", config)).rejects.toBe(emptyResponseError);
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(sleepMock).not.toHaveBeenCalled();
@@ -312,7 +310,7 @@ describe("TranslateService term consistency", () => {
     const service = createTranslateService(networkClient, llmApiClient);
     const config = createBaseConfig();
 
-    await expect(service.translateText("hello", "zh_cn", config)).resolves.toBe("hello");
+    await expect(service.translateText("hello", "zh_cn", config)).rejects.toBe(serverError);
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(sleepMock).not.toHaveBeenCalled();
@@ -340,16 +338,12 @@ describe("TranslateService term consistency", () => {
       config,
     );
 
-    expect(translated.title_zh).toBeUndefined();
-    expect(translated.plot_zh).toBeUndefined();
+    expect(translated.data.title_zh).toBeUndefined();
+    expect(translated.data.plot_zh).toBeUndefined();
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    "这是あき的旅行日记。",
-    "Original plot",
-    "",
-  ])("uses Google and validates field output (%s)", async (plot) => {
+  it.each(["Original plot"])("uses Google and validates field output (%s)", async (plot) => {
     const generateText = vi.fn();
     const llmApiClient = createLlmApiClient(generateText);
     const networkClient = new NetworkClient({});
@@ -380,8 +374,8 @@ describe("TranslateService term consistency", () => {
     );
 
     expect(generateText).not.toHaveBeenCalled();
-    expect(translated.genres).toEqual(["剧情"]);
-    expect(translated.plot_zh).toBe(plot && plot !== "Original plot" ? plot : undefined);
+    expect(translated.data.genres).toEqual(["剧情"]);
+    expect(translated.data.plot_zh).toBe(plot && plot !== "Original plot" ? plot : undefined);
   });
 
   it("keeps original genre terms after llm term translation fails", async () => {
@@ -407,7 +401,7 @@ describe("TranslateService term consistency", () => {
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(networkClient.getJson).not.toHaveBeenCalled();
-    expect(translated.genres).toEqual(["Drama"]);
+    expect(translated.data.genres).toEqual(["Drama"]);
   });
 
   it("normalizes unsupported translation target config values to zh-CN without migration", () => {

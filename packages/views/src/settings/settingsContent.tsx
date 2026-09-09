@@ -1,7 +1,7 @@
 import { isSharedDirectoryMode } from "@mdcz/shared/assetNaming";
 import { type Configuration, NFO_FIELD_OPTIONS, type NfoField } from "@mdcz/shared/config";
 import { TRANSLATION_TARGET_OPTIONS } from "@mdcz/shared/enums";
-import { DEFAULT_LLM_BASE_URL, LLM_REASONING_EFFORT_OPTIONS } from "@mdcz/shared/llm";
+import { DEFAULT_LLM_BASE_URL } from "@mdcz/shared/llm";
 import {
   POSTER_TAG_BADGE_ASPECT_HEIGHT,
   POSTER_TAG_BADGE_ASPECT_WIDTH,
@@ -64,15 +64,27 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
   { value: "google", label: "Google 翻译（免费）" },
 ];
 const LANGUAGE_OPTIONS = [...TRANSLATION_TARGET_OPTIONS];
-const LLM_REASONING_EFFORT_LABELS = {
-  low: "低",
-  medium: "中",
-  high: "高",
-} as const;
-const LLM_REASONING_EFFORT_FIELD_OPTIONS: EnumOption[] = LLM_REASONING_EFFORT_OPTIONS.map((value) => ({
-  value,
-  label: LLM_REASONING_EFFORT_LABELS[value],
-}));
+const LLM_REASONING_FIELD_OPTIONS: EnumOption[] = [
+  { value: "default", label: "服务端默认" },
+  { value: "disabled", label: "关闭" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+const LLM_API_FORMAT_FIELD_OPTIONS: EnumOption[] = [
+  { value: "responses", label: "Responses" },
+  { value: "chat-completions", label: "Chat Completions" },
+];
+const LLM_SERVICE_TYPE_FIELD_OPTIONS: EnumOption[] = [
+  { value: "openai-compatible", label: "OpenAI 兼容" },
+  { value: "google", label: "Google" },
+  { value: "deepseek", label: "DeepSeek" },
+];
+const LLM_OUTPUT_FORMAT_FIELD_OPTIONS: EnumOption[] = [
+  { value: "none", label: "无" },
+  { value: "json_object", label: "JSON Object" },
+  { value: "json_schema", label: "JSON Schema" },
+];
 const PART_STYLE_OPTIONS: EnumOption[] = [
   { value: "RAW", label: "保持原始后缀" },
   { value: "CD", label: "统一为 CD1 / CD2" },
@@ -1024,6 +1036,7 @@ export function TranslateSection() {
   const form = useFormContext<FieldValues>();
   const search = useOptionalSettingsSearch();
   const engine = useWatch({ control: form.control, name: "translate.engine" });
+  const serviceType = useWatch({ control: form.control, name: "translate.llmServiceType" });
   const isLLM = engine !== "google";
 
   const handleTestLlm = async () => {
@@ -1031,9 +1044,12 @@ export function TranslateSection() {
       llmModelName: String(form.getValues("translate.llmModelName") ?? ""),
       llmApiKey: String(form.getValues("translate.llmApiKey") ?? ""),
       llmBaseUrl: String(form.getValues("translate.llmBaseUrl") ?? ""),
+      llmApiFormat: form.getValues("translate.llmApiFormat") ?? "responses",
+      llmServiceType: form.getValues("translate.llmServiceType") ?? "openai-compatible",
       llmPrompt: String(form.getValues("translate.llmPrompt") ?? ""),
-      llmTemperature: Number(form.getValues("translate.llmTemperature") ?? 0),
-      llmReasoningEffort: form.getValues("translate.llmReasoningEffort") ?? "low",
+      llmTemperature: form.getValues("translate.llmTemperature"),
+      llmReasoning: form.getValues("translate.llmReasoning") ?? "default",
+      llmOutputFormat: form.getValues("translate.llmOutputFormat") ?? "none",
       llmTimeout: Number(form.getValues("translate.llmTimeout") ?? 120),
     };
 
@@ -1095,13 +1111,39 @@ export function TranslateSection() {
             label="LLM API 地址"
             description={`默认值：${DEFAULT_LLM_BASE_URL}。Google Gemini 示例：https://generativelanguage.googleapis.com/v1beta/openai。本地示例：Ollama 用 http://127.0.0.1:11434/v1`}
           />
-          <PromptFieldWrapper name="translate.llmPrompt" label="LLM 翻译提示词" />
-          <NumberField name="translate.llmTemperature" label="LLM 温度" min={0} max={2} step={0.1} />
+          {serviceType === "openai-compatible" && (
+            <EnumField name="translate.llmApiFormat" label="请求形式" options={LLM_API_FORMAT_FIELD_OPTIONS} />
+          )}
           <EnumField
-            name="translate.llmReasoningEffort"
+            name="translate.llmServiceType"
+            label="服务类型"
+            description="自定义代理需要显式选择 Google 或 DeepSeek；不要依赖网址域名识别。"
+            options={LLM_SERVICE_TYPE_FIELD_OPTIONS}
+          />
+          <PromptFieldWrapper name="translate.llmPrompt" label="LLM 翻译提示词" />
+          <NumberField
+            name="translate.llmTemperature"
+            label="LLM 温度（高级，可选）"
+            description="留空时使用服务端默认值。"
+            min={0}
+            max={2}
+            step={0.1}
+            optional
+          />
+          <EnumField
+            name="translate.llmReasoning"
             label="LLM 推理强度"
-            description="较高强度可能改善复杂文本翻译，但会显著增加耗时和 token 消耗。"
-            options={LLM_REASONING_EFFORT_FIELD_OPTIONS}
+            description="服务端默认会省略推理字段；显式关闭或档位是否可用由模型和服务端校验。"
+            options={LLM_REASONING_FIELD_OPTIONS}
+          />
+          <EnumField
+            name="translate.llmOutputFormat"
+            label="输出格式"
+            description="独立于请求形式。无则省略结构化输出参数。"
+            options={LLM_OUTPUT_FORMAT_FIELD_OPTIONS.filter(
+              (option) =>
+                serviceType !== "deepseek" || (typeof option === "string" ? option : option.value) !== "json_schema",
+            )}
           />
           <NumberField name="translate.llmTimeout" label="LLM 请求超时(秒)" min={1} max={300} />
           <NumberField name="translate.llmMaxRetries" label="LLM 最大重试次数" min={1} max={20} />

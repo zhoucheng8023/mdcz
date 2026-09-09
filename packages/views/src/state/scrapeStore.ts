@@ -34,17 +34,19 @@ export const useScrapeStore = create<ScrapeState>()((set) => ({
         return {
           snapshot,
           retiredTaskIds: previous ? [...state.retiredTaskIds, previous.task.id] : state.retiredTaskIds,
-          pending: false,
           error: null,
         };
       }
 
-      const incomingById = new Map(snapshot.items.map((item) => [item.id, item]));
-      const items = previous.items.map((item) => incomingById.get(item.id) ?? item);
-      for (const item of snapshot.items) {
-        if (!previous.items.some((candidate) => candidate.id === item.id)) items.push(item);
+      if (
+        snapshot.task.executionGeneration < previous.task.executionGeneration ||
+        (snapshot.task.executionGeneration === previous.task.executionGeneration &&
+          snapshot.task.revision < previous.task.revision)
+      ) {
+        return state;
       }
-      return { snapshot: { ...snapshot, items }, pending: false, error: null };
+
+      return { snapshot, error: null };
     });
   },
   setPending: (pending) => set({ pending }),
@@ -58,13 +60,22 @@ export const useScrapeStore = create<ScrapeState>()((set) => ({
 
 export const beginScrapeTask = (retryTaskId?: string): void =>
   useScrapeStore.setState((state) => ({
-    snapshot: null,
     pending: true,
     error: null,
-    retiredTaskIds: [...new Set([...state.retiredTaskIds, ...(state.snapshot ? [state.snapshot.task.id] : [])])].filter(
-      (id) => id !== retryTaskId,
-    ),
+    retiredTaskIds: retryTaskId ? state.retiredTaskIds.filter((id) => id !== retryTaskId) : state.retiredTaskIds,
   }));
+
+export const runScrapeRequest = async <T>(request: () => Promise<T>, retryTaskId?: string): Promise<T> => {
+  beginScrapeTask(retryTaskId);
+  try {
+    return await request();
+  } catch (error) {
+    useScrapeStore.getState().setError(error instanceof Error ? error.message : String(error));
+    throw error;
+  } finally {
+    useScrapeStore.getState().setPending(false);
+  }
+};
 
 const liveItemToScrapeResult = (item: ScrapeLiveItemDto): ScrapeResult => ({
   ...(item.resultId ? { resultId: item.resultId } : {}),
@@ -109,7 +120,7 @@ export const selectScrapeStatus = (state: ScrapeState): ScrapeStatus => {
   return status === "queued" || status === "running" ? "running" : "idle";
 };
 
-/** How the run ended, so a stopped or interrupted run is not shown as a normal completion. */
+/** Identifies terminal states that need distinct result messaging. */
 export const selectScrapeOutcome = (state: ScrapeState): ScrapeOutcome => {
   const status = selectScrapeSnapshot(state)?.task.status;
   return status === "completed" || status === "failed" || status === "stopped" || status === "interrupted"

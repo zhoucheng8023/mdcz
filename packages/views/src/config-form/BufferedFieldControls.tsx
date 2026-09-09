@@ -47,6 +47,20 @@ export function parseBufferedNumberValue(draft: string, currentValue: unknown): 
   return typeof currentValue === "number" && Number.isFinite(currentValue) ? currentValue : 0;
 }
 
+export function parseBufferedOptionalNumberValue(draft: string, currentValue: unknown): number | null {
+  const trimmed = draft.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
+
+  return typeof currentValue === "number" && Number.isFinite(currentValue) ? currentValue : null;
+}
+
 export function useBufferedFieldController(
   field: BufferedField,
   { format = formatDraftValue, parse = parseTextDraft, commitOnEnter = true }: BufferedFieldControllerOptions = {},

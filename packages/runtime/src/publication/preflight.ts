@@ -178,6 +178,11 @@ export const preflightPublication = async (
     if (artifact.content.kind === "download") {
       throw new Error(`Publication target already exists: ${refLabel(artifact.target)}`);
     }
+    if (artifact.content.kind === "file") {
+      if (!replacing.has(refKey(artifact.target)))
+        throw new Error(`Publication artifact replacement was not planned: ${refLabel(artifact.target)}`);
+      continue;
+    }
     const expected = Buffer.from(artifact.content.data);
     const actual = await fileSystem.readFile(targetPath);
     if (!actual.equals(expected) && !replacing.has(refKey(artifact.target)))

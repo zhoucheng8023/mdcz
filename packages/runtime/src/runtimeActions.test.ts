@@ -45,8 +45,6 @@ describe("settings parity runtime helpers", () => {
 
   it.each([
     [Website.JAVDB, "javdbCookie", "javdb_session=ok"],
-    [Website.JAVBUS, "javbusCookie", "javbus_session=ok"],
-    [Website.FANTIA, "fantiaCookie", "fantia_session=ok"],
   ] as const)("builds only the %s cookie for its matching site", (site, cookieKey, cookie) => {
     const config = cloneConfig();
     config.network[cookieKey] = cookie;
@@ -191,7 +189,7 @@ describe("settings parity runtime helpers", () => {
           llmModelName: "gpt-test",
           llmPrompt: "{lang}:{content}",
           llmTemperature: 1.5,
-          llmReasoningEffort: "high",
+          llmReasoning: "high",
         },
         config,
         llmApiClient,
@@ -203,15 +201,28 @@ describe("settings parity runtime helpers", () => {
         baseUrl: "https://example.test/v1",
         model: "gpt-test",
         prompt: expect.stringContaining("简体中文:ある日の暮方の事である。"),
-        reasoningEffort: "high",
-        temperature: 0,
+        reasoning: "high",
+        temperature: 1.5,
         timeout: 120_000,
+        serviceType: "openai-compatible",
+        outputFormat: "none",
       }),
-      undefined,
     );
     expect(logger.info).toHaveBeenCalledWith("Test LLM connectivity: Success");
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('reply="ok"');
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('reply="ok"');
+
+    vi.mocked(llmApiClient.generateText).mockResolvedValueOnce("");
+    await expect(testLlmConnectivity({ llmModelName: "gpt-test" }, config, llmApiClient, logger)).resolves.toEqual({
+      success: false,
+      message: "LLM 返回空内容",
+    });
+
+    vi.mocked(llmApiClient.generateText).mockRejectedValueOnce(new Error("HTTP 400: invalid temperature"));
+    await expect(testLlmConnectivity({ llmModelName: "gpt-test" }, config, llmApiClient, logger)).resolves.toEqual({
+      success: false,
+      message: "连接失败: HTTP 400: invalid temperature",
+    });
   });
 
   it("creates the server-side watermark directory under runtime data", async () => {

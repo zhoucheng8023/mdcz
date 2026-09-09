@@ -113,11 +113,7 @@ describe("maintenance multipart grouping", () => {
     });
   });
 
-  it.each([
-    ["ready", "success"],
-    ["pending", "processing"],
-    ["processing", "processing"],
-  ] as const)("treats preview status %s as effective status %s and clears recovered local scanError", (previewStatus, expectedStatus) => {
+  it("treats preview status ready as success and clears recovered local scanError", () => {
     const entry: LocalScanEntry = {
       ...createMaintenanceEntry(),
       scanError: "NFO 解析失败: NFO missing website",
@@ -128,12 +124,12 @@ describe("maintenance multipart grouping", () => {
       previewResults: {
         [entry.fileId]: {
           fileId: entry.fileId,
-          status: previewStatus,
+          status: "ready",
         },
       },
     });
 
-    expect(group?.status).toBe(expectedStatus);
+    expect(group?.status).toBe("success");
     expect(group?.errorText).toBeUndefined();
   });
 

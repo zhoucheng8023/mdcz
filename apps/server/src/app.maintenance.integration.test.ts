@@ -131,7 +131,7 @@ const createMaintenanceRuntime = (
       showLogText: () => undefined,
     },
     translateService: {
-      translateCrawlerData: async (data: CrawlerData) => data,
+      translateCrawlerData: async (data: CrawlerData) => ({ data, error: null }),
     } as never,
   });
 
