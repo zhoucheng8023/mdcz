@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { PersistenceDatabase } from "./database";
 import { PersistenceError, persistenceErrorCodes } from "./errors";
-import { type LibraryEntryRecord, LibraryRepository, type UpsertLibraryEntryInput } from "./libraryRepository";
+import type { UpsertLibraryEntryInput } from "./libraryRepository";
 import { writeLibraryRows } from "./libraryWrite";
 import { scrapeAttempts, scrapeItemOutcomes, scrapeRunItems, scrapeRuns } from "./schema";
 
@@ -47,6 +47,8 @@ export interface ScrapeItemOutcomeRecord {
 
 export interface ScrapeRunRecord {
   id: string;
+  executionGeneration: number;
+  revision: number;
   rootId: string;
   requestedOutputRootId: string | null;
   requestedOutputRelativeDirectory: string | null;
@@ -109,6 +111,7 @@ export type CommitScrapeOutcomeInput =
   | (CommitBase & { outcome: "skipped"; error?: string | null })
   | (CommitBase & {
       outcome: "success";
+      error?: string | null;
       crawlerDataJson: string;
       nfoRootId?: string | null;
       nfoRelativePath?: string | null;
@@ -135,6 +138,7 @@ export interface ReviseScrapeSuccessInput {
 
 export interface FinalizeScrapeRunInput {
   runId: string;
+  revision?: number;
   disposition: ScrapeRunDisposition;
   error?: string | null;
   startedAt?: Date | null;
@@ -151,11 +155,7 @@ const latestOutcomes = (outcomes: readonly ScrapeItemOutcomeRecord[]): ScrapeIte
 };
 
 export class ScrapeRunRepository {
-  private readonly library: LibraryRepository;
-
-  constructor(private readonly database: PersistenceDatabase) {
-    this.library = new LibraryRepository(database);
-  }
+  constructor(private readonly database: PersistenceDatabase) {}
 
   async create(input: CreateScrapeRunInput): Promise<ScrapeRunRecord> {
     const id = input.id ?? randomUUID();
@@ -216,6 +216,8 @@ export class ScrapeRunRepository {
       .all();
     return {
       id: run.id,
+      executionGeneration: run.executionGeneration,
+      revision: run.revision,
       rootId: run.rootId,
       requestedOutputRootId: run.outputRootId,
       requestedOutputRelativeDirectory: run.outputRelativeDirectory,
@@ -357,7 +359,7 @@ export class ScrapeRunRepository {
         id,
         attemptId: attempt.id,
         outcome: "success",
-        errorMessage: null,
+        errorMessage: input.error ?? null,
         crawlerDataJson: input.crawlerDataJson,
         nfoRootId: input.nfoRootId ?? null,
         nfoRelativePath: input.nfoRelativePath ?? null,
@@ -379,45 +381,45 @@ export class ScrapeRunRepository {
     };
   }
 
-  async reviseSuccess(
-    input: ReviseScrapeSuccessInput,
-  ): Promise<{ outcome: ScrapeItemOutcomeRecord; entry: LibraryEntryRecord }> {
-    const existing = this.database.db
-      .select({ outcome: scrapeItemOutcomes, item: scrapeRunItems })
-      .from(scrapeItemOutcomes)
-      .innerJoin(scrapeAttempts, eq(scrapeAttempts.id, scrapeItemOutcomes.attemptId))
-      .innerJoin(scrapeRunItems, eq(scrapeRunItems.id, scrapeAttempts.itemId))
-      .where(eq(scrapeItemOutcomes.id, input.outcomeId))
-      .get();
-    if (!existing) throw notFound("Scrape outcome", input.outcomeId);
-    if (existing.outcome.outcome !== "success")
-      throw new Error(`Only successful scrape outcomes can be revised: ${input.outcomeId}`);
-    const entryId = this.database.sqlite.transaction(() => {
-      this.database.db
-        .update(scrapeItemOutcomes)
-        .set({
-          crawlerDataJson: input.crawlerDataJson,
-          nfoRootId: input.nfoRootId ?? null,
-          nfoRelativePath: input.nfoRelativePath ?? null,
-          outputRootId: input.outputRootId,
-          outputRelativePath: input.outputRelativePath,
-          uncensoredAmbiguous: input.uncensoredAmbiguous,
-          size: input.size,
-          modifiedAt: input.modifiedAt ?? null,
-        })
-        .where(eq(scrapeItemOutcomes.id, input.outcomeId))
-        .run();
-      return writeLibraryRows(this.database, {
-        ...input.libraryEntry,
-        sourceRunId: existing.item.runId,
-        sourceOutcomeId: existing.outcome.id,
-      });
+  /**
+   * Synchronous so hosts can run it inside the publication journal commit
+   * transaction: shared-NFO parts revise together or not at all.
+   */
+  reviseSuccess(inputs: readonly ReviseScrapeSuccessInput[]): void {
+    this.database.sqlite.transaction(() => {
+      for (const input of inputs) {
+        const existing = this.database.db
+          .select({ outcome: scrapeItemOutcomes, item: scrapeRunItems })
+          .from(scrapeItemOutcomes)
+          .innerJoin(scrapeAttempts, eq(scrapeAttempts.id, scrapeItemOutcomes.attemptId))
+          .innerJoin(scrapeRunItems, eq(scrapeRunItems.id, scrapeAttempts.itemId))
+          .where(eq(scrapeItemOutcomes.id, input.outcomeId))
+          .get();
+        if (!existing) throw notFound("Scrape outcome", input.outcomeId);
+        if (existing.outcome.outcome !== "success") {
+          throw new Error(`Only successful scrape outcomes can be revised: ${input.outcomeId}`);
+        }
+        this.database.db
+          .update(scrapeItemOutcomes)
+          .set({
+            crawlerDataJson: input.crawlerDataJson,
+            nfoRootId: input.nfoRootId ?? null,
+            nfoRelativePath: input.nfoRelativePath ?? null,
+            outputRootId: input.outputRootId,
+            outputRelativePath: input.outputRelativePath,
+            uncensoredAmbiguous: input.uncensoredAmbiguous,
+            size: input.size,
+            modifiedAt: input.modifiedAt ?? null,
+          })
+          .where(eq(scrapeItemOutcomes.id, input.outcomeId))
+          .run();
+        writeLibraryRows(this.database, {
+          ...input.libraryEntry,
+          sourceRunId: existing.item.runId,
+          sourceOutcomeId: existing.outcome.id,
+        });
+      }
     })();
-    const outcome = (await this.get(existing.item.runId)).outcomes.find(
-      (candidate) => candidate.id === input.outcomeId,
-    );
-    if (!outcome) throw new Error(`Scrape outcome disappeared after revision: ${input.outcomeId}`);
-    return { outcome, entry: await this.library.getEntryById(entryId) };
   }
 
   async finalize(input: FinalizeScrapeRunInput): Promise<ScrapeRunRecord> {
@@ -446,6 +448,7 @@ export class ScrapeRunRepository {
       .update(scrapeRuns)
       .set({
         disposition: projectedDisposition,
+        revision: input.revision ?? run.revision + 1,
         startedAt: input.startedAt ?? null,
         completedAt: input.completedAt ?? new Date(),
         errorMessage: input.error ?? null,
@@ -477,7 +480,13 @@ export class ScrapeRunRepository {
       for (const id of runIds) {
         this.database.db
           .update(scrapeRuns)
-          .set({ disposition: "interrupted", completedAt: interruptedAt, errorMessage: "Interrupted by shutdown" })
+          .set({
+            disposition: "interrupted",
+            completedAt: interruptedAt,
+            errorMessage: "Interrupted by shutdown",
+            executionGeneration: sql`${scrapeRuns.executionGeneration} + 1`,
+            revision: 0,
+          })
           .where(eq(scrapeRuns.id, id))
           .run();
       }
@@ -508,6 +517,17 @@ export class ScrapeRunRepository {
     }
     this.database.sqlite.transaction(() => {
       for (const item of items) this.admitAttempt(item.id, admittedAt);
+      this.database.db
+        .update(scrapeRuns)
+        .set({
+          executionGeneration: run.executionGeneration + 1,
+          revision: 0,
+          disposition: null,
+          completedAt: null,
+          errorMessage: null,
+        })
+        .where(eq(scrapeRuns.id, run.id))
+        .run();
     })();
     return await this.get(run.id);
   }

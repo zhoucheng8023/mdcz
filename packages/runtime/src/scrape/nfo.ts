@@ -139,6 +139,7 @@ const buildMdczNode = (
   options: NfoOptions | undefined,
 ): Record<string, unknown> | undefined => {
   const enabledFields = options?.enabledFields;
+  const originalPlot = isNfoFieldEnabled(enabledFields, "plot") ? data.plot?.trim() : undefined;
   const includeRemoteSceneImageUrls = options?.includeRemoteSceneImageUrls ?? true;
   const allowRemoteTrailerFallback = options?.allowRemoteTrailerFallback ?? true;
   const remoteThumbSourceUrl = data.thumb_source_url ?? toRemoteImageSourceUrl(data.thumb_url);
@@ -162,6 +163,7 @@ const buildMdczNode = (
 
   if (
     !rawTitle &&
+    !originalPlot &&
     !thumbSourceUrl &&
     !posterSourceUrl &&
     !fanartSourceUrl &&
@@ -173,6 +175,7 @@ const buildMdczNode = (
 
   return {
     raw_title: rawTitle,
+    original_plot: originalPlot,
     thumb_source_url: thumbSourceUrl,
     poster_source_url: posterSourceUrl,
     fanart_source_url: fanartSourceUrl,
@@ -284,12 +287,14 @@ export class NfoGenerator {
 
     if (nfoNaming === "movie") {
       await write(moviePath, xml);
-      for (const stalePath of stalePaths) await tryRemoveStaleNfo(stalePath, options?.pathExists);
+      if (!options?.writeFile)
+        for (const stalePath of stalePaths) await tryRemoveStaleNfo(stalePath, options?.pathExists);
       return canonicalPath;
     }
 
     await write(primaryPath, xml);
-    for (const stalePath of stalePaths) await tryRemoveStaleNfo(stalePath, options?.pathExists);
+    if (!options?.writeFile)
+      for (const stalePath of stalePaths) await tryRemoveStaleNfo(stalePath, options?.pathExists);
     return canonicalPath;
   }
 }
@@ -349,6 +354,7 @@ const EDITABLE_MOVIE_FIELDS = [
 ] as const;
 const EDITABLE_MDCZ_FIELDS = [
   "raw_title",
+  "original_plot",
   "thumb_source_url",
   "poster_source_url",
   "fanart_source_url",
@@ -574,11 +580,13 @@ export const parseNfo = (xml: string, fallbackPath: string): CrawlerData => {
     director: readTag(xml, "director"),
     publisher: readTag(xml, "publisher"),
     series: readTag(xml, "set"),
-    plot: readTag(xml, "plot"),
+    plot: readTag(xml, "original_plot") ?? readTag(xml, "plot"),
     plot_zh: readTag(xml, "outline"),
     release_date: readTag(xml, "premiered"),
     thumb_url: readTag(xml, "thumb"),
     poster_url: readTag(xml, "poster"),
+    trailer_url: readTag(xml, "trailer"),
+    trailer_source_url: readTag(xml, "trailer_source_url"),
     scene_images: [],
     website: uniqueid.website ?? Website.JAVDB,
   };

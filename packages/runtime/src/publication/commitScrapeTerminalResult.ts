@@ -1,6 +1,8 @@
-import type { MediaRoot } from "@mdcz/media-store";
+import { stat } from "node:fs/promises";
+import { type MediaRoot, resolveRootRelativePath } from "@mdcz/media-store";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { CrawlerData, ScrapeResult } from "@mdcz/shared/types";
+import { PublicationConflictError } from "./conflicts";
 import { libraryEntryFromPublicationPlan } from "./libraryEntry";
 import { commitPublishedMedia } from "./publishMedia";
 import {
@@ -64,6 +66,7 @@ export interface ScrapeTerminalCommitStore {
   commitOutcome(input: { outcome: "failed" | "skipped"; attemptId: string; error?: string | null }): { id: string };
   commitSuccessOutcome(input: {
     outcome: "success";
+    error?: string | null;
     attemptId: string;
     crawlerDataJson: string;
     nfoRootId: string | null;
@@ -104,14 +107,10 @@ export const commitScrapeTerminalResult = async (input: {
   fileTransitions: ScrapeFileTransitions;
 }): Promise<ScrapeResult> => {
   const { result, attemptId, scrapeRuns } = input;
-  const transition = async (name: "success" | "failed"): Promise<void> => {
-    if (name === "success") await input.fileTransitions.succeeded();
-    else await input.fileTransitions.failed();
-  };
   const commitFailure = async (error: string, causes: unknown[] = []): Promise<ScrapeResult> => {
     let terminalError = error;
     try {
-      await transition("failed");
+      await input.fileTransitions.failed();
     } catch (transitionError) {
       causes.push(transitionError);
       terminalError = `${terminalError}；失败文件移动失败：${errorMessage(transitionError)}`;
@@ -137,11 +136,17 @@ export const commitScrapeTerminalResult = async (input: {
   if (result.status !== "success") {
     throw new Error(`Cannot commit non-terminal scrape result: ${result.status}`);
   }
-  const output = input.success?.plan.video?.target;
-  if (!input.success || !output) {
+  const video = input.success?.plan.videos?.[0];
+  const output = video?.target;
+  if (!input.success || !video || !output) {
     throw new Error(`Successful scrape has no publication plan: ${input.itemPath}`);
   }
   const success = input.success;
+  const source = video.source;
+  const sourcePath = resolveRootRelativePath(await input.resolveRoot(source.rootId), source.relativePath);
+  const sourceStats = await (input.fileSystem?.stat ?? stat)(sourcePath);
+  success.size = video.size;
+  success.modifiedAt = sourceStats.mtime;
   const crawlerData = success.crawlerData;
   if (!crawlerData) {
     throw new Error(`Successful scrape has no crawler data: ${input.itemPath}`);
@@ -166,6 +171,7 @@ export const commitScrapeTerminalResult = async (input: {
       commit: () =>
         scrapeRuns.commitSuccessOutcome({
           outcome: "success",
+          error: result.error ?? null,
           attemptId,
           crawlerDataJson,
           nfoRootId,
@@ -191,14 +197,22 @@ export const commitScrapeTerminalResult = async (input: {
         }),
     });
   } catch (error) {
+    if (
+      error instanceof PublicationConflictError ||
+      (error instanceof AggregateError && error.errors.some((cause) => cause instanceof PublicationConflictError))
+    )
+      throw error;
     const coordinatedError = formatCommitFailure(error);
     return await commitFailure(coordinatedError, [error]);
   }
-  await transition("success");
+  await input.fileTransitions.succeeded();
   return {
     ...result,
     resultId: committed.value.outcomeId,
     status: "success",
+    output,
+    nfo: success.nfo ?? undefined,
+    assets: success.plan.assets,
     ...(committed.cleanupError ? { error: formatCommitFailure(committed.cleanupError) } : {}),
   };
 };

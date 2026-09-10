@@ -37,6 +37,8 @@ export const buildScrapeSnapshot = (overrides: Partial<ScrapeRunSnapshotDto> = {
     failedCount: 0,
     skippedCount: 0,
     error: null,
+    revision: 0,
+    executionGeneration: 0,
     continuity: "final",
   },
   progress: { percent: 100, completedItems: 1, totalItems: 1 },

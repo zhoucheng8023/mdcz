@@ -1,5 +1,4 @@
 import { type Configuration, configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import { CrawlerProvider, FetchGateway } from "@mdcz/runtime/crawler";
 import type { CrawlerInput, CrawlerResponse } from "@mdcz/runtime/crawler/base/types";
@@ -14,7 +13,7 @@ import {
 } from "@mdcz/runtime/scrape";
 import { Website } from "@mdcz/shared/enums";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockConfigManager } from "../../../helpers/scraper";
+import { mockConfigManager, prepareAndExecuteFile } from "../../../helpers/scraper";
 
 class OrderedStubCrawlerProvider extends CrawlerProvider {
   readonly calledSites: Website[] = [];
@@ -68,10 +67,15 @@ describe("FileScraper site aggregation", () => {
         imageHostCooldownStore: new MemoryImageHostCooldownStore(),
       }),
       fileOrganizer: new FileOrganizer(),
-      signalService: new SignalService(null),
     });
 
-    const result = await scraper.scrapeFile("/tmp/FNS-139.mp4", { fileIndex: 1, totalFiles: 1 });
+    const result = await prepareAndExecuteFile(
+      scraper,
+      "/tmp/FNS-139.mp4",
+      { fileIndex: 1, totalFiles: 1 },
+      undefined,
+      { roots: [{ id: "test", hostPath: "/tmp" }] },
+    );
 
     expect(result.status).toBe("failed");
     expect(crawlerProvider.calledSites.sort()).toEqual([Website.DMM, Website.JAVBUS, Website.JAVDB].sort());
@@ -92,10 +96,11 @@ describe("FileScraper site aggregation", () => {
         imageHostCooldownStore: new MemoryImageHostCooldownStore(),
       }),
       fileOrganizer: new FileOrganizer(),
-      signalService: new SignalService(null),
     });
 
-    const result = await scraper.scrapeFile(filePath);
+    const result = await prepareAndExecuteFile(scraper, filePath, undefined, undefined, {
+      roots: [{ id: "test", hostPath: "/tmp" }],
+    });
 
     expect(crawlerProvider.calledNumbers).toEqual(["ABF-252", "ABF-252", "ABF-252"]);
     expect(result.fileName).toBe("[7SiS-001]+ ABF-252");

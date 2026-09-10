@@ -3,6 +3,7 @@ import type { ServiceContainer } from "@main/container";
 import { createContainer } from "@main/createContainer";
 import { registerIpcHandlers } from "@main/ipc";
 import { registerLocalFileHandler, registerLocalFileScheme } from "@main/localFileProtocol";
+import { createAppNetworkClient, finalizeAppNetwork, prepareAppScrapeItem } from "@main/networkComposition";
 import { configManager } from "@main/services/config";
 import { loggerService } from "@main/services/LoggerService";
 import { ShortcutService } from "@main/services/ShortcutService";
@@ -11,7 +12,6 @@ import { TrayService } from "@main/services/TrayService";
 import { UpdateService } from "@main/services/UpdateService";
 import { type MainWindowCreationOptions, WindowService } from "@main/services/WindowService";
 import { shouldRunStartupUpdateCheck } from "@main/updateCheckPolicy";
-import { NetworkClient } from "@mdcz/runtime/network";
 import { runtimeLoggerService } from "@mdcz/runtime/shared";
 import { app, BrowserWindow } from "electron";
 
@@ -20,7 +20,7 @@ const QUIT_FORCE_EXIT_TIMEOUT_MS = 15_000;
 runtimeLoggerService.setFactory((name) => loggerService.getLogger(name));
 
 const signalService = new SignalService();
-const sharedNetworkClient = new NetworkClient({
+const sharedNetworkClient = createAppNetworkClient({
   getProxyUrl: () => configManager.getComputed().proxyUrl,
   getTimeoutMs: () => configManager.getComputed().networkTimeoutMs,
   getRetryCount: () => configManager.getComputed().networkRetryCount,
@@ -31,6 +31,8 @@ let serviceContainer: ServiceContainer | null = null;
 const trayService = new TrayService();
 const shortcutService = new ShortcutService();
 let cleanupPromise: Promise<void> | null = null;
+let cleanupFinished = false;
+let quitRequested = false;
 let disposeShortcutConfigListener: (() => void) | null = null;
 let disposeLoggerListener: (() => void) | null = loggerService.onLog((payload) => {
   signalService.forwardLoggerLog(payload);
@@ -38,7 +40,7 @@ let disposeLoggerListener: (() => void) | null = loggerService.onLog((payload) =
 
 const scheduleForceExit = (): void => {
   const timer = setTimeout(() => {
-    app.exit(0);
+    app.exit(typeof process.exitCode === "number" && process.exitCode !== 0 ? process.exitCode : 1);
   }, QUIT_FORCE_EXIT_TIMEOUT_MS);
   timer.unref?.();
 };
@@ -66,6 +68,7 @@ const ensureServiceContainer = async (): Promise<ServiceContainer> => {
     windowService: ensureWindowService(),
     signalService,
     networkClient: sharedNetworkClient,
+    prepareScrapeItem: prepareAppScrapeItem,
   });
   // Recovery must finish before IPC and renderer load; getState() can otherwise race the first window requests.
   await container.persistenceService.initialize();
@@ -102,11 +105,18 @@ const cleanupResources = async (): Promise<void> => {
     } catch (error) {
       const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
       logger.error(`Failed to shutdown services cleanly: ${message}`);
+      process.exitCode = 1;
+    }
+    try {
+      await finalizeAppNetwork();
+    } catch (error) {
+      const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
+      logger.error(`Failed to finalize network resources: ${message}`);
+      process.exitCode = 1;
     }
 
     disposeLoggerListener?.();
     disposeLoggerListener = null;
-    await configManager.stopWatching();
     disposeShortcutConfigListener?.();
     disposeShortcutConfigListener = null;
     shortcutService.dispose();
@@ -136,7 +146,6 @@ if (!app.requestSingleInstanceLock()) {
     .then(async () => {
       await bootstrap();
       const initialConfig = await configManager.getValidated();
-      await configManager.startWatching();
       await ensureMainWindow(toMainWindowCreationOptions(initialConfig));
 
       if (windowService) {
@@ -191,8 +200,21 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  app.on("before-quit", () => {
-    void cleanupResources();
+  app.on("before-quit", (event) => {
+    if (cleanupFinished) return;
+    event.preventDefault();
+    if (quitRequested) return;
+    quitRequested = true;
     scheduleForceExit();
+    void cleanupResources()
+      .catch((error) => {
+        const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
+        loggerService.getLogger("Main").error(`Failed to clean up main process resources: ${message}`);
+        process.exitCode = 1;
+      })
+      .finally(() => {
+        cleanupFinished = true;
+        app.quit();
+      });
   });
 }

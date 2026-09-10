@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runtimeLoggerService } from "../shared";
+import { PublicationConflictError } from "./conflicts";
 import { createMemoryPublicationJournal } from "./memoryJournal";
 import { commitPublishedMedia } from "./publishMedia";
 import { PublicationError, type PublicationFileSystem, type PublicationPlan } from "./types";
@@ -33,11 +35,13 @@ const fixture = async () => {
   const plan: PublicationPlan = {
     operationId: "run:item",
     operationType: "scrape",
-    video: {
-      source: { rootId: "input", relativePath: "movie.mp4" },
-      target: { rootId: "output", relativePath: "Movie/movie.mp4" },
-      size: 5,
-    },
+    videos: [
+      {
+        source: { rootId: "input", relativePath: "movie.mp4" },
+        target: { rootId: "output", relativePath: "Movie/movie.mp4" },
+        size: 5,
+      },
+    ],
     artifacts: [
       { target: { rootId: "metadata", relativePath: "Movie/movie.nfo" }, content: { kind: "text", data: "<movie/>" } },
       {
@@ -95,6 +99,128 @@ const residue = async (...roots: string[]): Promise<string[]> => {
 };
 
 describe("commitPublishedMedia", () => {
+  it.each([
+    "previous_success",
+    "previous_failure",
+    "target_exists",
+  ] as const)("consumes a shared feature once when %s", async (scenario) => {
+    const test = await fixture();
+    test.plan.videos = [];
+    test.plan.artifacts = [];
+    test.plan.assets = [];
+    test.plan.obsolete = [];
+    const featureSource = path.join(path.dirname(test.source), "FC2-123456-花絮.mp4");
+    const featureTarget = path.join(test.outputRoot, "Movie", "FC2-123456-花絮.mp4");
+    await writeFile(featureSource, "feature");
+    await mkdir(path.dirname(featureTarget), { recursive: true });
+    const featureMove = {
+      source: { rootId: "input", relativePath: "FC2-123456-花絮.mp4" },
+      target: { rootId: "output", relativePath: "Movie/FC2-123456-花絮.mp4" },
+      size: 7,
+      shared: true,
+    };
+    const createPlan = (operationId: string): PublicationPlan => ({
+      ...test.plan,
+      operationId,
+      sidecars: [featureMove],
+      replaceExistingTargets: [featureMove.target],
+    });
+    const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit: vi.fn() };
+
+    if (scenario === "previous_success") {
+      await commitPublishedMedia(createPlan("feature:first"), options);
+    } else if (scenario === "previous_failure") {
+      await expect(
+        commitPublishedMedia(createPlan("feature:failed"), {
+          ...options,
+          commit: () => {
+            throw new Error("commit failed");
+          },
+        }),
+      ).rejects.toThrow("commit failed");
+      await expect(readFile(featureSource, "utf8")).resolves.toBe("feature");
+    } else {
+      await writeFile(featureTarget, "old");
+    }
+
+    await commitPublishedMedia(createPlan("feature:last"), options);
+    await expect(readFile(featureTarget, "utf8")).resolves.toBe("feature");
+    await expect(readFile(featureSource)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("requires a planned subtitle replacement without offering a video conflict choice", async () => {
+    const test = await fixture();
+    const source = path.join(path.dirname(test.source), "movie.srt");
+    const target = path.join(path.dirname(test.target), "movie.srt");
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(source, "NEW");
+    await writeFile(target, "OLD");
+    test.plan.sidecars = [
+      {
+        source: { rootId: "input", relativePath: "movie.srt" },
+        target: { rootId: "output", relativePath: "Movie/movie.srt" },
+        size: 3,
+      },
+    ];
+    const commit = vi.fn(() => "committed");
+    const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit };
+    const conflict = await commitPublishedMedia(test.plan, options).catch((error) => error);
+    expect(conflict).not.toBeInstanceOf(PublicationConflictError);
+    expect(conflict.message).toContain("sidecar replacement was not planned");
+    expect(commit).not.toHaveBeenCalled();
+    expect(await readFile(source, "utf8")).toBe("NEW");
+    expect(await readFile(target, "utf8")).toBe("OLD");
+    test.plan.replaceExistingTargets = [test.plan.sidecars[0].target];
+    await expect(commitPublishedMedia(test.plan, options)).resolves.toBe("committed");
+    expect(await readFile(target, "utf8")).toBe("NEW");
+    expect(existsSync(source)).toBe(false);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("checks copy capacity only when rename crosses devices: %s", async (crossDevice) => {
+    const test = await fixture();
+    test.plan.artifacts = [];
+    test.plan.assets = [];
+    const fs = await defaultFileSystem();
+    const copy = vi.fn(fs.copyFile);
+    const options = {
+      resolveRoot: test.resolveRoot,
+      journal: createMemoryPublicationJournal(),
+      commit: vi.fn(),
+      fileSystem: {
+        ...fs,
+        copyFile: copy,
+        statfs: async () => ({ bavail: 0, bsize: 1 }),
+        rename: async (source: string, target: string) => {
+          if (crossDevice && source === test.source) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+          await fs.rename(source, target);
+        },
+      },
+    };
+    if (crossDevice) {
+      await expect(commitPublishedMedia(test.plan, options)).rejects.toThrow("Insufficient space");
+      expect(await readFile(test.source, "utf8")).toBe("video");
+      expect(options.commit).not.toHaveBeenCalled();
+    } else {
+      await commitPublishedMedia(test.plan, options);
+      expect(await readFile(test.target, "utf8")).toBe("video");
+    }
+    expect(copy).not.toHaveBeenCalled();
+  });
+
+  it("leaves staging owned by the pending result in place after commit", async () => {
+    const test = await fixture();
+    const staging = path.join(path.dirname(test.source), "staging");
+    await mkdir(staging);
+    await writeFile(path.join(staging, "tmp"), "tmp");
+    await commitPublishedMedia(test.plan, {
+      resolveRoot: test.resolveRoot,
+      journal: createMemoryPublicationJournal(),
+      commit: () => "ok",
+    });
+    await expect(readFile(path.join(staging, "tmp"), "utf8")).resolves.toBe("tmp");
+  });
+
   it("publishes across roots, commits once, then removes sources and obsolete files", async () => {
     const test = await fixture();
     const commit = vi.fn(() => "committed");
@@ -207,6 +333,10 @@ describe("commitPublishedMedia", () => {
     const test = await fixture();
     const fileSystem = await defaultFileSystem();
     const original = fileSystem[method];
+    if (method === "copyFile")
+      fileSystem.rename = async () => {
+        throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+      };
     fileSystem[method] = vi.fn(async (...args: never[]) => {
       void original;
       void args;
@@ -224,8 +354,28 @@ describe("commitPublishedMedia", () => {
     await expect(residue(test.outputRoot, test.metadataRoot)).resolves.toEqual([]);
   });
 
-  it("restores the original target byte-for-byte when commit throws", async () => {
+  it.each([
+    false,
+    true,
+  ])("restores video, subtitles and original targets when commit throws (cross-device=%s)", async (crossDevice) => {
     const test = await fixture();
+    const subtitleSource = `${test.source}.zh.srt`;
+    const subtitleTarget = `${test.target}.zh.srt`;
+    await writeFile(subtitleSource, "subtitle");
+    test.plan.sidecars = [
+      {
+        source: { rootId: "input", relativePath: "movie.mp4.zh.srt" },
+        target: { rootId: "output", relativePath: "Movie/movie.mp4.zh.srt" },
+        size: 8,
+      },
+    ];
+    const fileSystem = await defaultFileSystem();
+    const rename = fileSystem.rename;
+    fileSystem.rename = async (source, target) => {
+      if (crossDevice && (source === test.source || source === subtitleSource))
+        throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+      await rename(source, target);
+    };
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
     test.plan.replaceExistingTargets = [{ rootId: "metadata", relativePath: "Movie/movie.nfo" }];
@@ -234,13 +384,16 @@ describe("commitPublishedMedia", () => {
       commitPublishedMedia(test.plan, {
         resolveRoot: test.resolveRoot,
         journal,
+        fileSystem,
         commit: () => {
-          throw new Error("database unavailable");
+          throw new AggregateError([new Error("constraint failed")], "database unavailable");
         },
       }),
     ).rejects.toThrow("database unavailable");
     await expect(readFile(test.nfo, "utf8")).resolves.toBe("original-nfo");
     await expect(readFile(test.source, "utf8")).resolves.toBe("video");
+    await expect(readFile(subtitleSource, "utf8")).resolves.toBe("subtitle");
+    await expect(stat(subtitleTarget)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(stat(test.target)).rejects.toMatchObject({ code: "ENOENT" });
     expect(journal.listUnfinished()).toEqual([]);
     await expect(residue(test.outputRoot, test.metadataRoot)).resolves.toEqual([]);
@@ -248,12 +401,13 @@ describe("commitPublishedMedia", () => {
 
   it("rolls back files 1-2 when file 3 of 5 fails", async () => {
     const test = await fixture();
-    test.plan.video = undefined;
+    test.plan.videos = [];
     test.plan.obsolete = [];
     test.plan.artifacts = [1, 2, 3, 4, 5].map((index) => ({
       target: { rootId: "metadata" as const, relativePath: `Movie/file-${index}.txt` },
       content: { kind: "text" as const, data: `content-${index}` },
     }));
+    test.plan.assets = [];
     const fileSystem = await defaultFileSystem();
     const originalRename = fileSystem.rename;
     let renames = 0;
@@ -280,7 +434,7 @@ describe("commitPublishedMedia", () => {
 
   it("revalidates each target immediately before its rename", async () => {
     const test = await fixture();
-    test.plan.video = undefined;
+    test.plan.videos = [];
     test.plan.assets = [];
     test.plan.obsolete = [];
     test.plan.artifacts = [1, 2].map((index) => ({
@@ -311,7 +465,7 @@ describe("commitPublishedMedia", () => {
 
   it("restores a replaced target when the part rename fails after the backup", async () => {
     const test = await fixture();
-    test.plan.video = undefined;
+    test.plan.videos = [];
     test.plan.obsolete = [];
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
@@ -349,10 +503,11 @@ describe("commitPublishedMedia", () => {
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
     test.plan.replaceExistingTargets = [{ rootId: "metadata", relativePath: "Movie/movie.nfo" }];
-    test.plan.video = undefined;
+    test.plan.videos = [];
     const nfo = test.plan.artifacts[0];
     if (!nfo) throw new Error("fixture nfo artifact is required");
     test.plan.artifacts = [nfo];
+    test.plan.assets = [];
     test.plan.obsolete = [];
     const fileSystem = await defaultFileSystem();
     const originalRename = fileSystem.rename;
@@ -387,6 +542,11 @@ describe("commitPublishedMedia", () => {
     const test = await fixture();
     const fileSystem = await defaultFileSystem();
     const originalRm = fileSystem.rm;
+    const originalRename = fileSystem.rename;
+    fileSystem.rename = async (source, target) => {
+      if (source === test.source) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+      await originalRename(source, target);
+    };
     fileSystem.rm = async (filePath, options) => {
       if (filePath === test.source) throw new Error("source cleanup failed");
       await originalRm(filePath, options);
@@ -431,11 +591,11 @@ describe("commitPublishedMedia", () => {
     await expect(stat(test.target)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("retains sources and obsolete files until the database commit", async () => {
+  it("retains moved bytes at the target and obsolete assets until the database commit", async () => {
     const test = await fixture();
     const commit = vi.fn(() => {
-      expect(existsSync(test.source)).toBe(true);
-      expect(readFileSync(test.source, "utf8")).toBe("video");
+      expect(existsSync(test.source)).toBe(false);
+      expect(readFileSync(test.target, "utf8")).toBe("video");
       expect(readFileSync(test.obsolete, "utf8")).toBe("old");
       return "committed";
     });
@@ -504,14 +664,14 @@ describe("commitPublishedMedia", () => {
     );
   });
 
-  it("repeats a completed operation without changing the library identity", async () => {
+  it("rejects replaying a move without its source instead of inferring success from target size", async () => {
     const test = await fixture();
     const commit = vi.fn(() => ({ libraryItemId: "library-item-1" }));
     const options = { resolveRoot: test.resolveRoot, journal: createMemoryPublicationJournal(), commit };
 
     await expect(commitPublishedMedia(test.plan, options)).resolves.toEqual({ libraryItemId: "library-item-1" });
-    await expect(commitPublishedMedia(test.plan, options)).resolves.toEqual({ libraryItemId: "library-item-1" });
-    expect(commit).toHaveBeenCalledTimes(2);
+    await expect(commitPublishedMedia(test.plan, options)).rejects.toThrow("Publication source is missing");
+    expect(commit).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a video target that appears after preview with the expected size", async () => {
@@ -527,7 +687,7 @@ describe("commitPublishedMedia", () => {
           return () => undefined;
         },
       }),
-    ).rejects.toThrow("changed before mutation");
+    ).rejects.toBeInstanceOf(PublicationConflictError);
     await expect(readFile(test.source, "utf8")).resolves.toBe("video");
   });
 
@@ -550,7 +710,7 @@ describe("commitPublishedMedia", () => {
         commit,
         fileSystem,
       }),
-    ).rejects.toThrow("changed before mutation");
+    ).rejects.toBeInstanceOf(PublicationConflictError);
     expect(commit).not.toHaveBeenCalled();
     await expect(readFile(test.source, "utf8")).resolves.toBe("video");
   });
@@ -560,10 +720,11 @@ describe("commitPublishedMedia", () => {
     await mkdir(path.dirname(test.nfo), { recursive: true });
     await writeFile(test.nfo, "original-nfo");
     test.plan.replaceExistingTargets = [{ rootId: "metadata", relativePath: "Movie/movie.nfo" }];
-    test.plan.video = undefined;
+    test.plan.videos = [];
     const nfo = test.plan.artifacts[0];
     if (!nfo) throw new Error("fixture nfo artifact is required");
     test.plan.artifacts = [nfo];
+    test.plan.assets = [];
     test.plan.obsolete = [];
     const fileSystem = await defaultFileSystem();
     const originalRename = fileSystem.rename;
@@ -640,5 +801,36 @@ describe("commitPublishedMedia", () => {
       "journal finish failed",
     ]);
     originalFinish(test.plan.operationId);
+  });
+
+  it("logs only a single [publication] entry containing op and the longest phase", async () => {
+    const test = await fixture();
+    const journal = createMemoryPublicationJournal();
+    const logs: string[] = [];
+    runtimeLoggerService.setFactory(() => ({
+      debug: () => undefined,
+      info: (message: string) => logs.push(message),
+      warn: () => undefined,
+      error: () => undefined,
+    }));
+    try {
+      await commitPublishedMedia(test.plan, {
+        resolveRoot: test.resolveRoot,
+        journal,
+        commit: async () => ({ ok: true }),
+      });
+      const publicationLogs = logs.filter((msg) => msg.startsWith("[publication]"));
+      expect(publicationLogs).toHaveLength(1);
+      expect(publicationLogs[0]).toMatch(
+        new RegExp(`^\\[publication\\] op=${test.plan.operationId.slice(-8)} phase=\\S+ durationMs=\\d+$`),
+      );
+    } finally {
+      runtimeLoggerService.setFactory(() => ({
+        debug: () => undefined,
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      }));
+    }
   });
 });

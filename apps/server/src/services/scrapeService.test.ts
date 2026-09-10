@@ -12,6 +12,8 @@ import { ScrapeService } from "./scrapeService";
 const root = createMediaRoot({ id: "root-1", displayName: "Media", hostPath: "/media" });
 
 const manifest: ScrapeRunManifest = {
+  executionGeneration: 0,
+  revision: 0,
   id: "unsubmitted-run",
   rootId: root.id,
   requestedOutputRootId: null,

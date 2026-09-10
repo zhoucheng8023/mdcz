@@ -1,15 +1,25 @@
-import { resolve } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import type { DesktopPersistenceService } from "@main/services/persistence";
 import { BatchTranslateToolService } from "@main/services/tools/BatchTranslateToolService";
+import type { MediaRoot } from "@mdcz/media-store";
 import type { ConfiguredMediaRootService } from "@mdcz/runtime/library";
+import { writePreparedNfo } from "@mdcz/runtime/maintenance";
 import type { NetworkClient } from "@mdcz/runtime/network";
 import { createMemoryPublicationJournal } from "@mdcz/runtime/publication/memoryJournal";
 import type { LlmApiClient } from "@mdcz/runtime/scrape";
+import type { BatchNfoTranslatorDependencies } from "@mdcz/runtime/tools";
 import { Website } from "@mdcz/shared/enums";
 import type { BatchTranslateScanItem } from "@mdcz/shared/ipcTypes";
 import type { LocalScanEntry } from "@mdcz/shared/types";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const tempDirs: string[] = [];
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
 
 const createConfig = (overrides: Partial<ReturnType<typeof configurationSchema.parse>> = {}) =>
   configurationSchema.parse({
@@ -68,9 +78,11 @@ const createEntry = (overrides: EntryOverrides = {}): LocalScanEntry => ({
 const createService = (
   options: {
     scan?: (dirPath: string, sceneImagesFolder: string) => Promise<LocalScanEntry[]>;
-    scanVideo?: (videoPath: string, sceneImagesFolder: string) => Promise<LocalScanEntry>;
+    scanVideo?: (root: MediaRoot, videoPath: string, sceneImagesFolder: string) => Promise<LocalScanEntry>;
     generateText?: LlmApiClient["generateText"];
-    writeNfo?: (...args: Parameters<BatchTranslateToolService["apply"]>) => never;
+    writeNfo?: BatchNfoTranslatorDependencies["writeNfo"];
+    rootPath?: string;
+    journal?: ReturnType<typeof createMemoryPublicationJournal>;
   } = {},
 ) => {
   const localScanService = {
@@ -88,7 +100,7 @@ const createService = (
   const mediaRoot = {
     id: "library",
     displayName: "library",
-    hostPath: "/library",
+    hostPath: options.rootPath ?? "/library",
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
@@ -103,7 +115,7 @@ const createService = (
     {
       getState: async () => ({
         repositories: {
-          publicationJournal: createMemoryPublicationJournal(),
+          publicationJournal: options.journal ?? createMemoryPublicationJournal(),
           mediaRoots: {
             list: async () => [mediaRoot],
             ensurePath: async () => mediaRoot,
@@ -115,7 +127,7 @@ const createService = (
     {
       localScanService,
       llmApiClient,
-      writeNfo: writeNfo as never,
+      writeNfo,
     },
     mediaRoots,
   );
@@ -180,15 +192,23 @@ describe("BatchTranslateToolService", () => {
     ]);
   });
 
-  it("batches unique texts and writes translated fields back to NFOs", async () => {
+  it.each([false, true])("batches unique texts and journals translated NFOs (commit failure: %s)", async (failure) => {
+    const root = await mkdtemp(join(tmpdir(), "mdcz-batch-translation-"));
+    tempDirs.push(root);
+    const journal = createMemoryPublicationJournal();
+    const commit = vi.spyOn(journal, "commit");
+    if (failure)
+      commit.mockImplementation(() => {
+        throw new Error("commit failure");
+      });
     const config = createConfig({
       download: {
         ...defaultConfiguration.download,
         nfoIgnoreFields: ["director"],
       },
     });
-    const generateText = vi.fn().mockResolvedValue('["相同标题","剧情一"]');
-    const writeNfo = vi.fn(async ({ nfoPath }: { nfoPath?: string }) => nfoPath);
+    const generateText = vi.fn().mockResolvedValue('{"translations":["相同标题","剧情一"]}');
+    const writeNfo = vi.fn(writePreparedNfo);
 
     const entriesByPath = new Map<string, LocalScanEntry>([
       [
@@ -228,9 +248,18 @@ describe("BatchTranslateToolService", () => {
         }),
       ],
     ]);
+    for (const [key, entry] of [...entriesByPath]) {
+      entriesByPath.delete(key);
+      entry.fileInfo.filePath = key.replace("/library", root);
+      entry.nfoPath = entry.nfoPath?.replace("/library", root);
+      entry.currentDir = root;
+      entriesByPath.set(entry.fileInfo.filePath, entry);
+      if (!entry.nfoPath) throw new Error("Fixture NFO path is required");
+      await writeFile(entry.nfoPath, "<movie><title>Original</title></movie>");
+    }
 
     const { service, localScanService, ensurePathRecord } = createService({
-      scanVideo: async (videoPath) => {
+      scanVideo: async (_root, videoPath) => {
         const matched = entriesByPath.get(videoPath);
         if (!matched) {
           throw new Error(`Unexpected scan path: ${videoPath}`);
@@ -238,10 +267,12 @@ describe("BatchTranslateToolService", () => {
         return matched;
       },
       generateText,
-      writeNfo: writeNfo as never,
+      writeNfo,
+      rootPath: root,
+      journal,
     });
 
-    await service.apply(
+    const results = await service.apply(
       [
         {
           filePath: "/library/AAA-001.mp4",
@@ -259,19 +290,24 @@ describe("BatchTranslateToolService", () => {
           title: "Same English Title",
           pendingFields: ["title"],
         },
-      ],
+      ].map((item) => ({
+        ...item,
+        filePath: item.filePath.replace("/library", root),
+        nfoPath: item.nfoPath.replace("/library", root),
+        directory: root,
+        pendingFields: item.pendingFields as BatchTranslateScanItem["pendingFields"],
+      })),
       config,
     );
 
     expect(localScanService.scanVideo).toHaveBeenCalledTimes(2);
     expect(ensurePathRecord).toHaveBeenCalledOnce();
-    expect(ensurePathRecord).toHaveBeenCalledWith({ hostPath: "/library" });
+    expect(ensurePathRecord).toHaveBeenCalledWith({ hostPath: root });
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: expect.stringContaining('"Same English Title"'),
       }),
-      undefined,
     );
     expect(writeNfo).toHaveBeenCalledTimes(2);
 
@@ -285,5 +321,11 @@ describe("BatchTranslateToolService", () => {
 
     const secondWrite = writeNfo.mock.calls[1]?.[0] as { crawlerData: { title_zh?: string } };
     expect(secondWrite.crawlerData.title_zh).toBe("相同标题");
+    expect(results.every(({ success }) => success === !failure)).toBe(true);
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(journal.listUnfinished()).toEqual([]);
+    for (const number of ["AAA-001", "BBB-002"]) {
+      expect(await readFile(join(root, `${number}.nfo`), "utf8")).toContain(failure ? "Original" : "相同标题");
+    }
   });
 });

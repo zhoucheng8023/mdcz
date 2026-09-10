@@ -73,7 +73,10 @@ describe("LocalScanService", () => {
     await writeFile(skippedPath, "video");
     await writeFile(trailerPath, "trailer");
 
-    const entries = await new LocalScanService().scanFiles([selectedPath, trailerPath], "extrafanart");
+    const scanner = new LocalScanService();
+    const entries = await scanner.scanFiles([selectedPath], "extrafanart");
+    await expect(scanner.scanFiles([trailerPath], "extrafanart")).rejects.toThrow(trailerPath);
+    await expect(scanner.scanFiles([join(root, "missing.mp4")], "extrafanart")).rejects.toThrow("missing.mp4");
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.fileInfo.filePath).toBe(selectedPath);

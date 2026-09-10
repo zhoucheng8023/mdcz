@@ -113,7 +113,7 @@ describe("moveFileSafely", () => {
     await expect(access(sourcePath)).rejects.toThrow();
   });
 
-  it("copies across devices without deleting the source", async () => {
+  it("removes the source after a verified cross-device move", async () => {
     const root = await createTempDir();
     const sourcePath = join(root, "source.mp4");
     const targetPath = join(root, "output", "movie.mp4");
@@ -139,7 +139,7 @@ describe("moveFileSafely", () => {
     expect(temporaryPath).toMatch(/\.part$/u);
     expect(rename).toHaveBeenLastCalledWith(temporaryPath, targetPath);
     await expect(readFile(targetPath, "utf8")).resolves.toBe("video");
-    await expect(readFile(sourcePath, "utf8")).resolves.toBe("video");
+    await expect(access(sourcePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("cleans failed parts but preserves the source", async () => {

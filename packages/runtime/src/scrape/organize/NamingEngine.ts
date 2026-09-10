@@ -352,7 +352,11 @@ export class NamingEngine {
       buildSafeFileName(config.naming.fileTemplate, templateData) || styledNumber,
       config.naming.fileNameMax,
     );
-    const nfoBaseName = fileInfo.part ? fileBaseName : parse(sourceVideo.base).name;
+    const sourceBaseName = parse(sourceVideo.base).name;
+    const nfoBaseName =
+      fileInfo.part && sourceBaseName.endsWith(fileInfo.part.suffix)
+        ? sourceBaseName.slice(0, -fileInfo.part.suffix.length)
+        : sourceBaseName;
     const targetVideoFileName = config.behavior.successFileRename
       ? `${fileBaseName}${partSuffix}${fileInfo.extension}`
       : sourceVideo.base;

@@ -1,11 +1,29 @@
 import { MAINTENANCE_PRESET_OPTIONS } from "@mdcz/shared/maintenancePresets";
 import type { MaintenancePresetId } from "@mdcz/shared/types";
 import { MediaBrowserList } from "@mdcz/views/common";
+import { ScrapeStartErrorDialog } from "@mdcz/views/scrape";
 import { WorkbenchSetupView } from "@mdcz/views/workbench";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 const rootDir = "/media";
+
+test("shows the complete startup rejection in one dialog", async () => {
+  const onClose = vi.fn();
+  const error =
+    "目标路径存在冲突，本次未改动任何文件。\n\n" +
+    "目标目录已存在同名影片\n待处理：/output/ABF-981-source.mp4\n冲突文件：/output/ABF-981.mp4\n\n" +
+    "批次内多部影片目标文件名重复\n待处理：/output/ABC-123-source.mp4\n冲突文件：/output/ABC-123.mp4";
+  const screen = await render(<ScrapeStartErrorDialog error={error} onClose={onClose} />);
+  await expect.element(screen.getByRole("dialog", { name: "目标路径存在冲突" })).toBeVisible();
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("/output/ABF-981.mp4");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("/output/ABC-123.mp4");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("目标目录已存在同名影片");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent("批次内多部影片目标文件名重复");
+  await expect.element(screen.getByRole("button", { name: "保留两份" })).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: "我知道了" }).click();
+  expect(onClose).toHaveBeenCalledOnce();
+});
 
 test("server workbench setup hides browse buttons and keeps path autocomplete", async () => {
   const screen = await render(

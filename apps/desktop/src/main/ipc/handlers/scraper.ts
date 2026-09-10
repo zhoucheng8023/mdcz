@@ -1,15 +1,12 @@
 import type { ServiceContainer } from "@main/container";
-import { configManager } from "@main/services/config";
-import { loggerService } from "@main/services/LoggerService";
 import { ScraperServiceError } from "@main/services/scraper";
-import { confirmUncensoredItems, createUncensoredConfirmDependencies } from "@main/services/scraper/confirmUncensored";
 import type { StartScrapeResult } from "@main/services/scraper/ScraperService";
 import { IpcChannel } from "@mdcz/shared/IpcChannel";
 import type { IpcRouterContract } from "@mdcz/shared/ipcContract";
+import { scrapeConfirmUncensoredInputSchema } from "@mdcz/shared/serverDtos";
 import { withIpcErrorHandling } from "../errorHandling";
-import { createIpcError, IpcErrorCode } from "../errors";
+import { createIpcError } from "../errors";
 import {
-  scraperConfirmUncensoredInputSchema,
   scraperGetStatusInputSchema,
   scraperRetryInputSchema,
   scraperStartInputSchema,
@@ -17,7 +14,6 @@ import {
 } from "../payloads";
 import { t } from "../shared";
 
-const logger = loggerService.getLogger("IpcRouter");
 const withLaunchMessage = (result: StartScrapeResult, message: string) => ({ ...result, message });
 const toScraperServiceIpcError = (error: unknown) => {
   if (error instanceof ScraperServiceError) {
@@ -50,14 +46,10 @@ export const createScraperHandlers = (
       withIpcErrorHandling(
         "start scraper",
         async () => {
-          if (input.mode === "selection") {
-            return withLaunchMessage(
-              await scraperService.start(input.refs, input.outputRootId, input.outputRelativeDirectory),
-              "已启动选中文件刮削",
-            );
-          }
-
-          return withLaunchMessage(await scraperService.startSingle(input.ref), "单文件刮削任务已启动");
+          return withLaunchMessage(
+            await scraperService.start(input),
+            input.mode === "selection" ? "已启动选中文件刮削" : "单文件刮削任务已启动",
+          );
         },
         { mapError: toScraperServiceIpcError },
       ),
@@ -101,29 +93,9 @@ export const createScraperHandlers = (
         { mapError: toScraperServiceIpcError },
       ),
     ),
-    [IpcChannel.Scraper_ConfirmUncensored]: t.procedure.input(scraperConfirmUncensoredInputSchema).action(({ input }) =>
-      withIpcErrorHandling("confirm uncensored items", async () => {
-        const items = input?.items ?? [];
-        if (items.length === 0) {
-          return { updatedCount: 0, items: [] };
-        }
-
-        const config = await configManager.getValidated();
-        if (!config.download.generateNfo) {
-          logger.warn("Rejecting uncensored confirm because NFO generation is disabled");
-          throw createIpcError(IpcErrorCode.INVALID_ARGUMENT, "已关闭 NFO 生成功能，无法确认无码类型");
-        }
-
-        const state = await context.persistenceService.getState();
-        return await confirmUncensoredItems(
-          items,
-          config,
-          createUncensoredConfirmDependencies({
-            journal: state.repositories.publicationJournal,
-            repairIssues: state.repositories.libraryRepairIssues,
-            roots: await state.repositories.mediaRoots.list(),
-          }),
-        );
+    [IpcChannel.Scraper_ConfirmUncensored]: t.procedure.input(scrapeConfirmUncensoredInputSchema).action(({ input }) =>
+      withIpcErrorHandling("confirm uncensored items", async () => await scraperService.confirmUncensored(input), {
+        mapError: toScraperServiceIpcError,
       }),
     ),
   };

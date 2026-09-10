@@ -1,3 +1,5 @@
+import type { LlmApiFormat, LlmOutputFormat, LlmReasoning, LlmServiceType } from "./llm";
+
 export type IpcActionContext = {
   // biome-ignore lint/suspicious/noExplicitAny: keep shared IPC contracts structurally compatible with tipc without importing desktop/Electron types.
   sender: any;
@@ -29,8 +31,12 @@ export type TranslateTestLlmInput = {
   llmModelName?: string;
   llmApiKey?: string;
   llmBaseUrl?: string;
+  llmApiFormat?: LlmApiFormat;
+  llmServiceType?: LlmServiceType;
   llmPrompt?: string;
-  llmTemperature?: number;
+  llmTemperature?: number | null;
+  llmReasoning?: LlmReasoning;
+  llmOutputFormat?: LlmOutputFormat;
   llmTimeout?: number;
 };
 

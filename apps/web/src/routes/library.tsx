@@ -7,7 +7,7 @@ import {
   LibraryIndexView,
   mergeLibraryAvailability,
 } from "@mdcz/views/library";
-import { useInfiniteQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -27,6 +27,19 @@ export function LibraryPage() {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     retry: false,
+  });
+  const deleteLibraryM = useMutation({
+    mutationFn: async (entry: LibraryEntryDto) => {
+      await api.library.delete({ id: entry.id });
+    },
+    onSuccess: async () => {
+      toast.success("已从媒体库移除");
+      setDeleteTarget(null);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
+    },
+    onError: (error) => {
+      toast.error(toErrorMessage(error));
+    },
   });
   const pageEntries = libraryQ.data?.pages.flatMap((page) => page.entries) ?? [];
   const availabilityQs = useQueries({
@@ -72,28 +85,18 @@ export function LibraryPage() {
       />
       <LibraryDeleteDialog
         open={Boolean(deleteTarget)}
-        onCancel={() => setDeleteTarget(null)}
+        submitting={deleteLibraryM.isPending}
+        onCancel={() => {
+          if (!deleteLibraryM.isPending) setDeleteTarget(null);
+        }}
         onConfirm={() => {
           const target = deleteTarget;
-          if (!target) return;
-          void deleteLibraryEntry(target, () => {
-            setDeleteTarget(null);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.library.all });
-          });
+          if (!target || deleteLibraryM.isPending) return;
+          deleteLibraryM.mutate(target);
         }}
       />
     </>
   );
-}
-
-async function deleteLibraryEntry(entry: LibraryEntryDto, onSuccess: () => void) {
-  try {
-    await api.library.delete({ id: entry.id });
-    toast.success("已从媒体库移除");
-    onSuccess();
-  } catch (error) {
-    toast.error(toErrorMessage(error));
-  }
 }
 
 export const Route = createFileRoute("/library")({

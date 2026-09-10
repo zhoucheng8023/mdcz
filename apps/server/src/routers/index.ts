@@ -41,6 +41,8 @@ import { createHealthPayload } from "../http/health";
 import { decorateTaskLog } from "../services/runtimeLogService";
 import { mapConfigError, protectedProcedure, setupProcedure, t } from "./context";
 
+const scrapeLaunchProcedure = protectedProcedure;
+
 export const appRouter = t.router({
   auth: t.router({
     setup: t.procedure.query(async ({ ctx }) => {
@@ -270,6 +272,9 @@ export const appRouter = t.router({
       .input(scrapeTaskControlInputSchema.optional())
       .query(async ({ ctx, input }) => await ctx.services.scrape.history(input)),
     liveRuns: protectedProcedure.query(async ({ ctx }) => await ctx.services.scrape.liveRuns()),
+    snapshot: protectedProcedure
+      .input(scrapeTaskControlInputSchema)
+      .query(async ({ ctx, input }) => await ctx.services.scrape.snapshot(input)),
     pendingUncensoredConfirmation: protectedProcedure.query(
       async ({ ctx }) => await ctx.services.scrape.pendingUncensoredConfirmation(),
     ),
@@ -294,7 +299,7 @@ export const appRouter = t.router({
     resume: protectedProcedure
       .input(scrapeTaskControlInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: await ctx.services.scrape.resume(input) })),
-    retry: protectedProcedure
+    retry: scrapeLaunchProcedure
       .input(scrapeTaskControlInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: (await ctx.services.scrape.retry(input)).task.id })),
     confirmUncensored: protectedProcedure.input(scrapeConfirmUncensoredInputSchema).mutation(async ({ ctx, input }) => {
@@ -308,7 +313,7 @@ export const appRouter = t.router({
         });
       }
     }),
-    start: protectedProcedure
+    start: scrapeLaunchProcedure
       .input(scrapeStartInputSchema)
       .mutation(async ({ ctx, input }) => ({ runId: (await ctx.services.scrape.start(input)).task.id })),
     stop: protectedProcedure

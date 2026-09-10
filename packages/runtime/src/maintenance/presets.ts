@@ -43,7 +43,7 @@ export const MAINTENANCE_PRESETS: Record<MaintenancePresetId, MaintenancePreset>
       translate: true,
       download: true,
       generateNfo: true,
-      organize: true,
+      organize: false,
     },
     configOverrides: {
       download: {
@@ -52,7 +52,6 @@ export const MAINTENANCE_PRESETS: Record<MaintenancePresetId, MaintenancePreset>
         keepFanart: true,
         keepSceneImages: true,
         keepTrailer: true,
-        keepNfo: false,
       },
       behavior: {
         successFileMove: false,
@@ -98,7 +97,6 @@ export const MAINTENANCE_PRESETS: Record<MaintenancePresetId, MaintenancePreset>
         keepFanart: false,
         keepSceneImages: false,
         keepTrailer: false,
-        keepNfo: false,
       },
       behavior: {
         successFileMove: true,

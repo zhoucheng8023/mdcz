@@ -4,9 +4,9 @@ import {
   buildScrapeResultGroupActionContext,
   findScrapeResultGroup,
 } from "@mdcz/shared/viewModels/scrapeResultGrouping";
-import { activateNewScrapeTask, activateRetryScrapeTask } from "@mdcz/views/adapters";
+import { activateNewScrapeTask } from "@mdcz/views/adapters";
 import { selectMaintenanceExecutionStatus, useMaintenanceStore } from "@mdcz/views/state/maintenanceStore";
-import { selectIsScraping, selectScrapeResults, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import { runScrapeRequest, selectIsScraping, selectScrapeResults, useScrapeStore } from "@mdcz/views/state/scrapeStore";
 import { useUIStore } from "@mdcz/views/state/uiStore";
 import { useWorkbenchSetupStore } from "@mdcz/views/state/workbenchSetupStore";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -76,16 +76,13 @@ export function ShortcutHandler() {
           ? (selectedItem.crawlerData?.number ?? selectedItem.fileName.replace(/\.[^.]+$/u, ""))
           : undefined;
         const handleRetrySelectedScrape = async () => {
-          if (!selectedPath) {
+          if (!selectedItem) {
             toast.info("请先选择一个结果项");
             return;
           }
 
           try {
-            const response = await retryScrapeSelection();
-
-            activateRetryScrapeTask();
-
+            const response = await retryScrapeSelection([selectedItem.fileId]);
             toast.success(response.data.message);
           } catch (error) {
             toast.error(`重试失败: ${toErrorMessage(error)}`);
@@ -96,8 +93,7 @@ export function ShortcutHandler() {
           case "start-or-stop-scrape": {
             if (selectIsScraping(scrapeState)) {
               try {
-                await stopScrape();
-                useScrapeStore.getState().setPending(true);
+                await runScrapeRequest(stopScrape);
                 toast.info("正在停止刮削任务...");
               } catch (error) {
                 toast.error(`停止失败: ${toErrorMessage(error)}`);

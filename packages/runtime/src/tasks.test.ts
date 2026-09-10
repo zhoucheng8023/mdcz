@@ -1,7 +1,9 @@
 import { defaultConfiguration } from "@mdcz/shared/config";
 import type { ScrapeResult } from "@mdcz/shared/types";
 import { describe, expect, it } from "vitest";
-import { applyScrapeNetworkPolicy, createScrapeExecutionPolicy } from "./scrape";
+import { getScrapeItemExecutionContext } from "./network";
+import { activateNetworkFixtureContext } from "./network/networkFixtureContext";
+import { applyScrapeNetworkPolicy, buildScrapePublicationKey, createScrapeExecutionPolicy } from "./scrape";
 import { MAX_LIVE_SCRAPE_LOGS, ScrapeRunSession, TaskExecutor } from "./tasks";
 
 describe("task executor", () => {
@@ -85,6 +87,34 @@ describe("task executor", () => {
     releaseSibling.resolve();
     await expect(run).rejects.toThrow("worker failed");
   });
+
+  it.each([
+    2, 4,
+  ])("serializes publication and stops admission after the first failure at concurrency %s", async (concurrency) => {
+    const started: number[] = [];
+    const applied: number[] = [];
+    const finalized: number[] = [];
+    const executor = new TaskExecutor<number, number>({
+      concurrency,
+      runItem: async (item) => {
+        started.push(item);
+        return item;
+      },
+      applyResult: async (_item, result) => {
+        applied.push(result);
+        if (result === 1) throw new Error("publication conflict");
+      },
+      finalizeResult: async (_item, result) => {
+        finalized.push(result);
+        if (result === 1) throw new Error("cleanup failed");
+      },
+    });
+
+    await expect(executor.execute([1, 2, 3, 4, 5, 6])).rejects.toThrow("publication conflict");
+    expect(applied).toEqual([1]);
+    expect(started.length).toBeLessThanOrEqual(concurrency);
+    expect(finalized.sort()).toEqual([...started].sort());
+  });
 });
 
 const deferred = <T>() => {
@@ -104,6 +134,10 @@ const runItem = (id: string) => ({
 
 const admitItem = async (item: { id: string }): Promise<string> => `${item.id}:attempt`;
 
+const prepareItem = async () => ({ status: "prepared" as const, prepared: undefined });
+const validatePrepared = async () => undefined;
+const commitPreparationItem = async (_item: ReturnType<typeof runItem>, result: ScrapeResult) => result;
+
 const terminalResult = (
   item: { id: string; rootId: string; relativePath: string; sourcePath: string },
   status: "success" | "failed" | "skipped",
@@ -118,19 +152,152 @@ const terminalResult = (
 });
 
 describe("scrape run session", () => {
+  it("holds shared output ownership through commit while independent directories execute", async () => {
+    const committing = deferred<void>();
+    const releaseCommit = deferred<void>();
+    const independent = deferred<void>();
+    const executed: string[] = [];
+    const session = new ScrapeRunSession({
+      runId: "publication-ownership",
+      items: [runItem("ABC-001"), runItem("XYZ-002"), runItem("independent")],
+      concurrency: 3,
+      admitItem,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      getPublicationKey: (item) =>
+        buildScrapePublicationKey({
+          outputDir: item.id === "independent" ? "/output/independent" : "/output/shared",
+          targetVideoPath: `/output/${item.id}.mp4`,
+          nfoPath: `/output/${item.id}.nfo`,
+        }),
+      executePreparedItem: async (item) => {
+        executed.push(item.id);
+        if (item.id === "independent") independent.resolve();
+        return terminalResult(item, "success");
+      },
+      commitItem: async (item, result) => {
+        if (item.id === "ABC-001") {
+          committing.resolve();
+          await releaseCommit.promise;
+        }
+        return result;
+      },
+      onSnapshot: () => undefined,
+    });
+    await session.start();
+    await Promise.all([committing.promise, independent.promise]);
+    expect(executed).toEqual(["ABC-001", "independent"]);
+    releaseCommit.resolve();
+    await session.waitForIdle();
+    expect(executed).toEqual(["ABC-001", "independent", "XYZ-002"]);
+    expect(session.snapshot().status).toBe("completed");
+  });
+
+  it("finishes an in-flight preflight while paused and resumes execution without repeating it", async () => {
+    const checking = deferred<void>();
+    const checked = deferred<void>();
+    let checks = 0;
+    const executed: string[] = [];
+    const session = new ScrapeRunSession({
+      runId: "paused-preflight",
+      items: [runItem("one")],
+      concurrency: 1,
+      admitItem,
+      prepareItem,
+      commitPreparationItem,
+      validatePrepared: async () => {
+        checks += 1;
+        checking.resolve();
+        await checked.promise;
+      },
+      executePreparedItem: async (item) => {
+        executed.push(item.id);
+        return terminalResult(item, "success");
+      },
+      commitItem: async (_item, result) => result,
+      onSnapshot: () => undefined,
+    });
+    await session.start();
+    await checking.promise;
+    await session.pause();
+    checked.resolve();
+    await session.waitForIdle();
+    expect(executed).toEqual([]);
+    await session.resume();
+    await session.waitForIdle();
+    expect(checks).toBe(1);
+    expect(executed).toEqual(["one"]);
+    expect(session.snapshot().status).toBe("completed");
+  });
+
+  it("isolates fixture case context for every concurrently executing item", async () => {
+    activateNetworkFixtureContext();
+    const items = [
+      { ...runItem("one"), caseId: "movie-one" },
+      { ...runItem("two"), caseId: "movie-two" },
+    ];
+    const observed: Array<ReturnType<typeof getScrapeItemExecutionContext>> = [];
+    const lateObserved: Array<ReturnType<typeof getScrapeItemExecutionContext>> = [];
+    const releaseLateReads = deferred<void>();
+    const lateReads: Promise<void>[] = [];
+    const session = new ScrapeRunSession({
+      runId: "fixture-context",
+      items,
+      concurrency: 2,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      admitItem,
+      executePreparedItem: async (item, _prepared) => {
+        await Promise.resolve();
+        observed.push(getScrapeItemExecutionContext());
+        lateReads.push(
+          releaseLateReads.promise.then(() => {
+            lateObserved.push(getScrapeItemExecutionContext());
+          }),
+        );
+        return terminalResult(item, "success");
+      },
+      commitItem: async (_item, result) => result,
+      onSnapshot: () => undefined,
+    });
+
+    await session.start();
+    await session.waitForIdle();
+    releaseLateReads.resolve();
+    await Promise.all(lateReads);
+
+    expect(observed).toEqual(
+      expect.arrayContaining([
+        { itemId: "one", relativePath: "one.mp4", caseId: "movie-one" },
+        { itemId: "two", relativePath: "two.mp4", caseId: "movie-two" },
+      ]),
+    );
+    expect(lateObserved).toEqual([undefined, undefined]);
+    expect(getScrapeItemExecutionContext()).toBeUndefined();
+  });
+
   it("keeps stable live snapshots while pausing after one committed item", async () => {
     const first = deferred<ScrapeResult>();
     const started = deferred<void>();
     const executed: string[] = [];
     const committed: string[] = [];
     const observedStatuses: string[] = [];
+    const observedRevisions: number[] = [];
+    let preflightCount = 0;
     const items = [runItem("one"), runItem("two")];
     const session = new ScrapeRunSession({
       runId: "run-1",
       items,
       concurrency: 1,
+      prepareItem,
+      validatePrepared: async () => {
+        if (++preflightCount > 1) throw new Error("Output changed after initial preflight");
+      },
+      commitPreparationItem,
       admitItem,
-      executeItem: async (item) => {
+      executePreparedItem: async (item, _prepared) => {
         executed.push(item.id);
         if (item.id === "one") {
           started.resolve();
@@ -144,6 +311,7 @@ describe("scrape run session", () => {
       },
       onSnapshot: (snapshot) => {
         observedStatuses.push(snapshot.status);
+        observedRevisions.push(snapshot.revision);
       },
     });
 
@@ -197,68 +365,13 @@ describe("scrape run session", () => {
     });
     expect(executed).toEqual(["one", "two"]);
     expect(committed).toEqual(["one", "two"]);
+    expect(preflightCount).toBe(1);
     expect(observedStatuses[0]).toBe("queued");
     expect(observedStatuses).toContain("running");
     expect(observedStatuses.at(-1)).toBe("completed");
-  });
-
-  it("fails a mixed-outcome run instead of completing on any success", async () => {
-    const items = [runItem("one"), runItem("two")];
-    const session = new ScrapeRunSession({
-      runId: "run-mixed",
-      items,
-      concurrency: 1,
-      admitItem,
-      executeItem: async (item) => terminalResult(item, item.id === "one" ? "success" : "failed"),
-      commitItem: async (_item, result) => result,
-      onSnapshot: () => undefined,
-    });
-
-    await session.start();
-    await session.waitForIdle();
-    expect(session.snapshot()).toMatchObject({
-      status: "failed",
-      items: [
-        { id: "one", status: "success" },
-        { id: "two", status: "failed" },
-      ],
-    });
-  });
-
-  it.each([
-    { concurrency: 1, ids: ["one"] },
-    { concurrency: 2, ids: ["one", "two"] },
-  ])("completes after resume while $concurrency item(s) are still settling", async ({ concurrency, ids }) => {
-    const started = ids.map(() => deferred<void>());
-    const releases = ids.map(() => deferred<void>());
-    const items = ids.map(runItem);
-    const session = new ScrapeRunSession({
-      runId: `run-resume-${concurrency}`,
-      items,
-      concurrency,
-      admitItem,
-      executeItem: async (item) => {
-        const index = ids.indexOf(item.id);
-        started[index]?.resolve();
-        await releases[index]?.promise;
-        return terminalResult(item, "success");
-      },
-      commitItem: async (_item, result) => result,
-      onSnapshot: () => undefined,
-    });
-
-    await session.start();
-    await Promise.all(started.map((entry) => entry.promise));
-    const paused = session.pause();
-    await session.resume();
-    for (const release of releases) release.resolve();
-    await paused;
-    await session.waitForIdle();
-
-    expect(session.snapshot()).toMatchObject({
-      status: "completed",
-      progress: { completedItems: ids.length, totalItems: ids.length, percent: 100 },
-    });
+    expect(observedRevisions).toEqual([...observedRevisions].sort((left, right) => left - right));
+    expect(new Set(observedRevisions).size).toBe(observedRevisions.length);
+    expect(observedRevisions.at(-1)).toBeGreaterThan(0);
   });
 
   it("keeps reported progress monotonic and floors it by terminal items", async () => {
@@ -269,8 +382,11 @@ describe("scrape run session", () => {
       runId: "run-progress",
       items,
       concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
       admitItem,
-      executeItem: async (item) => {
+      executePreparedItem: async (item, _prepared) => {
         if (item.id === "one") {
           started.resolve();
           return await first.promise;
@@ -300,8 +416,11 @@ describe("scrape run session", () => {
       runId: "run-progress-terminal",
       items,
       concurrency: 2,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
       admitItem,
-      executeItem: async (item) => terminalResult(item, "success"),
+      executePreparedItem: async (item, _prepared) => terminalResult(item, "success"),
       commitItem: async (_item, result) => result,
       onSnapshot: () => undefined,
     });
@@ -322,8 +441,11 @@ describe("scrape run session", () => {
       runId: "run-1",
       items,
       concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
       admitItem,
-      executeItem: async (item, signal) => {
+      executePreparedItem: async (item, _prepared, signal) => {
         executed.push(item.id);
         started.resolve();
         await new Promise<void>((resolve) =>
@@ -358,45 +480,6 @@ describe("scrape run session", () => {
     expect(committed).toEqual(["one:skipped", "two:skipped"]);
   });
 
-  it("lets an admitted terminal transaction finish before skipping remaining items on stop", async () => {
-    const commitStarted = deferred<void>();
-    const releaseCommit = deferred<void>();
-    const committed: string[] = [];
-    const items = [runItem("one"), runItem("two")];
-    const session = new ScrapeRunSession({
-      runId: "run-1",
-      items,
-      concurrency: 1,
-      admitItem,
-      executeItem: async (item) => terminalResult(item, "success"),
-      commitItem: async (item, result) => {
-        committed.push(`${item.id}:${result.status}`);
-        if (item.id === "one") {
-          commitStarted.resolve();
-          await releaseCommit.promise;
-        }
-        return result;
-      },
-      onSnapshot: () => undefined,
-    });
-
-    await session.start();
-    await commitStarted.promise;
-    const stopped = session.stop();
-    releaseCommit.resolve();
-    await stopped;
-
-    expect(committed).toEqual(["one:success", "two:skipped"]);
-    expect(session.snapshot()).toMatchObject({
-      generation: 1,
-      status: "stopped",
-      items: [
-        { id: "one", status: "success" },
-        { id: "two", status: "skipped" },
-      ],
-    });
-  });
-
   it("aborts for shutdown without committing outcomes", async () => {
     const started = deferred<void>();
     const committed: string[] = [];
@@ -404,8 +487,11 @@ describe("scrape run session", () => {
       runId: "run-1",
       items: [runItem("one"), runItem("two")],
       concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
       admitItem,
-      executeItem: async (item, signal) => {
+      executePreparedItem: async (item, _prepared, signal) => {
         started.resolve();
         await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
         return terminalResult(item, "success");
@@ -429,13 +515,80 @@ describe("scrape run session", () => {
     });
   });
 
+  it("releases staging when stop discards a finished item before apply", async () => {
+    const started = deferred<void>();
+    const released: string[] = [];
+    const committed: string[] = [];
+    const session = new ScrapeRunSession({
+      runId: "staging-discard",
+      items: [runItem("one")],
+      concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      admitItem,
+      executePreparedItem: async (item, _prepared, signal) => {
+        started.resolve();
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+        return {
+          ...terminalResult(item, "success"),
+          release: async () => {
+            released.push(item.id);
+          },
+        };
+      },
+      commitItem: async (item, result) => {
+        committed.push(`${item.id}:${result.status}`);
+        return result;
+      },
+      onSnapshot: () => undefined,
+    });
+
+    await session.start();
+    await started.promise;
+    await session.stop();
+    expect(released).toEqual(["one"]);
+    expect(committed).toEqual(["one:skipped"]);
+  });
+
+  it("keeps a committed item successful when staging cleanup fails", async () => {
+    const session = new ScrapeRunSession({
+      runId: "staging-cleanup",
+      items: [runItem("one")],
+      concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
+      admitItem,
+      executePreparedItem: async (item) => ({
+        ...terminalResult(item, "success"),
+        release: async () => {
+          throw new Error("staging busy");
+        },
+      }),
+      commitItem: async (_item, result) => result,
+      onSnapshot: () => undefined,
+    });
+
+    await session.start();
+    await session.waitForIdle();
+    expect(session.snapshot()).toMatchObject({
+      status: "completed",
+      items: [{ id: "one", status: "success" }],
+    });
+    expect(session.snapshot().logs.some((entry) => entry.message.includes("Staging cleanup failed"))).toBe(true);
+  });
+
   it("surfaces terminal persistence failure and interrupts the run", async () => {
     const session = new ScrapeRunSession({
       runId: "run-persistence-failure",
       items: [runItem("one")],
       concurrency: 1,
+      prepareItem,
+      validatePrepared,
+      commitPreparationItem,
       admitItem,
-      executeItem: async () => {
+      executePreparedItem: async () => {
         throw new Error("crawler crashed");
       },
       commitItem: async () => {

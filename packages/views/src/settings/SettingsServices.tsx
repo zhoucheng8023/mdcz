@@ -1,5 +1,6 @@
 import type { Configuration } from "@mdcz/shared/config";
 import type { Website } from "@mdcz/shared/enums";
+import type { LlmApiFormat, LlmOutputFormat, LlmReasoning, LlmServiceType } from "@mdcz/shared/llm";
 import type { NetworkCookieCheckStatus } from "@mdcz/shared/serverDtos";
 import type { NamingPreviewItem } from "@mdcz/shared/types";
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from "react";
@@ -52,8 +53,13 @@ export interface SettingsTranslateTestInput {
   llmModelName: string;
   llmApiKey: string;
   llmBaseUrl: string;
+  llmApiFormat: LlmApiFormat;
+  llmServiceType: LlmServiceType;
   llmPrompt: string;
-  llmTemperature: number;
+  llmTemperature?: number | null;
+  llmReasoning: LlmReasoning;
+  llmOutputFormat: LlmOutputFormat;
+  llmTimeout: number;
 }
 
 export interface SettingsServices {

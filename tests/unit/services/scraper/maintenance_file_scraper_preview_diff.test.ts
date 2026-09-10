@@ -1,5 +1,4 @@
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { getMaintenancePreset as getPreset } from "@mdcz/runtime/maintenance";
 import { MaintenanceFileScraper } from "@mdcz/runtime/maintenance/MaintenanceFileScraper";
 import { Website } from "@mdcz/shared/enums";
@@ -57,7 +56,7 @@ const createScraper = (crawlerData: CrawlerData, presetId: "refresh_data" | "reb
         }),
       } as never,
       translateService: {
-        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
       } as never,
       nfoGenerator: {
         writeNfo: vi.fn(),
@@ -69,7 +68,7 @@ const createScraper = (crawlerData: CrawlerData, presetId: "refresh_data" | "reb
         plan: vi.fn().mockReturnValue(plan),
         resolveOutputPlan: vi.fn(async () => plan),
       } as never,
-      signalService: new SignalService(null),
+      signalService: { setProgress: vi.fn(), showLogText: vi.fn() },
     },
     getPreset(presetId),
   );

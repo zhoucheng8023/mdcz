@@ -1,7 +1,8 @@
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
 import { CrawlerProvider, FetchGateway } from "@mdcz/runtime/crawler";
 import type { CrawlerInput, CrawlerResponse, FailureReason } from "@mdcz/runtime/crawler/base/types";
-import { NetworkClient } from "@mdcz/runtime/network";
+import { getCrawlerExecutionSource, NetworkClient, runWithScrapeItem } from "@mdcz/runtime/network";
+import { activateNetworkFixtureContext } from "@mdcz/runtime/network/networkFixtureContext";
 import { AggregationService } from "@mdcz/runtime/scrape";
 import { Website } from "@mdcz/shared/enums";
 import type { CrawlerData } from "@mdcz/shared/types";
@@ -140,33 +141,45 @@ describe("AggregationService", () => {
     });
   };
 
-  it("aggregates results from multiple successful crawlers", async () => {
-    const siteResults = makeSiteResults(
-      [Website.DMM, { title: undefined, plot: "Short DMM plot", thumb_url: "https://awsimgsrc.dmm.co.jp/thumb.jpg" }],
-      [
-        Website.JAVDB,
-        {
-          title: "JAVDB Title",
-          plot: "Longer JAVDB plot description here",
-          actors: ["Actor A", "Actor B"],
-          genres: ["Tag 1", "Tag 2"],
-        },
-      ],
+  it("isolates each concurrent crawler in its Website source context", async () => {
+    activateNetworkFixtureContext();
+    const provider = new MultiResultCrawlerProvider(
+      makeSiteResults(
+        [Website.DMM, { thumb_url: "https://dmm.example/thumb.jpg" }],
+        [Website.JAVDB, { thumb_url: "https://javdb.example/thumb.jpg" }],
+      ),
     );
+    const observed: Website[] = [];
+    const lateObserved: Array<ReturnType<typeof getCrawlerExecutionSource>> = [];
+    let releaseLateReads!: () => void;
+    const lateGate = new Promise<void>((resolve) => {
+      releaseLateReads = resolve;
+    });
+    const lateReads: Promise<void>[] = [];
+    const originalCrawl = provider.crawl.bind(provider);
+    provider.crawl = async (input) => {
+      await Promise.resolve();
+      const source = getCrawlerExecutionSource();
+      if (source) observed.push(source.website);
+      lateReads.push(
+        lateGate.then(() => {
+          lateObserved.push(getCrawlerExecutionSource());
+        }),
+      );
+      return await originalCrawl(input);
+    };
+    const config = makeConfig({ scrape: { sites: [Website.DMM, Website.JAVDB] } });
 
-    const result = await new AggregationService(new MultiResultCrawlerProvider(siteResults)).aggregate(
-      "ABF-075",
-      makeConfig(),
+    await runWithScrapeItem(
+      { itemId: "item", relativePath: "movie.mp4", caseId: "movie-case" },
+      async () => await new AggregationService(provider).aggregate("ABF-075", config),
     );
+    releaseLateReads();
+    await Promise.all(lateReads);
 
-    expect(result).not.toBeNull();
-    expect(result?.data.title).toBeDefined();
-    expect(result?.data.number).toBe("ABF-075");
-    expect(result?.data.plot).toBe("Longer JAVDB plot description here");
-    expect(result?.data.thumb_url).toBe("https://awsimgsrc.dmm.co.jp/thumb.jpg");
-    expect(result?.stats.successCount).toBe(2);
-    expect(result?.stats.failedCount).toBe(1);
-    expect(result?.stats.skippedCount).toBe(0);
+    expect(observed).toEqual(expect.arrayContaining([Website.DMM, Website.JAVDB]));
+    expect(lateObserved).toEqual([undefined, undefined]);
+    expect(getCrawlerExecutionSource()).toBeUndefined();
   });
 
   it("records DMM blocked failures and uses avwikidb only when it is enabled", async () => {

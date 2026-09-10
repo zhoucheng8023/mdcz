@@ -122,13 +122,6 @@ export interface NfoLocalState {
   tags?: string[];
 }
 
-export interface UncensoredConfirmItem {
-  fileId: FileId;
-  nfoPath: string;
-  videoPath: string;
-  choice: UncensoredChoice;
-}
-
 export interface UncensoredConfirmResultItem {
   fileId: FileId;
   sourceVideoPath: string;
@@ -238,7 +231,7 @@ export interface PathDiff {
   changed: boolean;
 }
 
-export type MaintenancePreviewStatus = "ready" | "blocked";
+export type MaintenancePreviewStatus = "pending" | "processing" | "ready" | "blocked";
 
 export interface MaintenancePreviewItem {
   fileId: FileId;

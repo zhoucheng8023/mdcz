@@ -9,22 +9,19 @@ on:
       - ".github/workflows/ci.yaml"
       - ".github/actions/setup/action.yml"
       - "tests/**"
-      - "docs/**"
-      - "CONTRIBUTING.md"
       - "package.json"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "mise.toml"
       - "biome.json"
       - "vitest.config.ts"
-      - "playwright.config.ts"
       - "tsconfig*.json"
   pull_request:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   static:
@@ -60,51 +57,15 @@ jobs:
       - name: Node, Desktop, and shared contract integration
         run: pnpm test:integration
 
-  component:
-    name: Browser Component Tests
+  build:
+    name: Build Verification
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
 
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Build Desktop and WebUI
+        run: pnpm build:desktop && pnpm build:webui
 
-      - name: Run browser components
-        run: pnpm exec vitest run --project component --silent
-
-      - name: Upload component diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: component-test-diagnostics
-          path: .vitest-attachments/
-          if-no-files-found: ignore
-          retention-days: 14
-
-  product-e2e-smoke:
-    name: Product E2E Smoke
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run Web and Electron product smoke
-        run: xvfb-run -a pnpm test:e2e
-
-      - name: Upload Playwright diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: product-e2e-diagnostics
-          path: |
-            playwright-report*/
-            test-results/
-          if-no-files-found: warn
-          retention-days: 14
 

@@ -53,7 +53,9 @@ export function MaintenanceBatchBarAdapter({ port }: { port: MaintenanceActionPo
   const previewing = executionStatus === "previewing";
   const canPauseMaintenance =
     executionStatus === "previewing" || executionStatus === "executing" || executionStatus === "paused";
-  const hasPreviewResults = Object.keys(previewResults).length > 0;
+  const hasPreviewResults = Object.values(previewResults).some(
+    (preview) => preview.status === "ready" || preview.status === "blocked",
+  );
   const selectedEntries = useMemo(
     () => entries.filter((entry) => selectedIds.includes(entry.fileId)),
     [entries, selectedIds],
@@ -177,7 +179,9 @@ export function MaintenanceBatchBarAdapter({ port }: { port: MaintenanceActionPo
       const pausingPreview = previewing;
       if (paused) {
         await port.resume();
-        toast.success(previewPending ? "维护预览已恢复" : "维护任务已恢复");
+        toast.success(
+          useMaintenanceStore.getState().snapshot?.phase === "preview" ? "维护预览已恢复" : "维护任务已恢复",
+        );
         return;
       }
 
@@ -191,8 +195,7 @@ export function MaintenanceBatchBarAdapter({ port }: { port: MaintenanceActionPo
   const handleStop = async () => {
     try {
       await port.stop();
-      useMaintenanceStore.getState().setPending(true);
-      toast.info("正在停止维护流程...");
+      toast.info("维护流程已停止");
     } catch (error) {
       toast.error(`停止失败: ${toErrorMessage(error)}`);
     }

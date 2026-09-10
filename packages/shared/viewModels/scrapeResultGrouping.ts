@@ -3,7 +3,7 @@ import type {
   CrawlerData,
   ScrapeResult,
   ScrapeResultStatus,
-  UncensoredConfirmItem,
+  UncensoredChoice,
   UncensoredConfirmResultItem,
 } from "@mdcz/shared/types";
 import type { ScrapeFileRefDto } from "../serverDtos";
@@ -28,9 +28,13 @@ const scrapeResultPath = (result: ScrapeResult): string => result.output?.relati
 const scrapeResultNumber = (result: ScrapeResult): string =>
   result.crawlerData?.number ?? result.fileName.replace(/\.[^.]+$/u, "");
 const scrapeResultNfoPath = (result: ScrapeResult): string | undefined => result.nfo?.relativePath;
-
 const scrapeResultMultipartSelectors = {
-  getDirectory: (result: ScrapeResult) => deriveGroupingDirectoryFromPath(scrapeResultPath(result)),
+  getDirectory: (result: ScrapeResult) => {
+    const directory = deriveGroupingDirectoryFromPath(scrapeResultPath(result));
+    return directory === undefined
+      ? undefined
+      : `${(result.output ?? { rootId: result.rootId }).rootId}\u0000${directory}`;
+  },
   getFileName: (result: ScrapeResult) => scrapeResultPath(result),
   getItemKey: (result: ScrapeResult) => result.fileId,
   getNumber: (result: ScrapeResult) => scrapeResultNumber(result),
@@ -166,9 +170,10 @@ export const getScrapeResultGroupTargets = (
   for (const item of group.items) {
     const filePath = scrapeResultPath(item);
     if (!filePath) continue;
-    targets.set(filePath, {
+    const ref = item.output ?? { rootId: item.rootId, relativePath: item.relativePath };
+    targets.set(`${ref.rootId}\u0000${ref.relativePath}`, {
       filePath,
-      ref: item.output ?? { rootId: item.rootId, relativePath: item.relativePath },
+      ref,
     });
   }
   return [...targets.values()];
@@ -183,19 +188,17 @@ export const buildScrapeResultGroupActionContext = (
     selectedItem: findScrapeResultGroupItem(group, itemId) ?? group.representative,
     nfoPath: getScrapeResultGroupNfoPath(group),
     targets,
-    videoPaths: targets.map((target) => target.filePath),
+    videoPaths: [...new Set(targets.map((target) => target.filePath))],
   };
 };
 
 export const buildUncensoredConfirmItemsForScrapeGroups = (
   groups: ScrapeResultGroup[],
-  choicesByGroupId: Record<string, UncensoredConfirmItem["choice"]>,
-): UncensoredConfirmItem[] =>
+  choicesByGroupId: Record<string, UncensoredChoice>,
+): Array<{ itemId: string; choice: UncensoredChoice }> =>
   groups.flatMap((group) =>
     getAmbiguousUncensoredItemsForScrapeGroup(group).map((item) => ({
-      fileId: item.fileId,
-      nfoPath: item.nfoPath,
-      videoPath: scrapeResultPath(item),
+      itemId: item.fileId,
       choice: choicesByGroupId[group.id] ?? "uncensored",
     })),
   );
@@ -204,7 +207,7 @@ export const summarizeUncensoredConfirmResultForScrapeGroups = (
   groups: ScrapeResultGroup[],
   updates: UncensoredConfirmResultItem[],
 ): { successCount: number; failedCount: number } => {
-  const updatedSourcePaths = new Set(updates.map((item) => item.sourceVideoPath));
+  const updatedItemIds = new Set(updates.map((item) => item.fileId));
   const submittedGroups = groups
     .map((group) => ({
       items: getAmbiguousUncensoredItemsForScrapeGroup(group),
@@ -212,7 +215,7 @@ export const summarizeUncensoredConfirmResultForScrapeGroups = (
     .filter((group) => group.items.length > 0);
 
   const successCount = submittedGroups.filter((group) =>
-    group.items.every((item) => updatedSourcePaths.has(scrapeResultPath(item))),
+    group.items.every((item) => updatedItemIds.has(item.fileId)),
   ).length;
   return {
     successCount,

@@ -20,6 +20,7 @@ interface MaintenanceSnapshotView {
 
 interface MaintenanceState {
   snapshot: MaintenanceActiveSessionSnapshot | null;
+  retiredSessionIds: string[];
   selectedIds: string[];
   activeId: string | null;
   presetId: MaintenancePresetId;
@@ -68,7 +69,10 @@ const buildMaintenanceSnapshotView = (snapshot: MaintenanceActiveSessionSnapshot
         const item: MaintenancePreviewItem = {
           fileId: previewFileId(preview),
           previewId: preview.id,
-          status: preview.status === "ready" ? "ready" : "blocked",
+          status:
+            preview.status === "ready" || preview.status === "processing" || preview.status === "pending"
+              ? preview.status
+              : "blocked",
           ...(preview.error ? { error: preview.error } : {}),
           ...(preview.fieldDiffs.length ? { fieldDiffs: preview.fieldDiffs } : {}),
           ...(preview.unchangedFieldDiffs.length ? { unchangedFieldDiffs: preview.unchangedFieldDiffs } : {}),
@@ -127,6 +131,7 @@ const selectMaintenanceSnapshotView = (state: MaintenanceState): MaintenanceSnap
 
 const initialState = () => ({
   snapshot: null as MaintenanceActiveSessionSnapshot | null,
+  retiredSessionIds: [] as string[],
   selectedIds: [] as string[],
   activeId: null as string | null,
   presetId: "read_local" as MaintenancePresetId,
@@ -168,11 +173,25 @@ export const useMaintenanceStore = create<MaintenanceState>()((set) => ({
   ...initialState(),
   setSnapshot: (snapshot) =>
     set((state) => {
+      if (snapshot && state.retiredSessionIds.includes(snapshot.id)) return state;
+      if (snapshot && state.snapshot?.id === snapshot.id && snapshot.generation < state.snapshot.generation)
+        return state;
+      const retiredSessionIds =
+        state.snapshot && state.snapshot.id !== snapshot?.id
+          ? [...state.retiredSessionIds, state.snapshot.id]
+          : state.retiredSessionIds;
       const entries = snapshot?.previews.map(previewFileId) ?? [];
+      const previousEntries = new Set(state.snapshot?.previews.map(previewFileId));
       const selectedIds =
-        state.snapshot?.id === snapshot?.id ? state.selectedIds.filter((id) => entries.includes(id)) : entries;
+        state.snapshot?.id === snapshot?.id
+          ? [
+              ...state.selectedIds.filter((id) => entries.includes(id)),
+              ...entries.filter((id) => !previousEntries.has(id)),
+            ]
+          : entries;
       return {
         snapshot,
+        retiredSessionIds,
         presetId: snapshot?.presetId ?? state.presetId,
         selectedIds,
         activeId: state.activeId && entries.includes(state.activeId) ? state.activeId : (entries[0] ?? null),
@@ -193,19 +212,24 @@ export const useMaintenanceStore = create<MaintenanceState>()((set) => ({
   setCurrentPath: (currentPath) => set({ currentPath }),
   setPending: (pending) => set({ pending }),
   setError: (error) => set({ error, pending: false }),
-  reset: () => set(initialState()),
+  reset: () =>
+    set((state) => ({
+      ...initialState(),
+      retiredSessionIds: state.snapshot ? [...state.retiredSessionIds, state.snapshot.id] : state.retiredSessionIds,
+    })),
 }));
 
 export const applyMaintenanceSessionSnapshot = (snapshot: MaintenanceActiveSessionSnapshot | null): void =>
   useMaintenanceStore.getState().setSnapshot(snapshot);
 export const changeMaintenancePreset = (presetId: MaintenancePresetId): void =>
-  useMaintenanceStore.setState({
+  useMaintenanceStore.setState((state) => ({
     presetId,
+    retiredSessionIds: state.snapshot ? [...state.retiredSessionIds, state.snapshot.id] : state.retiredSessionIds,
     snapshot: null,
     selectedIds: [],
     activeId: null,
     error: null,
-  });
+  }));
 export const toggleMaintenanceSelectedIds = (ids: string[]): void =>
   useMaintenanceStore.getState().toggleSelectedIds(ids);
 export const resetMaintenanceSession = (): void => useMaintenanceStore.getState().reset();

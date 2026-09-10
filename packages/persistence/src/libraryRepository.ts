@@ -1,4 +1,4 @@
-import { stat as fsStat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { PersistenceDatabase } from "./database";
@@ -326,7 +326,7 @@ export class LibraryRepository {
     }
     this.assertNoMaintenanceTargetConflict(targetCandidates, input.librarySource?.libraryItemId);
     const target = chooseRootCandidate(targetCandidates, input.librarySource?.rootId);
-    const assets = await this.buildMaintenanceAssets(input, target.rootId);
+    const assets = this.buildMaintenanceAssets(input, target.rootId);
     const crawlerDataJson = input.crawlerData ? JSON.stringify(input.crawlerData) : null;
     const mediaIdentity = input.crawlerData?.number?.trim() || input.fallbackNumber.trim() || null;
     const title = input.crawlerData?.title ?? null;
@@ -339,7 +339,7 @@ export class LibraryRepository {
           .limit(1)
           .get()
       : null;
-    const itemId = input.librarySource?.libraryItemId ?? `${target.rootId}:${target.rootRelativePath}`;
+    const itemId = input.librarySource?.libraryItemId ?? randomUUID();
     return {
       librarySource: input.librarySource,
       targetCandidates,
@@ -712,21 +712,19 @@ export class LibraryRepository {
     }
   }
 
-  private async buildMaintenanceAssets(
+  private buildMaintenanceAssets(
     input: CommitMaintenanceRefreshInput,
     preferredRootId: string,
-  ): Promise<MaintenanceAssetInput[]> {
+  ): MaintenanceAssetInput[] {
     const outputs: MaintenanceAssetInput[] = [];
     const localKinds = new Set<string>();
-    const addLocal = async (kind: string, value: string | undefined): Promise<void> => {
+    const addLocal = (kind: string, value: string | undefined): void => {
       const absolutePath = value?.trim();
       if (!absolutePath) return;
       const candidates = this.pathCandidates(absolutePath);
       if (candidates.length === 0) {
         throw new Error(`维护生成的本地资源不属于任何已注册媒体目录：${absolutePath}`);
       }
-      const file = await fsStat(absolutePath);
-      if (!file.isFile()) throw new Error(`维护生成的资源不是文件：${absolutePath}`);
       const mapped = chooseRootCandidate(candidates, preferredRootId);
       outputs.push({
         kind,
@@ -737,12 +735,12 @@ export class LibraryRepository {
       localKinds.add(kind);
     };
 
-    await addLocal("thumb", input.assets.thumb);
-    await addLocal("poster", input.assets.poster);
-    await addLocal("fanart", input.assets.fanart);
-    await addLocal("trailer", input.assets.trailer);
-    for (const sceneImage of input.assets.sceneImages) await addLocal("scene", sceneImage);
-    for (const actorPhoto of input.assets.actorPhotos) await addLocal("actor", actorPhoto);
+    addLocal("thumb", input.assets.thumb);
+    addLocal("poster", input.assets.poster);
+    addLocal("fanart", input.assets.fanart);
+    addLocal("trailer", input.assets.trailer);
+    for (const sceneImage of input.assets.sceneImages) addLocal("scene", sceneImage);
+    for (const actorPhoto of input.assets.actorPhotos) addLocal("actor", actorPhoto);
 
     const addRemoteFallback = (kind: string, values: Array<string | undefined>): void => {
       if (localKinds.has(kind)) return;

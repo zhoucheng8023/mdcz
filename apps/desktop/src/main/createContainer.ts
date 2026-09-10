@@ -36,12 +36,14 @@ export interface CreateContainerOptions {
   windowService: WindowService;
   signalService: SignalService;
   networkClient: NetworkClient;
+  prepareScrapeItem?: <T extends { relativePath: string; caseId?: string }>(item: T) => T;
 }
 
 export const createContainer = ({
   windowService,
   signalService,
   networkClient,
+  prepareScrapeItem,
 }: CreateContainerOptions): ServiceContainer => {
   const fetchGateway = new FetchGateway(networkClient);
   const crawlerProvider = new CrawlerProvider({
@@ -65,16 +67,10 @@ export const createContainer = ({
     );
   };
   configManager.setBeforeActiveConfigurationCommit(async (next, { source }) => {
-    await mediaRoots.assertConfiguredMediaPath(
-      next,
-      source === "load" || source === "watch" ? reportUnavailableMediaPath : undefined,
-    );
+    await mediaRoots.assertConfiguredMediaPath(next, source === "load" ? reportUnavailableMediaPath : undefined);
   });
   configManager.setAfterActiveConfigurationCommit(async (next, { source }) => {
-    await mediaRoots.registerConfiguredMediaPath(
-      next,
-      source === "load" || source === "watch" ? reportUnavailableMediaPath : undefined,
-    );
+    await mediaRoots.registerConfiguredMediaPath(next, source === "load" ? reportUnavailableMediaPath : undefined);
   });
   const outputLibraryScanner = new OutputLibraryScanner({ persistenceService });
   const desktopLibraryService = new DesktopLibraryService(persistenceService);
@@ -108,6 +104,7 @@ export const createContainer = ({
     outputLibraryScanner,
     persistenceService,
     mediaRoots,
+    prepareScrapeItem,
   );
   const maintenanceService = new MaintenanceService({
     signalService,
@@ -135,25 +132,41 @@ export const createContainer = ({
     actorSourceProvider,
     actorImageService,
     jellyfinActorPhotoService: new JellyfinActorPhotoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("JellyfinActorPhoto"),
     }),
     jellyfinActorInfoService: new JellyfinActorInfoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("JellyfinActorInfo"),
     }),
     embyActorPhotoService: new EmbyActorPhotoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("EmbyActorPhoto"),
     }),
     embyActorInfoService: new EmbyActorInfoService({
-      signalService,
+      signalService: {
+        showLogText: (message, level) => signalService.showLogText(message, level),
+        resetProgress: () => undefined,
+        setProgress: () => undefined,
+      },
       networkClient,
       actorSourceProvider,
       logger: loggerService.getLogger("EmbyActorInfo"),

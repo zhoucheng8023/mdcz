@@ -217,6 +217,11 @@ export const moveFileSafely = async (sourcePath: string, targetPath: string): Pr
     } catch (publishError) {
       await cleanupFailedCrossDeviceTarget(sourcePath, temporaryPath, "publish copied file", publishError);
     }
+    try {
+      await rm(sourcePath, { force: true });
+    } catch (removeError) {
+      await cleanupFailedCrossDeviceTarget(sourcePath, targetPath, "remove source", removeError);
+    }
   }
 
   return targetPath;

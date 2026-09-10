@@ -86,7 +86,7 @@ export class PrimaryImageAssetDownloader implements AssetDownloader {
       plan.data.thumb_url,
       plan.imageAlternatives.thumb_url,
       join(plan.outputDir, plan.assetFileNames.thumb),
-      join(plan.existingAssetDir, plan.assetFileNames.thumb),
+      plan.existingAssets?.thumb ?? join(plan.existingAssetDir, plan.assetFileNames.thumb),
     );
     this.addPrimaryImageTask(
       tasks,
@@ -96,7 +96,7 @@ export class PrimaryImageAssetDownloader implements AssetDownloader {
       plan.data.poster_url,
       plan.imageAlternatives.poster_url,
       join(plan.outputDir, plan.assetFileNames.poster),
-      join(plan.existingAssetDir, plan.assetFileNames.poster),
+      plan.existingAssets?.poster ?? join(plan.existingAssetDir, plan.assetFileNames.poster),
     );
 
     return tasks;
@@ -130,6 +130,13 @@ export class PrimaryImageAssetDownloader implements AssetDownloader {
     if (!plan.config.download.downloadPoster) {
       return;
     }
+    if (
+      assets.poster &&
+      !assets.downloaded.includes(assets.poster) &&
+      plan.config.download.keepPoster &&
+      !plan.forceReplace.poster
+    )
+      return;
 
     throwIfAborted(plan.signal);
 
@@ -153,7 +160,7 @@ export class PrimaryImageAssetDownloader implements AssetDownloader {
 
     const thumbSourceUrl = plan.data.thumb_source_url ?? plan.data.thumb_url;
     if (thumbSourceUrl) {
-      plan.data.poster_source_url = thumbSourceUrl;
+      plan.callbacks?.onDerivedPosterSource?.(thumbSourceUrl);
     }
   }
 }

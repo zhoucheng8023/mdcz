@@ -4,14 +4,18 @@ import path from "node:path";
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import { mediaPathOwnership } from "../library/mediaPathOwnership";
 import { runtimeLoggerService } from "../shared";
+import { PublicationConflictError } from "./conflicts";
 import {
   assertPublicationFileUnchanged,
   type ObservedPublicationFile,
   observePublicationFile,
+  planMoves,
+  planRefs,
   preflightPublication,
   removeCommittedObsoleteFiles,
   toObsoleteObservation,
 } from "./preflight";
+import { restorePublicationFile } from "./restorePublicationFile";
 import {
   PublicationError,
   type PublicationFileSystem,
@@ -97,6 +101,8 @@ interface PlannedPublication {
   backupPath: string | null;
   targetExisted: boolean;
   stage: () => Promise<void>;
+  sourcePath?: string;
+  source?: RootFileRef;
 }
 
 export const commitPublishedMedia = async <TResult>(
@@ -104,40 +110,34 @@ export const commitPublishedMedia = async <TResult>(
   options: PublishMediaOptions<TResult>,
 ): Promise<TResult> => {
   const fileSystem = options.fileSystem ?? defaultFileSystem;
-  const lockRefs = uniqueRefs([
-    ...(plan.video ? [plan.video.source, plan.video.target] : []),
-    ...plan.artifacts.map(({ target }) => target),
-    ...plan.assets.flatMap((asset) => (asset.type === "local" ? [asset.file] : [])),
-    ...plan.obsolete,
-  ]);
+  const lockRefs = uniqueRefs(planRefs(plan));
   const logger = runtimeLoggerService.getLogger("Publication");
-  const startedAt = performance.now();
   const operationLabel = plan.operationId.slice(-8);
-  let publicationStatus: "success" | "failed" = "failed";
   const phaseCounts = new Map<string, number>();
   let activePhase: string | null = null;
-  const logPhase = (phase: string, phaseStartedAt: number): void => {
+  let activePhaseStartedAt = 0;
+  let longestPhase: { label: string; durationMs: number } | null = null;
+  const recordPhase = (phase: string, phaseStartedAt: number): void => {
     const count = (phaseCounts.get(phase) ?? 0) + 1;
     phaseCounts.set(phase, count);
     const label = count === 1 ? phase : `${phase}#${count}`;
-    logger.info(
-      `[publication] op=${operationLabel} phase=${label} durationMs=${Math.round(performance.now() - phaseStartedAt)}`,
-    );
+    const durationMs = Math.round(performance.now() - phaseStartedAt);
+    if (!longestPhase || durationMs > longestPhase.durationMs) {
+      longestPhase = { label, durationMs };
+    }
     activePhase = null;
   };
   const startPhase = (phase: string): number => {
     activePhase = phase;
-    return performance.now();
+    activePhaseStartedAt = performance.now();
+    return activePhaseStartedAt;
   };
-  logger.info(
-    `[publication] start operation=${plan.operationId} runId=${options.logContext?.runId ?? ""} itemId=${options.logContext?.itemId ?? ""} source=${plan.video ? `${plan.video.source.rootId}:${plan.video.source.relativePath}` : "-"} target=${plan.video ? `${plan.video.target.rootId}:${plan.video.target.relativePath}` : "-"}`,
-  );
   const previewStartedAt = startPhase("preview");
   const previewed = await preflightPublication(plan, options, fileSystem);
-  logPhase("preview", previewStartedAt);
+  recordPhase("preview", previewStartedAt);
   const lockStartedAt = startPhase("lock");
   const release = options.acquireAll?.(lockRefs) ?? mediaPathOwnership.acquireAll(lockRefs);
-  logPhase("lock", lockStartedAt);
+  recordPhase("lock", lockStartedAt);
   let journalOpen = false;
   let committed = false;
   const planned: PlannedPublication[] = [];
@@ -145,10 +145,9 @@ export const commitPublishedMedia = async <TResult>(
 
   const rollback = async (error: unknown): Promise<never> => {
     const secondary: unknown[] = [];
-    for (const item of [...published].reverse()) {
+    for (const item of [...planned].reverse()) {
       try {
-        if (item.targetExisted && item.backupPath) await fileSystem.rename(item.backupPath, item.targetPath);
-        else await fileSystem.rm(item.targetPath, { force: true });
+        await restorePublicationFile(fileSystem, item, published.includes(item));
       } catch (restoreError) {
         secondary.push(restoreError);
         try {
@@ -181,7 +180,7 @@ export const commitPublishedMedia = async <TResult>(
     if (conflict) throw new Error(`Publication conflicts with unfinished operation: ${conflict.operationId}`);
     const preflightStartedAt = startPhase("preflight");
     const resolved = await preflightPublication(plan, options, fileSystem, previewed.observed);
-    logPhase("preflight", preflightStartedAt);
+    recordPhase("preflight", preflightStartedAt);
     const replacing = new Set((plan.replaceExistingTargets ?? []).map(refKey));
     for (const artifact of plan.artifacts) {
       const targetPath = resolved.resolve(artifact.target);
@@ -197,6 +196,27 @@ export const commitPublishedMedia = async <TResult>(
         backupPath: targetExisted ? createTargetBackupPath(targetPath, plan.operationId) : null,
         targetExisted,
         stage: async () => {
+          if (artifact.content.kind === "file") {
+            const source = await fileSystem.stat(artifact.content.path);
+            if (!source.isFile() || source.size !== artifact.content.size) {
+              throw new Error(`Publication artifact source changed before mutation: ${artifact.content.path}`);
+            }
+            const capacity = await fileSystem.statfs(path.dirname(targetPath));
+            if (capacity.bavail * capacity.bsize < artifact.content.size) {
+              throw new Error(`Insufficient space for publication target: ${targetPath}`);
+            }
+            const writeStartedAt = startPhase("sidecar-copy");
+            await fileSystem.copyFile(artifact.content.path, temporaryPath);
+            recordPhase("sidecar-copy", writeStartedAt);
+            await fileSystem.flush?.(temporaryPath);
+            const staged = await fileSystem.stat(temporaryPath);
+            if (!staged.isFile() || staged.size !== artifact.content.size) {
+              throw new Error(
+                `Staged artifact size mismatch for ${artifact.target.rootId}:${artifact.target.relativePath}`,
+              );
+            }
+            return;
+          }
           let data: Buffer | string;
           if (artifact.content.kind === "download") {
             const downloaded = options.download
@@ -207,11 +227,15 @@ export const commitPublishedMedia = async <TResult>(
             data = artifact.content.data;
           }
           const writeStartedAt = startPhase("sidecar-write");
+          const capacity = await fileSystem.statfs(path.dirname(targetPath));
+          if (capacity.bavail * capacity.bsize < expectedBytes(data)) {
+            throw new Error(`Insufficient space for publication target: ${targetPath}`);
+          }
           await fileSystem.writeFile(temporaryPath, data);
-          logPhase("sidecar-write", writeStartedAt);
+          recordPhase("sidecar-write", writeStartedAt);
           const flushStartedAt = startPhase("flush");
           await fileSystem.flush?.(temporaryPath);
-          logPhase("flush", flushStartedAt);
+          recordPhase("flush", flushStartedAt);
           const staged = await fileSystem.stat(temporaryPath);
           if (!staged.isFile() || staged.size !== expectedBytes(data)) {
             throw new Error(
@@ -222,14 +246,13 @@ export const commitPublishedMedia = async <TResult>(
       });
     }
 
-    if (plan.video) {
-      const video = plan.video;
+    for (const video of planMoves(plan)) {
+      const content = video.content;
       const sourcePath = resolved.resolve(video.source);
       const targetPath = resolved.resolve(video.target);
       const targetFact = observedAt(resolved.observed, targetPath);
       const targetExisted = targetFact?.exists === true;
-      const targetSatisfied = targetFact?.exists === true && targetFact.isFile && targetFact.size === video.size;
-      if (sourcePath !== targetPath && (!targetSatisfied || replacing.has(refKey(video.target)))) {
+      if (sourcePath !== targetPath) {
         await fileSystem.mkdir(path.dirname(targetPath), { recursive: true });
         const temporaryPath = createTargetTemporaryPath(targetPath, plan.operationId);
         planned.push({
@@ -238,6 +261,7 @@ export const commitPublishedMedia = async <TResult>(
           temporaryPath,
           backupPath: targetExisted ? createTargetBackupPath(targetPath, plan.operationId) : null,
           targetExisted,
+          ...(content === undefined && !video.preserveSource ? { sourcePath, source: video.source } : {}),
           stage: async () => {
             const sourceNow = await fileSystem.stat(sourcePath);
             const observed = observedAt(resolved.observed, sourcePath);
@@ -252,13 +276,31 @@ export const commitPublishedMedia = async <TResult>(
               );
             }
             const copyStartedAt = startPhase("video-copy");
-            await fileSystem.copyFile(sourcePath, temporaryPath);
-            logPhase("video-copy", copyStartedAt);
+            if (content !== undefined || video.preserveSource) {
+              const capacity = await fileSystem.statfs(path.dirname(targetPath));
+              if (capacity.bavail * capacity.bsize < (content === undefined ? video.size : expectedBytes(content))) {
+                throw new Error(`Insufficient space for publication target: ${targetPath}`);
+              }
+              if (content === undefined) await fileSystem.copyFile(sourcePath, temporaryPath);
+              else await fileSystem.writeFile(temporaryPath, content);
+            } else {
+              try {
+                await fileSystem.rename(sourcePath, temporaryPath);
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+                const capacity = await fileSystem.statfs(path.dirname(targetPath));
+                if (capacity.bavail * capacity.bsize < video.size) {
+                  throw new Error(`Insufficient space for publication target: ${targetPath}`);
+                }
+                await fileSystem.copyFile(sourcePath, temporaryPath);
+              }
+            }
+            recordPhase("video-copy", copyStartedAt);
             const flushStartedAt = startPhase("flush");
             await fileSystem.flush?.(temporaryPath);
-            logPhase("flush", flushStartedAt);
+            recordPhase("flush", flushStartedAt);
             const copied = await fileSystem.stat(temporaryPath);
-            if (!copied.isFile() || copied.size !== video.size) {
+            if (!copied.isFile() || copied.size !== (content === undefined ? video.size : expectedBytes(content))) {
               throw new Error(`Copied video size mismatch for ${video.target.rootId}:${video.target.relativePath}`);
             }
           },
@@ -268,9 +310,9 @@ export const commitPublishedMedia = async <TResult>(
 
     const obsolete = uniqueRefs([
       ...plan.obsolete,
-      ...(plan.video && resolved.resolve(plan.video.source) !== resolved.resolve(plan.video.target)
-        ? [plan.video.source]
-        : []),
+      ...planMoves(plan)
+        .filter((move) => !move.preserveSource && resolved.resolve(move.source) !== resolved.resolve(move.target))
+        .map((move) => move.source),
     ]).map((ref) => {
       const obsoletePath = resolved.resolve(ref);
       const fact = observedAt(resolved.observed, obsoletePath);
@@ -284,6 +326,7 @@ export const commitPublishedMedia = async <TResult>(
         temporaryPath: `${item.ref.relativePath}.${operationFileToken(plan.operationId)}.part`,
         backupPath: item.backupPath ? `${item.ref.relativePath}.${operationFileToken(plan.operationId)}.bak` : null,
         targetExisted: item.targetExisted,
+        source: item.source,
       })),
       obsolete,
     };
@@ -296,13 +339,19 @@ export const commitPublishedMedia = async <TResult>(
     journalOpen = true;
 
     for (const item of planned) await item.stage();
-    const staged = await preflightPublication(plan, options, fileSystem, resolved.observed);
+    // Video staging moves the source atomically, so the source observation from the
+    // initial preflight is intentionally invalidated. Targets are revalidated below.
 
     const renameStartedAt = startPhase("rename");
     for (const item of planned) {
-      const expectedTarget = observedAt(staged.observed, item.targetPath);
+      const expectedTarget = observedAt(resolved.observed, item.targetPath);
       if (!expectedTarget) throw new Error(`Publication target was not observed: ${item.targetPath}`);
-      assertPublicationFileUnchanged(expectedTarget, await observePublicationFile(fileSystem, item.targetPath));
+      const currentTarget = await observePublicationFile(fileSystem, item.targetPath);
+      const video = plan.videos?.find((video) => refKey(video.target) === refKey(item.ref));
+      if (video && !expectedTarget.exists && currentTarget.exists) {
+        throw new PublicationConflictError(resolved.resolve(video.source), item.targetPath);
+      }
+      assertPublicationFileUnchanged(expectedTarget, currentTarget);
       if (item.targetExisted && item.backupPath) {
         await fileSystem.rename(item.targetPath, item.backupPath);
         published.push(item);
@@ -310,12 +359,12 @@ export const commitPublishedMedia = async <TResult>(
       await fileSystem.rename(item.temporaryPath, item.targetPath);
       if (!item.targetExisted) published.push(item);
     }
-    logPhase("rename", renameStartedAt);
+    recordPhase("rename", renameStartedAt);
     const commitStartedAt = startPhase("commit");
     const result = options.journal.commit(plan.operationId, () => options.commit());
     committed = true;
     journalOpen = false;
-    logPhase("commit", commitStartedAt);
+    recordPhase("commit", commitStartedAt);
 
     try {
       const cleanupStartedAt = startPhase("cleanup");
@@ -335,13 +384,13 @@ export const commitPublishedMedia = async <TResult>(
         await fileSystem.rm(item.temporaryPath, { force: true });
       }
       for (const target of uniqueRefs([
-        ...(plan.video ? [plan.video.target] : []),
+        ...planMoves(plan).map((move) => move.target),
         ...plan.artifacts.map(({ target }) => target),
       ])) {
         await options.repairIssues?.resolve(plan.operationId, target.rootId, target.relativePath);
       }
       options.journal.finish(plan.operationId);
-      logPhase("cleanup", cleanupStartedAt);
+      recordPhase("cleanup", cleanupStartedAt);
     } catch (error) {
       throw new PublicationError(
         `Publication committed but cleanup failed: ${toErrorMessage(error)}`,
@@ -351,7 +400,6 @@ export const commitPublishedMedia = async <TResult>(
       );
     }
 
-    publicationStatus = "success";
     return result;
   } catch (error) {
     if (committed) {
@@ -365,7 +413,7 @@ export const commitPublishedMedia = async <TResult>(
               { cause: error },
             );
       try {
-        const target = plan.video?.target ?? plan.artifacts[0]?.target ?? plan.obsolete[0];
+        const target = plan.videos?.[0]?.target ?? plan.artifacts[0]?.target ?? plan.obsolete[0];
         await recordRepair(plan, options.repairIssues, target, error);
       } catch (repairError) {
         throw new PublicationError(
@@ -377,13 +425,22 @@ export const commitPublishedMedia = async <TResult>(
       }
       throw publicationError;
     }
-    if (error instanceof AggregateError) throw error;
     if (journalOpen) await rollback(error);
     throw error;
   } finally {
     release();
-    logger.info(
-      `[publication] ${publicationStatus} operation=${plan.operationId} durationMs=${Math.round(performance.now() - startedAt)}${activePhase ? ` active=${activePhase}` : ""}`,
-    );
+    if (activePhase) {
+      const count = (phaseCounts.get(activePhase) ?? 0) + 1;
+      const label = count === 1 ? activePhase : `${activePhase}#${count}`;
+      const durationMs = Math.round(performance.now() - activePhaseStartedAt);
+      if (!longestPhase || durationMs > longestPhase.durationMs) {
+        longestPhase = { label, durationMs };
+      }
+    }
+    if (longestPhase) {
+      logger.info(
+        `[publication] op=${operationLabel} phase=${longestPhase.label} durationMs=${longestPhase.durationMs}`,
+      );
+    }
   }
 };

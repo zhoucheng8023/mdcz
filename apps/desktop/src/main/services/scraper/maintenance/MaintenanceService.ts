@@ -75,6 +75,7 @@ export class MaintenanceService {
             return await mediaRoots.get(rootId);
           },
           list: async () => await mediaRoots.listRoots(),
+          ensurePathRecord: async (input) => await mediaRoots.ensurePathRecord(input),
         },
         runtime: this.runtime,
         library: createMaintenanceLibraryPort({
@@ -117,12 +118,13 @@ export class MaintenanceService {
   async startPreview(
     refs: RootFileRef[],
     presetId: MaintenancePresetId,
+    output?: { outputRootId?: string; outputRelativeDirectory?: string },
   ): Promise<MaintenanceRunHandle<MaintenancePreviewBatch>> {
     if (refs.length === 0) throw new Error("No files selected");
     const rootId = refs[0]?.rootId;
     if (!rootId) throw new Error("维护文件缺少媒体目录");
-    this.signalService.resetProgress();
-    return await this.coordinator.startPreview({ rootId, presetId, refs });
+    this.signalService.invalidate("maintenance");
+    return await this.coordinator.startPreview({ rootId, presetId, refs, ...output });
   }
 
   async execute(
@@ -137,7 +139,7 @@ export class MaintenanceService {
     if (selections.some((selection) => !previewIds.has(selection.previewId))) {
       throw new Error("维护项目不属于当前任务");
     }
-    this.signalService.resetProgress();
+    this.signalService.invalidate("maintenance");
     const handle = await this.coordinator.beginApply({ sessionId: session.id, selections });
     void handle.completion.catch((error) => this.signalService.showLogText(String(error), "error"));
     return handle;
@@ -169,6 +171,7 @@ export class MaintenanceService {
 
   async discardSession(): Promise<void> {
     await this.coordinator.discardSession((await this.getActiveSession())?.id);
+    this.signalService.publishTaskSnapshot({ resource: "maintenance", snapshot: null });
   }
 
   async waitForIdle(): Promise<void> {
@@ -192,6 +195,8 @@ export class MaintenanceService {
         this.signalService.showLogText(event.event.message);
         return;
       case "session-changed":
+        this.signalService.publishTaskSnapshot({ resource: "maintenance", snapshot: event.session });
+        this.signalService.invalidate("maintenance");
         return;
     }
   }

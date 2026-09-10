@@ -1,3 +1,4 @@
+import { isUnrecoverableNetworkError } from "@mdcz/runtime/network";
 import {
   CachedAsyncResolver,
   hasActorProfileFieldValue,
@@ -176,6 +177,7 @@ export class ActorSourceProvider {
     try {
       return await source.lookup(configuration, query);
     } catch (error) {
+      if (isUnrecoverableNetworkError(error)) throw error;
       const message = `Actor source "${sourceName}" failed for ${query.name}: ${toErrorMessage(error)}`;
       this.logger.warn(message);
       return {
@@ -192,8 +194,9 @@ export class ActorSourceProvider {
       aliases: query.aliases ?? [],
       sourceHints: normalizeHintsForCache(query.sourceHints),
       requiredField: query.requiredField,
-      mediaPath: configuration.paths.mediaPath.trim(),
-      actorPhotoFolder: configuration.paths.actorPhotoFolder.trim(),
+      mediaPath: (configuration.paths.mediaPath ?? "").trim(),
+      successOutputFolder: (configuration.paths.successOutputFolder ?? "").trim(),
+      actorPhotoFolder: (configuration.paths.actorPhotoFolder ?? "").trim(),
       personOverviewSources: configuration.personSync.personOverviewSources,
       personImageSources: configuration.personSync.personImageSources,
       actorAliases: configuration.personSync.actorAliases,

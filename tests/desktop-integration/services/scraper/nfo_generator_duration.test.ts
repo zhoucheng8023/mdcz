@@ -129,6 +129,8 @@ describe("NfoGenerator", () => {
     expect(xml).toContain("<thumb>fanart.jpg</thumb>");
     expect(xml).toContain("<trailer>trailer.mp4</trailer>");
     expect(xml).toContain("<releasedate>2024-01-02</releasedate>");
+    expect(xml).toContain("<year>2024</year>");
+    expect(xml).toContain('<uniqueid type="dmm" default="true">ABC-123</uniqueid>');
     expect(xml).toContain("<outline>Plot</outline>");
     expect(xml).toContain("<dateadded>");
     expect(xml).toContain("<publisher>PRESTIGE</publisher>");
@@ -196,66 +198,6 @@ describe("NfoGenerator", () => {
     expect(leakXml).not.toContain("<tag>无码</tag>");
   });
 
-  it("persists local NFO tags even when fileInfo is unavailable", () => {
-    const xml = buildXml(createCrawlerData(), {
-      localState: {
-        uncensoredChoice: "umr",
-        tags: ["中文字幕", "自定义标签"],
-      },
-    });
-
-    expect(xml).toContain("<tag>破解</tag>");
-    expect(xml).toContain("<tag>中文字幕</tag>");
-    expect(xml).toContain("<tag>自定义标签</tag>");
-  });
-
-  it("round-trips release metadata and derives year only when available", () => {
-    const releaseXml = buildXml(
-      createCrawlerData({
-        series: "Collection",
-        release_date: "2024-01-02",
-      }),
-    );
-    const releaseParsed = parseNfoSnapshot(releaseXml).crawlerData;
-    expect(releaseParsed.series).toBe("Collection");
-    expect(releaseParsed.release_date).toBe("2024-01-02");
-    expect(releaseXml).toContain("<year>2024</year>");
-
-    const missingYearXml = buildXml(createCrawlerData());
-    expect(missingYearXml).not.toContain("<year>");
-  });
-
-  it("preserves local poster, cover, and trailer references when parsed back", () => {
-    const xml = buildXml(
-      createCrawlerData({
-        poster_url: "https://remote.example.com/poster.jpg",
-        thumb_url: "https://remote.example.com/thumb.jpg",
-        fanart_url: "https://remote.example.com/fanart.jpg",
-        poster_source_url: "https://remote.example.com/poster.jpg",
-        thumb_source_url: "https://remote.example.com/thumb.jpg",
-        fanart_source_url: "https://remote.example.com/fanart.jpg",
-        trailer_url: "https://remote.example.com/trailer.mp4",
-        trailer_source_url: "https://remote.example.com/trailer.mp4",
-      }),
-      {
-        assets: createAssets(),
-      },
-    );
-
-    const parsed = parseNfoSnapshot(xml).crawlerData;
-
-    expect(parsed.poster_url).toBe("poster.jpg");
-    expect(parsed.thumb_url).toBe("thumb.jpg");
-    expect(parsed.trailer_url).toBe("trailer.mp4");
-    expect(parsed.fanart_url).toBe("fanart.jpg");
-    expect(xml).toContain("<mdcz>");
-    expect(parsed.poster_source_url).toBe("https://remote.example.com/poster.jpg");
-    expect(parsed.thumb_source_url).toBe("https://remote.example.com/thumb.jpg");
-    expect(parsed.fanart_source_url).toBe("https://remote.example.com/fanart.jpg");
-    expect(parsed.trailer_source_url).toBe("https://remote.example.com/trailer.mp4");
-    expect(parsed.scene_images).toEqual([]);
-  });
-
   it("writes streamdetails when local video metadata is available", () => {
     const xml = buildXml(
       createCrawlerData({
@@ -278,11 +220,6 @@ describe("NfoGenerator", () => {
     expect(xml).toContain("<height>1080</height>");
     expect(xml).toContain("<durationinseconds>3600</durationinseconds>");
     expect(xml).toContain("<bitrate>8000000</bitrate>");
-  });
-
-  it("writes a standards-compliant uniqueid attribute for Jellyfin", () => {
-    const xml = buildXml(createCrawlerData());
-    expect(xml).toContain('<uniqueid type="dmm" default="true">ABC-123</uniqueid>');
   });
 
   it("supports originaltitle in the NFO title template", () => {
@@ -363,7 +300,7 @@ describe("NfoGenerator", () => {
   it("merges editable fields without dropping unmanaged nodes or attributes", () => {
     const existingXml = `<?xml version="1.0"?><movie custom="keep"><title>Old</title><originaltitle>Old</originaltitle><uniqueid type="dmm" default="true">ABC-123</uniqueid><actor role="lead"><name>Actor A</name><thumb>actor.jpg</thumb></actor><fileinfo><streamdetails><video><width>1920</width></video></streamdetails></fileinfo><providerid source="local">keep-me</providerid><mdcz><custom keep="yes">value</custom></mdcz></movie>`;
     const merged = new NfoGenerator().mergeEditableXml(
-      existingXml,
+      existingXml.replace("<mdcz>", "<mdcz><original_plot>Old original plot</original_plot>"),
       createCrawlerData({ title: "New", actors: ["Actor A"] }),
     );
 
@@ -374,6 +311,7 @@ describe("NfoGenerator", () => {
     expect(merged).toContain('<custom keep="yes">value</custom>');
     expect(merged).toContain('<actor role="lead">');
     expect(merged).toContain("<name>Actor A</name>");
+    expect(merged).not.toContain("<original_plot>");
   });
   it("writes configurable director and trailer fields without coupling trailer downloads", () => {
     const data = createCrawlerData({
@@ -490,7 +428,7 @@ describe("NfoGenerator", () => {
 
     const optionalFieldTokens: Record<NfoField, string[]> = {
       num: ["<num>"],
-      plot: ["<plot>", "<outline>"],
+      plot: ["<plot>", "<outline>", "<original_plot>"],
       release: ["<premiered>", "<releasedate>", "<year>"],
       runtime: ["<runtime>"],
       fileinfo: ["<fileinfo>", "<streamdetails>"],

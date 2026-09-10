@@ -5,20 +5,42 @@ import type { AssetRef, RootFileRef } from "@mdcz/shared/mediaRef";
 export type PublicationContent =
   | { kind: "bytes"; data: Buffer }
   | { kind: "text"; data: string }
+  | { kind: "file"; path: string; size: number }
   | { kind: "download"; url: string };
+
+export interface PublicationMove {
+  preserveSource?: boolean;
+  shared?: boolean;
+  source: RootFileRef;
+  target: RootFileRef;
+  size: number;
+  /** Relative STRM targets must be re-anchored when the file changes directory. */
+  content?: string;
+}
 
 export interface PublicationPlan {
   operationId: string;
   operationType: "scrape" | "maintenance";
-  video?: { source: RootFileRef; target: RootFileRef; size: number };
+  videos?: PublicationMove[];
+  sidecars?: PublicationMove[];
   artifacts: Array<{ target: RootFileRef; content: PublicationContent }>;
   assets: AssetRef[];
   obsolete: RootFileRef[];
   replaceExistingTargets?: RootFileRef[];
 }
 
+export interface PreparedPublicationMove {
+  preserveSource?: boolean;
+  shared?: boolean;
+  sourcePath: string;
+  targetPath: string;
+  size: number;
+  content?: string;
+}
+
 export interface PreparedPublicationPlan {
-  video?: { sourcePath: string; targetPath: string; size: number };
+  videos?: PreparedPublicationMove[];
+  sidecars?: PreparedPublicationMove[];
   artifacts: Array<{ targetPath: string; content: Exclude<PublicationContent, { kind: "download" }> }>;
   assets: Array<{ kind: string; targetPath?: string; url?: string }>;
   obsoletePaths: string[];
@@ -54,6 +76,8 @@ export interface PublicationJournalManifestEntry {
   temporaryPath: string;
   backupPath: string | null;
   targetExisted: boolean;
+  /** Where a moved file came from; recovery must return the bytes there, never delete them. */
+  source?: RootFileRef;
 }
 
 export type PublicationObsoleteObservation =

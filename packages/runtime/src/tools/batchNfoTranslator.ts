@@ -1,8 +1,11 @@
 import { stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { createMediaRoot, deterministicMediaRootId, type MediaRoot } from "@mdcz/media-store";
 import type { Configuration } from "@mdcz/shared/config";
 import type { BatchTranslateApplyResultItem, BatchTranslateField, BatchTranslateScanItem } from "@mdcz/shared/ipcTypes";
 import type { CrawlerData, FileInfo, LocalScanEntry, NfoLocalState } from "@mdcz/shared/types";
+import { z } from "zod";
+import { commitRegisteredPublication, type RegisteredPublicationContext } from "../publication";
 import {
   ensureTargetChinese,
   getTargetLanguageLabel,
@@ -11,15 +14,16 @@ import {
   type LlmApiClient,
   normalizeLlmBaseUrl,
   normalizeNewlines,
+  toLlmTextRequest,
   toTarget,
 } from "../scrape";
-import { NfoGenerator, nfoIgnoreFieldsToEnabledFields } from "../scrape/nfo";
+import { getNfoWritePaths, NfoGenerator, nfoIgnoreFieldsToEnabledFields } from "../scrape/nfo";
 import type { RuntimeLogger } from "../shared";
 import { detectLanguage, toErrorMessage } from "../shared";
 
 type BatchTranslateLocalScanService = {
   scan(dirPath: string, sceneImagesFolder: string): Promise<LocalScanEntry[]>;
-  scanVideo(videoPath: string, sceneImagesFolder: string): Promise<LocalScanEntry>;
+  scanVideo(root: MediaRoot, videoPath: string, sceneImagesFolder: string): Promise<LocalScanEntry>;
 };
 
 type BatchTranslateWriteNfoInput = {
@@ -65,6 +69,7 @@ type PendingTranslationResult = {
 };
 
 export interface BatchNfoTranslatorDependencies {
+  publication?: RegisteredPublicationContext;
   localScanService?: BatchTranslateLocalScanService;
   llmApiClient?: Pick<LlmApiClient, "generateText">;
   nfoGenerator?: NfoGenerator;
@@ -74,7 +79,6 @@ export interface BatchNfoTranslatorDependencies {
 
 const MAX_BATCH_ITEMS = 20;
 const MAX_BATCH_CHARS = 12_000;
-const CODE_FENCE_PATTERN = /^```(?:json)?\s*|\s*```$/giu;
 const MOVIE_NFO_NAME = "movie.nfo";
 
 export interface BatchNfoTranslatorApplyOptions {
@@ -90,44 +94,7 @@ const noopLogger: RuntimeLogger = {
 
 const normalizeText = (value: string | undefined): string => normalizeNewlines(value ?? "").trim();
 
-const parseJsonStringArray = (content: string, expectedLength: number): string[] | null => {
-  const parseCandidate = (candidate: string): string[] | null => {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (!Array.isArray(parsed) || parsed.length !== expectedLength) return null;
-
-      const outputs: string[] = [];
-      for (const item of parsed) {
-        if (typeof item !== "string") return null;
-        outputs.push(item);
-      }
-      return outputs;
-    } catch {
-      return null;
-    }
-  };
-
-  const candidates = new Set<string>();
-  const trimmed = content.trim();
-  if (trimmed) {
-    candidates.add(trimmed);
-    candidates.add(trimmed.replace(CODE_FENCE_PATTERN, "").trim());
-  }
-
-  for (const candidate of [...candidates]) {
-    const start = candidate.indexOf("[");
-    const end = candidate.lastIndexOf("]");
-    if (start >= 0 && end > start) candidates.add(candidate.slice(start, end + 1).trim());
-  }
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const parsed = parseCandidate(candidate);
-    if (parsed) return parsed;
-  }
-
-  return null;
-};
+const batchTranslationSchema = z.strictObject({ translations: z.array(z.string().trim().min(1)) });
 
 const normalizeMaxBatchItems = (value: unknown): number => {
   const parsed = Number(value);
@@ -240,7 +207,7 @@ const buildBatchPrompt = (texts: string[], target: LanguageTarget): string => {
   return [
     `将输入 JSON 数组中的每一项翻译为${targetLabel}。`,
     "规则：",
-    `1. 只返回一个 JSON 字符串数组，长度必须为 ${texts.length}。`,
+    `1. 只返回 JSON 对象 {"translations":["译文"]}，translations 数组长度必须为 ${texts.length}。`,
     "2. 返回数组的顺序必须与输入数组完全一致。",
     "3. 每个元素只包含最终翻译文本，不要输出解释、代码块、Markdown、编号或额外字段。",
     "4. 自动识别原文语言；如果原文已经是目标中文，直接返回合适的中文结果。",
@@ -265,21 +232,16 @@ const translateChunk = async (
   config: Configuration,
 ): Promise<string[]> => {
   const content = await llmApiClient.generateText(
-    {
-      model: config.translate.llmModelName,
-      apiKey: config.translate.llmApiKey,
-      baseUrl: config.translate.llmBaseUrl,
-      temperature: 0,
-      prompt: buildBatchPrompt(texts, target),
-      timeout: Math.max(1, Math.trunc(config.translate.llmTimeout)) * 1000,
-    },
-    undefined,
+    toLlmTextRequest(config.translate, buildBatchPrompt(texts, target), {
+      name: "batch_translation",
+      schema: z.toJSONSchema(batchTranslationSchema),
+    }),
   );
 
   if (!content) throw new Error("LLM 返回空响应");
-  const parsed = parseJsonStringArray(content, texts.length);
-  if (!parsed) throw new Error("LLM 返回的批量翻译结果不是有效 JSON 数组");
-  return parsed;
+  const { translations } = batchTranslationSchema.parse(JSON.parse(content));
+  if (translations.length !== texts.length) throw new Error("LLM 返回的批量翻译数量与输入不一致");
+  return translations;
 };
 
 const translatePendingTexts = async (
@@ -349,6 +311,8 @@ export const applyBatchNfoTranslations = async (
   if (!dependencies.llmApiClient) {
     throw new Error("Batch NFO translation apply requires an llmApiClient dependency");
   }
+  const publication = dependencies.publication;
+  if (!publication) throw new Error("Batch NFO translation requires a publication context");
 
   assertLlmConfiguration(config);
 
@@ -357,14 +321,23 @@ export const applyBatchNfoTranslations = async (
   const writeNfo = dependencies.writeNfo ?? defaultWriteNfo;
   const target = toTarget(config.translate.targetLanguage);
   const plans: BatchTranslationPlanItem[] = [];
+  const nfoPaths = new Set<string>();
   const pendingByKey = new Map<string, PendingTranslation>();
 
   for (const item of items) {
-    const entry = await dependencies.localScanService.scanVideo(item.filePath, config.paths.sceneImagesFolder);
+    const root = createMediaRoot({
+      id: deterministicMediaRootId(dirname(item.filePath)),
+      displayName: dirname(item.filePath),
+      hostPath: dirname(item.filePath),
+    });
+    const entry = await dependencies.localScanService.scanVideo(root, item.filePath, config.paths.sceneImagesFolder);
     if (!entry.nfoPath || !entry.crawlerData) {
       plans.push({ entry });
       continue;
     }
+    const nfoKey = resolve(entry.nfoPath);
+    if (nfoPaths.has(nfoKey)) continue;
+    nfoPaths.add(nfoKey);
 
     const titleAction = item.pendingFields.includes("title")
       ? buildFieldAction("title", entry.crawlerData.title, entry.crawlerData.title_zh, target)
@@ -448,6 +421,7 @@ export const applyBatchNfoTranslations = async (
 
     try {
       const detectedNfoNaming = await resolveExistingNfoNaming(entry.nfoPath);
+      const artifacts = new Map<string, string>();
       const savedNfoPath = await writeNfo({
         assets: {
           downloaded: [],
@@ -468,7 +442,22 @@ export const applyBatchNfoTranslations = async (
         nfoGenerator,
         nfoPath: entry.nfoPath,
         sourceVideoPath: entry.fileInfo.filePath,
+        writeFile: async (path, content) => {
+          artifacts.set(path, content);
+        },
       });
+      await commitRegisteredPublication(
+        {
+          operationId: `batch-nfo-translation:${entry.nfoPath}`,
+          operationType: "maintenance",
+          artifacts: [...artifacts].map(([targetPath, data]) => ({ targetPath, content: { kind: "text", data } })),
+          obsoletePaths: getNfoWritePaths(entry.nfoPath, detectedNfoNaming).stalePaths.filter(
+            (path) => !artifacts.has(path),
+          ),
+          replaceExistingArtifacts: true,
+        },
+        publication,
+      );
 
       results.push({
         ...baseResult,

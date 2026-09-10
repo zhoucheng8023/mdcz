@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const parseWireRelativePath = (relativePath: string): string => {
+const normalizeWireRelativePath = (relativePath: string): string => {
   const normalized = relativePath.replace(/\\/gu, "/").replace(/^\.\//u, "");
   if (
     !normalized ||
@@ -8,20 +8,38 @@ export const parseWireRelativePath = (relativePath: string): string => {
     /^[A-Za-z]:\//u.test(normalized) ||
     normalized.split("/").some((part) => part === ".." || part === "")
   ) {
-    throw new Error(`Invalid media relative path: ${relativePath}`);
+    return "";
   }
   return normalized;
 };
 
-export const parseWireRelativeDirectory = (relativeDirectory: string): string => {
+export const wireRelativePathSchema = z.string().transform((relativePath, context) => {
+  const normalized = normalizeWireRelativePath(relativePath);
+  if (!normalized) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid media relative path: ${relativePath}` });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
+export const wireRelativeDirectorySchema = z.string().transform((relativeDirectory, context) => {
   const normalized = relativeDirectory.replace(/\\/gu, "/").replace(/^\/+|\/+$/gu, "");
-  return normalized ? parseWireRelativePath(normalized) : "";
-};
+  if (!normalized) return "";
+  const parsed = normalizeWireRelativePath(normalized);
+  if (parsed) return parsed;
+  context.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid media relative directory: ${relativeDirectory}` });
+  return z.NEVER;
+});
+
+export const parseWireRelativePath = (relativePath: string): string => wireRelativePathSchema.parse(relativePath);
+
+export const parseWireRelativeDirectory = (relativeDirectory: string): string =>
+  wireRelativeDirectorySchema.parse(relativeDirectory);
 
 export const rootFileRefSchema = z
   .object({
     rootId: z.string().trim().min(1),
-    relativePath: z.string().transform(parseWireRelativePath),
+    relativePath: wireRelativePathSchema,
   })
   .strict();
 

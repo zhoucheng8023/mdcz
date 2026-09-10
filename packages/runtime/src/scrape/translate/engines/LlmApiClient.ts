@@ -1,4 +1,11 @@
-import { DEFAULT_LLM_BASE_URL } from "@mdcz/shared/llm";
+import type { Configuration } from "@mdcz/shared/config";
+import {
+  DEFAULT_LLM_BASE_URL,
+  type LlmApiFormat,
+  type LlmOutputFormat,
+  type LlmReasoning,
+  type LlmServiceType,
+} from "@mdcz/shared/llm";
 import { toErrorMessage } from "../../../shared";
 
 type LlmHeadersInit = Headers | Record<string, string> | Array<[string, string]>;
@@ -24,10 +31,51 @@ export interface LlmTextRequest {
   model: string;
   apiKey: string;
   baseUrl: string;
-  temperature: number;
+  apiFormat: LlmApiFormat;
+  temperature?: number;
   prompt: string;
+  reasoning: LlmReasoning;
+  serviceType: LlmServiceType;
+  outputFormat: LlmOutputFormat;
+  outputSchema?: LlmJsonSchema;
   timeout?: number;
 }
+
+export interface LlmJsonSchema {
+  name: string;
+  schema: Record<string, unknown>;
+}
+
+export type LlmRequestConfig = Pick<
+  Configuration["translate"],
+  | "llmModelName"
+  | "llmApiKey"
+  | "llmBaseUrl"
+  | "llmApiFormat"
+  | "llmTemperature"
+  | "llmReasoning"
+  | "llmServiceType"
+  | "llmOutputFormat"
+  | "llmTimeout"
+>;
+
+export const toLlmTextRequest = (
+  config: LlmRequestConfig,
+  prompt: string,
+  outputSchema?: LlmJsonSchema,
+): LlmTextRequest => ({
+  model: config.llmModelName,
+  apiKey: config.llmApiKey,
+  baseUrl: config.llmBaseUrl,
+  apiFormat: config.llmApiFormat,
+  temperature: config.llmTemperature ?? undefined,
+  prompt,
+  reasoning: config.llmReasoning,
+  serviceType: config.llmServiceType,
+  outputFormat: config.llmOutputFormat,
+  outputSchema,
+  timeout: Math.max(1, Math.trunc(config.llmTimeout)) * 1000,
+});
 
 interface ResponsesApiResponse {
   output_text?: string | null;
@@ -55,10 +103,6 @@ interface ChatCompletionsResponse {
   };
   message?: string;
 }
-
-const RESPONSES_UNSUPPORTED_STATUS_CODES = new Set([404, 405, 415, 422, 501]);
-const GOOGLE_AI_STUDIO_HOSTNAME = "generativelanguage.googleapis.com";
-const GOOGLE_OPENAI_PATH_SUFFIX = "/openai";
 
 export class LlmApiError extends Error {
   constructor(
@@ -170,10 +214,15 @@ export class LlmApiClient {
   constructor(private readonly transport: LlmApiTransport = new FetchLlmApiTransport()) {}
 
   async generateText(request: LlmTextRequest, signal?: AbortSignal): Promise<string | null> {
+    if (request.reasoning === "enabled" && request.serviceType !== "deepseek") {
+      throw new Error("显式开启并使用默认强度仅适用于 DeepSeek；请选择服务端默认或指定强度");
+    }
+    if (request.serviceType === "google" && request.reasoning === "max") {
+      throw new Error("Google OpenAI 兼容接口不支持 max 推理强度");
+    }
     const baseUrl = normalizeLlmBaseUrl(request.baseUrl);
     const headers = this.buildHeaders(request.apiKey);
-
-    if (this.shouldUseChatCompletionsFirst(baseUrl)) {
+    if (request.serviceType !== "openai-compatible" || request.apiFormat === "chat-completions") {
       return await this.requestChatCompletions(baseUrl, request, headers, signal);
     }
 
@@ -183,7 +232,11 @@ export class LlmApiClient {
       {
         model: request.model,
         input: request.prompt,
-        temperature: request.temperature,
+        ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+        ...(request.reasoning === "default"
+          ? {}
+          : { reasoning: { effort: request.reasoning === "disabled" ? "none" : request.reasoning } }),
+        ...this.buildOutputFormat(request, "responses"),
       },
       { headers, signal, timeout: request.timeout },
     );
@@ -194,10 +247,6 @@ export class LlmApiClient {
         responsesResponse,
         this.extractResponsesText(responsesResponse.data),
       );
-    }
-
-    if (this.shouldFallbackToChatCompletions(responsesResponse)) {
-      return await this.requestChatCompletions(baseUrl, request, headers, signal);
     }
 
     throw this.toLlmApiError(responsesUrl, responsesResponse);
@@ -214,7 +263,9 @@ export class LlmApiClient {
       chatUrl,
       {
         model: request.model,
-        temperature: request.temperature,
+        ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+        ...this.buildChatReasoning(request, request.serviceType),
+        ...this.buildOutputFormat(request, "chat-completions"),
         messages: [
           {
             role: "user",
@@ -230,6 +281,44 @@ export class LlmApiClient {
     }
 
     return this.requireExtractedText(chatUrl, response, this.extractChatCompletionsText(response.data));
+  }
+
+  private buildChatReasoning(request: LlmTextRequest, provider: LlmServiceType): Record<string, unknown> {
+    if (request.reasoning === "default") return {};
+    if (provider === "deepseek") {
+      return {
+        thinking: { type: request.reasoning === "disabled" ? "disabled" : "enabled" },
+        ...(request.reasoning === "disabled" || request.reasoning === "enabled"
+          ? {}
+          : { reasoning_effort: request.reasoning }),
+      };
+    }
+    return { reasoning_effort: request.reasoning === "disabled" ? "none" : request.reasoning };
+  }
+
+  private buildOutputFormat(request: LlmTextRequest, apiFormat: LlmApiFormat): Record<string, unknown> {
+    if (request.outputFormat === "none") return {};
+    if (request.serviceType === "deepseek" && request.outputFormat === "json_schema") {
+      throw new Error("DeepSeek does not support JSON Schema output; select prompt JSON or JSON Object");
+    }
+    const useJsonObject = request.outputFormat === "json_object";
+    if (apiFormat === "chat-completions") {
+      if (useJsonObject) return { response_format: { type: "json_object" } };
+      if (!request.outputSchema) throw new Error("JSON schema output requires an explicit schema");
+      return {
+        response_format: {
+          type: "json_schema",
+          json_schema: { ...request.outputSchema, strict: true },
+        },
+      };
+    }
+    if (useJsonObject) return { text: { format: { type: "json_object" } } };
+    if (!request.outputSchema) throw new Error("JSON schema output requires an explicit schema");
+    return {
+      text: {
+        format: { type: "json_schema", ...request.outputSchema, strict: true },
+      },
+    };
   }
 
   private buildHeaders(apiKey: string): Headers {
@@ -275,34 +364,6 @@ export class LlmApiClient {
       return "(empty body)";
     }
     return text.length > 500 ? `${text.slice(0, 500)}...` : text;
-  }
-
-  private shouldFallbackToChatCompletions(response: RuntimeNetworkJsonResponse<ResponsesApiResponse>): boolean {
-    if (RESPONSES_UNSUPPORTED_STATUS_CODES.has(response.status)) {
-      return true;
-    }
-
-    const detail = this.extractErrorDetail(response.data).toLowerCase();
-    return (
-      detail.includes("/responses") ||
-      detail.includes("responses api") ||
-      (detail.includes("responses") &&
-        (detail.includes("unsupported") ||
-          detail.includes("not support") ||
-          detail.includes("not found") ||
-          detail.includes("unknown") ||
-          detail.includes("unrecognized")))
-    );
-  }
-
-  private shouldUseChatCompletionsFirst(baseUrl: string): boolean {
-    try {
-      const url = new URL(baseUrl);
-      const normalizedPath = url.pathname.replace(/\/+$/u, "");
-      return url.hostname === GOOGLE_AI_STUDIO_HOSTNAME && normalizedPath.endsWith(GOOGLE_OPENAI_PATH_SUFFIX);
-    } catch {
-      return false;
-    }
   }
 
   private extractResponsesText(data: ResponsesApiResponse | string | null): string | null {

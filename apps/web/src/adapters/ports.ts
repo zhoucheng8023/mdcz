@@ -7,13 +7,14 @@ import type {
   ScrapeActionPort,
   SharedWorkbenchPorts,
 } from "@mdcz/views/adapters";
+import { resolveBatchRescrapeOutput } from "@mdcz/views/adapters";
 import type { DetailViewItem } from "@mdcz/views/detail";
 import {
   applyMaintenanceSessionSnapshot,
   selectMaintenanceSessionId,
   useMaintenanceStore,
 } from "@mdcz/views/state/maintenanceStore";
-import { selectScrapeTaskId, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import { runScrapeRequest, selectScrapeTaskId, useScrapeStore } from "@mdcz/views/state/scrapeStore";
 import { api, getLibraryAssetSrc } from "../client";
 import { requestScrapeLiveRunsRefresh } from "../hooks/useWebTaskSync";
 
@@ -184,10 +185,27 @@ export const createWebDetailPort = (): DetailActionPort => ({
 });
 
 export const createWebScrapeActionPort = (): ScrapeActionPort => ({
+  rescrapeByUrl: async (targets, manualUrl) => {
+    const refs = targets.map((target) => target.ref);
+    const first = refs[0];
+    if (!first) throw new Error("请选择要刮削的文件");
+    const snapshot = await runScrapeRequest(async () =>
+      api.scrape.start(
+        refs.length === 1
+          ? { executionMode: "single", refs, manualUrl }
+          : { executionMode: "batch", refs, ...resolveBatchRescrapeOutput(targets), manualUrl },
+      ),
+    );
+    requestScrapeLiveRunsRefresh();
+    return { message: `按 URL 刮削任务已启动：${snapshot.runId}` };
+  },
   retryFailed: async (itemIds) => {
     const runId = selectScrapeTaskId(useScrapeStore.getState());
     if (!runId) throw new Error("没有可重试的刮削任务");
-    const retry = await api.scrape.retry({ taskId: runId, ...(itemIds ? { itemIds: [...itemIds] } : {}) });
+    const retry = await runScrapeRequest(
+      async () => api.scrape.retry({ taskId: runId, ...(itemIds ? { itemIds: [...itemIds] } : {}) }),
+      runId,
+    );
     requestScrapeLiveRunsRefresh();
     return { message: `重试任务已启动：${retry.runId}` };
   },
@@ -223,10 +241,16 @@ export const createWebMaintenanceActionPort = (): MaintenanceActionPort => {
       await api.maintenance.discardSession(sessionId ? { sessionId } : undefined);
       useMaintenanceStore.getState().reset();
     },
-    preview: async (refs, presetId: MaintenancePresetId) => {
+    preview: async (refs, presetId: MaintenancePresetId, targetDir) => {
       const rootId = refs[0]?.rootId ?? "";
       if (!rootId) throw new Error("请选择要维护的文件");
-      const { sessionId } = await api.maintenance.start({ rootId, presetId, refs });
+      const output = targetDir ? await api.mediaRoots.prepareOutputDirectory({ hostPath: targetDir }) : undefined;
+      const { sessionId } = await api.maintenance.start({
+        rootId,
+        presetId,
+        refs,
+        ...(output ? { outputRootId: output.id, outputRelativeDirectory: output.relativeDirectory } : {}),
+      });
       applyMaintenanceSessionSnapshot(await api.maintenance.getActiveSession());
       return { sessionId };
     },

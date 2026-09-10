@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { getMaintenancePreset as getPreset } from "@mdcz/runtime/maintenance";
 import { MaintenanceFileScraper } from "@mdcz/runtime/maintenance/MaintenanceFileScraper";
 import type {
@@ -71,7 +70,7 @@ const createScraperHarness = (root: string, downloadAll: ReturnType<typeof vi.fn
     {
       aggregationService: { aggregate: vi.fn() } as never,
       translateService: {
-        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo: vi.fn(async () => {
@@ -84,9 +83,8 @@ const createScraperHarness = (root: string, downloadAll: ReturnType<typeof vi.fn
       fileOrganizer: {
         plan: vi.fn().mockReturnValue(plan),
         resolveOutputPlan: vi.fn().mockImplementation(async (nextPlan: OrganizePlan) => nextPlan),
-        organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
       } as unknown as FileOrganizer,
-      signalService: new SignalService(null),
+      signalService: { setProgress: vi.fn(), showLogText: vi.fn() },
       actorImageService: {
         prepareActorProfilesForMovie: vi.fn().mockResolvedValue(undefined),
       } as never,
@@ -129,7 +127,10 @@ describe("MaintenanceFileScraper asset replacement", () => {
     );
   });
 
-  it("removes a stale local trailer when maintenance explicitly replaces it with no new trailer asset", async () => {
+  it.each([
+    "preserve",
+    "replace",
+  ] as const)("honors the %s trailer decision when no replacement is produced", async (decision) => {
     const root = await createTempDir();
     const oldTrailerPath = join(root, "trailer.mp4");
     await writeFile(oldTrailerPath, "old-trailer", "utf8");
@@ -148,13 +149,24 @@ describe("MaintenanceFileScraper asset replacement", () => {
       undefined,
       {
         crawlerData: createCrawlerData({ trailer_url: undefined }),
-        assetDecisions: { trailer: "replace" },
+        assetDecisions: { trailer: decision },
       },
     );
 
     expect(result.status).toBe("success");
-    expect(result.updatedEntry?.assets.trailer).toBeUndefined();
-    expect(result.publicationPlan?.obsoletePaths).toContain(oldTrailerPath);
+    if (decision === "replace") {
+      expect(result.updatedEntry?.assets.trailer).toBeUndefined();
+      expect(result.publicationPlan?.obsoletePaths).toContain(oldTrailerPath);
+      expect(result.publicationPlan?.sidecars?.some(({ sourcePath }) => sourcePath === oldTrailerPath)).toBe(false);
+    } else {
+      expect(result.updatedEntry?.assets.trailer).toBe(oldTrailerPath);
+      expect(result.publicationPlan?.obsoletePaths).not.toContain(oldTrailerPath);
+      expect(result.publicationPlan?.sidecars?.some(({ sourcePath }) => sourcePath === oldTrailerPath)).toBe(false);
+    }
+    expect(result.publicationPlan?.replaceExistingTargetPaths).toBeDefined();
+    expect(result.publicationPlan?.replaceExistingTargetPaths).not.toContain(
+      join(root, "output", "ABC-123", "ABC-123.mp4"),
+    );
     await expect(readFile(oldTrailerPath, "utf8")).resolves.toBe("old-trailer");
   });
 });

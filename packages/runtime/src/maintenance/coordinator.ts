@@ -17,7 +17,7 @@ import type {
 import type { RootFileRef } from "@mdcz/shared/mediaRef";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry, MaintenancePresetId } from "@mdcz/shared/types";
 import { mediaPathOwnership } from "../library/mediaPathOwnership";
-import type { PreparedPublicationPlan } from "../publication";
+import { type PreparedPublicationPlan, PublicationError, type PublicationPlan } from "../publication";
 import { isAbortError } from "../scrape/utils/abort";
 import { TaskExecutor, type TaskExecutorContext } from "../tasks";
 import {
@@ -31,6 +31,7 @@ import type { MaintenanceRuntime, MaintenanceRuntimePreviewItem } from "./Mainte
 export interface MaintenanceRootPort {
   get(rootId: string): Promise<MediaRoot>;
   list(): Promise<MediaRoot[]>;
+  ensurePathRecord(input: { hostPath: string }): Promise<MediaRoot>;
 }
 
 export interface MaintenanceLibraryPort {
@@ -44,6 +45,7 @@ export interface MaintenanceLibraryPort {
     operationId: string;
     ownershipToken: string;
     plan: PreparedPublicationPlan;
+    resolvedPlan?: PublicationPlan;
     refresh: {
       librarySource?: MaintenanceLibrarySource;
       sourceAbsolutePath: string;
@@ -59,11 +61,11 @@ export interface MaintenanceLibraryPort {
 }
 
 export type MaintenanceCoordinatorEvent =
-  | { kind: "session-changed"; session: MaintenanceSessionSnapshot }
+  | { kind: "session-changed"; session: MaintenanceActiveSessionSnapshot }
   | { kind: "log"; sessionId: string; event: MaintenanceSessionEvent };
 
 export interface MaintenanceRunHandle<TResult> {
-  session: MaintenanceSessionSnapshot;
+  session: MaintenanceActiveSessionSnapshot;
   completion: Promise<TResult>;
 }
 
@@ -82,6 +84,7 @@ type PreviewExecutionResult = {
 type ApplyExecutionResult = {
   result: MaintenanceApplyItemResult;
   publication?: Parameters<MaintenanceLibraryPort["publishRefresh"]>[0];
+  release?: () => Promise<void>;
 };
 
 const PREVIEW_ALL_FAILED = "维护预览全部失败";
@@ -185,17 +188,21 @@ const scanRefs = async (
 
 const libraryCommitFailure = (error: unknown): MaintenanceApplyItemResult => ({
   status: "failed",
-  error: `文件操作已完成，但媒体库提交失败：${errorMessage(error)}。请重新扫描并预览，以磁盘实际状态重新协调。`,
+  error: `维护发布失败：${errorMessage(error)}`,
 });
 
 export class MaintenanceSessionCoordinator {
+  private runtime: MaintenanceRuntime;
   private session: MaintenanceSession | null = null;
   private active: ActiveExecution | null = null;
   private executionPromise: Promise<void> | null = null;
+  private stopOperation?: { sessionId: string; generation: number; promise: Promise<MaintenanceSessionSnapshot> };
   private readonly changeWaiters = new Map<string, Set<() => void>>();
   private revision = 0;
   private releaseOwnedPaths: (() => void) | null = null;
   private closing = false;
+  private closePromise: Promise<void> | null = null;
+  private previewStarting = false;
 
   constructor(
     private readonly deps: {
@@ -205,34 +212,59 @@ export class MaintenanceSessionCoordinator {
       events?: { publish(event: MaintenanceCoordinatorEvent): void | Promise<void> };
       acquireAll?: (refs: readonly RootFileRef[], owner: string) => () => void;
     },
-  ) {}
+  ) {
+    this.runtime = deps.runtime;
+  }
 
   async startPreview(input: {
     rootId: string;
     presetId: MaintenancePresetId;
     refs: readonly MaintenanceSessionRef[];
+    outputRootId?: string;
+    outputRelativeDirectory?: string;
   }): Promise<MaintenanceRunHandle<MaintenancePreviewBatch>> {
     this.assertOpen();
     if (input.refs.length === 0) throw new Error("维护文件不能为空");
-    const refs = await canonicalizeRefs(this.deps.roots, input.refs);
-    await this.deps.roots.get(input.rootId);
-    for (const rootId of new Set(refs.map((ref) => ref.rootId))) await this.deps.roots.get(rootId);
-    if (this.session?.isActive()) {
+    if (this.previewStarting || this.session?.isActive()) {
       throw new Error("已有活动的维护会话，请先完成或停止当前会话");
     }
-    const generation = (this.session?.generation ?? 0) + 1;
-    this.session?.invalidate();
-    this.session = new MaintenanceSession({
-      id: randomUUID(),
-      rootId: input.rootId,
-      presetId: input.presetId,
-      generation,
-      refs,
-    });
-    await this.publishStatus(this.session, "queued", `Maintenance session queued. Preset: ${input.presetId}`);
-    await this.publishLog(this.session, "preset", `Maintenance preset: ${input.presetId}`);
-    await this.startCurrentPhase(this.session.id, generation);
-    return { session: this.session.statusSnapshot(), completion: this.waitForPreview(this.session.id) };
+    this.previewStarting = true;
+    try {
+      const refs = await canonicalizeRefs(this.deps.roots, input.refs);
+      const root = await this.deps.roots.get(input.rootId);
+      const outputRoot = input.outputRootId ? await this.deps.roots.get(input.outputRootId) : root;
+      const outputRelativeDirectory = input.outputRelativeDirectory ?? "";
+      this.runtime = await this.deps.runtime.createSession({
+        root,
+        outputRoot,
+        outputRelativeDirectory,
+        registerRoot: async (hostPath) => await this.deps.roots.ensurePathRecord({ hostPath }),
+      });
+      for (const rootId of new Set(refs.map((ref) => ref.rootId))) await this.deps.roots.get(rootId);
+      this.assertOpen();
+      const generation = (this.session?.generation ?? 0) + 1;
+      this.session?.invalidate();
+      const entries = (await scanRefs(this.runtime, this.deps.roots, refs)).sort((left, right) =>
+        refKey(left.ref).localeCompare(refKey(right.ref), "zh-CN"),
+      );
+      this.assertOpen();
+      this.session = new MaintenanceSession({
+        id: randomUUID(),
+        rootId: input.rootId,
+        presetId: input.presetId,
+        generation,
+        refs,
+        outputRootId: outputRoot.id,
+        outputRelativeDirectory,
+        initialEntries: entries,
+      });
+      await this.publishStatus(this.session, "queued", `Maintenance session queued. Preset: ${input.presetId}`);
+      await this.publishLog(this.session, "preset", `Maintenance preset: ${input.presetId}`);
+      await this.startCurrentPhase(this.session.id, generation);
+      return { session: this.session.snapshot(), completion: this.waitForPreview(this.session.id) };
+    } finally {
+      this.previewStarting = false;
+    }
   }
 
   async readPreview(sessionId: string): Promise<MaintenancePreviewBatch> {
@@ -258,6 +290,7 @@ export class MaintenanceSessionCoordinator {
     selections: readonly MaintenanceApplySelection[];
   }): Promise<MaintenanceRunHandle<MaintenanceApplyBatch>> {
     this.assertOpen();
+    if (this.previewStarting) throw new Error("维护预览正在启动，请稍后重试");
     if (input.selections.length === 0) throw new Error("请选择要应用的维护预览");
     const previewIds = input.selections.map((selection) => selection.previewId);
     const session = this.require(input.sessionId);
@@ -265,7 +298,21 @@ export class MaintenanceSessionCoordinator {
       .map((previewId) => session.preview(previewId))
       .filter((preview) => preview !== undefined);
     if (previews.length !== previewIds.length) throw new Error("部分维护预览不存在、已提交或不属于当前会话");
+    const groupSelections = new Map<string, string>();
+    for (const preview of previews) {
+      const entry = preview.entry;
+      if (!entry?.fileInfo.part || !entry.nfoPath) continue;
+      const selection = input.selections.find((selection) => selection.previewId === preview.id);
+      const data = JSON.stringify(buildMaintenanceApplyData(entry, preview, selection?.fieldSelections));
+      const previous = groupSelections.get(entry.nfoPath);
+      if (previous !== undefined && previous !== data)
+        throw new Error(`共享 NFO 的分片必须使用相同的字段选择：${entry.nfoPath}`);
+      groupSelections.set(entry.nfoPath, data);
+    }
     const refs = ownedPreviewPaths(await this.deps.roots.list(), previews);
+    this.assertOpen();
+    if (this.previewStarting) throw new Error("维护预览正在启动，请稍后重试");
+    if (this.session !== session) throw new Error("维护会话已变化");
     const acquireAll = this.deps.acquireAll ?? ((owned, owner) => mediaPathOwnership.acquireAll(owned, owner));
     const release = acquireAll(refs, session.id);
     let apply: { generation: number; batchId: string };
@@ -287,7 +334,7 @@ export class MaintenanceSessionCoordinator {
       throw error;
     }
     return {
-      session: session.statusSnapshot(),
+      session: session.snapshot(),
       completion: this.waitForApply(session.id, apply.batchId, new Set(previewIds)),
     };
   }
@@ -311,17 +358,52 @@ export class MaintenanceSessionCoordinator {
     return current.statusSnapshot();
   }
 
-  async stop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
+  stop(sessionId: string): Promise<MaintenanceSessionSnapshot> {
+    return this.requestTermination(sessionId, STOPPED, STOPPED_ITEM);
+  }
+
+  private requestTermination(
+    sessionId: string,
+    reason: string,
+    itemReason: string,
+  ): Promise<MaintenanceSessionSnapshot> {
+    const current = this.require(sessionId);
+    if (this.stopOperation?.sessionId === sessionId && this.stopOperation.generation === current.generation)
+      return this.stopOperation.promise;
+    const promise = this.terminate(sessionId, reason, itemReason);
+    this.stopOperation = { sessionId, generation: current.generation, promise };
+    return promise;
+  }
+
+  private async terminate(sessionId: string, reason: string, itemReason: string): Promise<MaintenanceSessionSnapshot> {
     const current = this.require(sessionId);
     if (current.status === "completed" || current.status === "failed") return current.statusSnapshot();
-    const generation = current.beginStopping(STOPPED);
-    await this.publishStatus(current, "stopping", "Stopping maintenance session");
+    const generation = current.beginStopping(reason);
+    const errors: unknown[] = [];
     this.active?.executor.stop();
+    try {
+      await this.publishStatus(current, "stopping", "Stopping maintenance session");
+    } catch (error) {
+      errors.push(error);
+    }
     await this.awaitCurrentExecution();
     const latest = this.require(sessionId);
     if (latest.generation !== generation) return latest.statusSnapshot();
-    if (latest.phase === "apply") await this.skipOutstanding(latest.id, generation, STOPPED_ITEM);
-    await this.finishSession(latest.id, generation, "failed", STOPPED);
+    try {
+      if (latest.phase === "apply") await this.skipOutstanding(latest.id, generation, itemReason);
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await this.finishSession(latest.id, generation, "failed", reason);
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      this.releasePaths();
+      this.notify(sessionId);
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Maintenance stopped with notification errors");
     return latest.statusSnapshot();
   }
 
@@ -355,28 +437,23 @@ export class MaintenanceSessionCoordinator {
     await this.awaitCurrentExecution();
   }
 
-  async close(): Promise<void> {
-    if (this.closing) return;
+  close(): Promise<void> {
+    this.closePromise ??= this.finishClose();
+    return this.closePromise;
+  }
+
+  private async finishClose(): Promise<void> {
     this.closing = true;
     const session = this.session;
-    if (!session?.isActive()) {
-      session?.invalidate();
-      this.releasePaths();
-      return;
-    }
-    const generation = session.beginStopping(INTERRUPTED);
-    this.active?.executor.stop();
-    await this.awaitCurrentExecution();
-    if (!this.isCurrent(session.id, generation)) return;
-    if (session.phase === "apply") await this.skipOutstanding(session.id, generation, INTERRUPTED);
-    await this.finishSession(session.id, generation, "failed", INTERRUPTED);
+    if (session) await this.requestTermination(session.id, INTERRUPTED, INTERRUPTED);
+    this.releasePaths();
   }
 
   private async startCurrentPhase(sessionId: string, generation: number, message?: string): Promise<void> {
     const session = this.assertCurrent(sessionId, generation, ["queued", "paused"]);
     const expectedStatus = session.status;
     if (this.executionPromise) throw new Error("Maintenance coordinator already has an active executor");
-    await this.deps.runtime.applyNetworkPolicy?.();
+    await this.runtime.applyNetworkPolicy?.();
     if (!this.isCurrent(sessionId, generation) || this.require(sessionId).status !== expectedStatus) return;
     session.startRunning(generation);
     await this.publishStatus(session, "running", message ?? `Starting maintenance ${session.phase}`);
@@ -397,23 +474,45 @@ export class MaintenanceSessionCoordinator {
     this.active = { sessionId, generation, executor: { pause: () => undefined, stop: () => scanController.abort() } };
     try {
       const initial = this.assertCurrent(sessionId, generation, ["running"]);
-      const persistedRefs = [...initial.refs];
-      const entries = (await scanRefs(this.deps.runtime, this.deps.roots, persistedRefs, scanController.signal)).sort(
-        (left, right) => refKey(left.ref).localeCompare(refKey(right.ref), "zh-CN"),
-      );
+      const existingEntries = initial.activePreviews().flatMap((preview) => (preview.entry ? [preview.entry] : []));
+      const entries =
+        existingEntries.length === initial.refs.length
+          ? existingEntries
+          : (await scanRefs(this.runtime, this.deps.roots, [...initial.refs], scanController.signal)).sort(
+              (left, right) => refKey(left.ref).localeCompare(refKey(right.ref), "zh-CN"),
+            );
       let current = this.assertCurrent(sessionId, generation, ["running", "paused"]);
       if (current.status === "paused") return;
-      const committedPaths = new Set(current.snapshot().previews.map(refKey));
+      const committedPaths = new Set(
+        current
+          .snapshot()
+          .previews.filter((preview) => preview.status === "ready" || preview.status === "blocked")
+          .map(refKey),
+      );
       const pending = entries.filter((entry) => !committedPaths.has(refKey(entry.ref)));
       await this.executeItems<LocalScanEntry, PreviewExecutionResult>(sessionId, generation, pending, {
         runItem: async (entry, context) => {
+          this.assertCurrent(sessionId, generation, ["running"]);
+          const activeSession = this.require(sessionId);
+          activeSession.markPreviewProcessing(generation, entry.ref.rootId, entry.ref.relativePath);
+          await this.publishChanged(activeSession);
+
           const root = await this.deps.roots.get(entry.ref.rootId);
           try {
             const active = this.assertCurrent(sessionId, generation, ["running"]);
-            const [item] = await this.deps.runtime.previewEntries({
+            const sharedPreview =
+              entry.fileInfo.part && entry.nfoPath
+                ? active
+                    .activePreviews()
+                    .find((preview) => preview.status === "ready" && preview.entry?.nfoPath === entry.nfoPath)
+                : undefined;
+            const [item] = await this.runtime.previewEntries({
               root,
               presetId: active.presetId,
               entries: [entry],
+              sharedData: sharedPreview?.proposedCrawlerData
+                ? { crawlerData: sharedPreview.proposedCrawlerData, imageAlternatives: sharedPreview.imageAlternatives }
+                : undefined,
               signal: context.signal,
             });
             if (!item) throw new Error("维护预览未返回结果");
@@ -480,7 +579,7 @@ export class MaintenanceSessionCoordinator {
           try {
             const root = await this.deps.roots.get(active.preview.rootId);
             const [entry] = await scanRefs(
-              this.deps.runtime,
+              this.runtime,
               this.deps.roots,
               [{ rootId: active.preview.rootId, relativePath: active.preview.relativePath }],
               context.signal,
@@ -497,11 +596,22 @@ export class MaintenanceSessionCoordinator {
             });
             const latest = this.assertCurrent(sessionId, generation, ["running", "paused"]);
             const progress = latest.progress();
-            const applied = await this.deps.runtime.applyEntry({
+            const sharedNfoPath = active.preview.entry?.fileInfo.part ? active.preview.entry.nfoPath : undefined;
+            const sharedOutput = sharedNfoPath
+              ? latest
+                  .snapshot()
+                  .currentBatch?.items.find(
+                    (candidate) =>
+                      candidate.status === "success" &&
+                      latest.preview(candidate.selection.previewId)?.entry?.nfoPath === sharedNfoPath,
+                  )?.result?.entry
+              : undefined;
+            const applied = await this.runtime.applyEntry({
               root,
               presetId: latest.presetId,
               entry,
               committed,
+              sharedOutput,
               progress: {
                 fileIndex: Math.min(progress.totalEntries, progress.completedEntries + 1),
                 totalFiles: progress.totalEntries,
@@ -509,13 +619,18 @@ export class MaintenanceSessionCoordinator {
               signal: context.signal,
             });
             if (applied.status === "failed") return { result: { status: "failed", error: applied.error } };
-            if (!applied.plan?.video) return { result: { status: "failed", error: "维护应用未生成视频发布计划" } };
+            const release = applied.release;
+            const plan = applied.plan;
+            if (!plan) {
+              return { result: { status: "failed", error: "维护应用未生成发布计划" }, release };
+            }
+            const video = plan.videos?.[0];
             const outputRelativePath = applied.outputRelativePath || active.preview.relativePath;
             let file: Awaited<ReturnType<typeof stat>>;
             try {
-              file = await stat(applied.plan.video.sourcePath);
+              file = await stat(video?.sourcePath ?? sourceAbsolutePath);
             } catch (error) {
-              return { result: libraryCommitFailure(error) };
+              return { result: libraryCommitFailure(error), release };
             }
             const crawlerData = applied.crawlerData ?? applied.entry.crawlerData ?? committed.crawlerData;
             return {
@@ -533,12 +648,12 @@ export class MaintenanceSessionCoordinator {
               publication: {
                 operationId: `${sessionId}:${active.preview.id}`,
                 ownershipToken: sessionId,
-                plan: applied.plan,
+                plan,
                 refresh: {
                   librarySource: active.preview.librarySource,
                   sourceAbsolutePath,
-                  targetAbsolutePath: applied.plan.video.targetPath,
-                  size: applied.plan.video.size,
+                  targetAbsolutePath: video?.targetPath ?? sourceAbsolutePath,
+                  size: video?.size ?? file.size,
                   modifiedAt: file.mtime,
                   crawlerData,
                   fallbackNumber: applied.entry.fileInfo.number,
@@ -546,6 +661,7 @@ export class MaintenanceSessionCoordinator {
                   refreshedAt: new Date(),
                 },
               },
+              release,
             };
           } catch (error) {
             const stopped = isAbortError(error) || context.signal.aborted;
@@ -554,23 +670,16 @@ export class MaintenanceSessionCoordinator {
             };
           }
         },
-        applyResult: async (item, executionResult) => {
-          let result = executionResult.result;
-          if (executionResult.publication) {
-            try {
-              this.assertCurrent(sessionId, generation, ["running", "paused"]);
-              await this.deps.library.publishRefresh(executionResult.publication);
-            } catch (error) {
-              if (!this.isCurrent(sessionId, generation)) throw error;
-              result = libraryCommitFailure(error);
-            }
-          }
-          await this.commitItem(sessionId, generation, item, result);
-        },
+        applyResult: async (item, executionResult) =>
+          await this.applyPublication(sessionId, generation, item, executionResult),
       });
       if (!this.isCurrent(sessionId, generation) || this.require(sessionId).status !== "running") return;
       const current = this.assertCurrent(sessionId, generation, ["running"]);
       const progress = current.progress();
+      if (progress.completedEntries < progress.totalEntries) {
+        this.releasePaths();
+        return;
+      }
       const failedAll =
         progress.totalEntries > 0 && progress.successCount === 0 && progress.failedCount >= progress.totalEntries;
       await this.finishSession(
@@ -594,6 +703,33 @@ export class MaintenanceSessionCoordinator {
     }
   }
 
+  private async applyPublication(
+    sessionId: string,
+    generation: number,
+    item: MaintenanceBatchItem,
+    execution: ApplyExecutionResult,
+  ): Promise<void> {
+    let result = execution.result;
+    if (execution.publication) {
+      try {
+        this.assertCurrent(sessionId, generation, ["running", "paused"]);
+        await this.deps.library.publishRefresh(execution.publication);
+        const targetPath = execution.publication.refresh.targetAbsolutePath;
+        if (result.entry) result.entry.fileInfo.filePath = targetPath;
+        const target = resolveRootFile(await this.deps.roots.list(), targetPath);
+        result.outputRelativePath = target.relativePath;
+        result.outputSize = execution.publication.refresh.size;
+      } catch (error) {
+        if (!this.isCurrent(sessionId, generation)) throw error;
+        result =
+          error instanceof PublicationError && error.committed
+            ? { ...result, error: errorMessage(error) }
+            : libraryCommitFailure(error);
+      }
+    }
+    await this.commitItem(sessionId, generation, item, result);
+  }
+
   private async executeItems<TItem, TResult>(
     sessionId: string,
     generation: number,
@@ -609,6 +745,13 @@ export class MaintenanceSessionCoordinator {
         beforeItem: async () => void this.assertCurrent(sessionId, generation, ["running"]),
         beforeResult: async () => void this.assertCurrent(sessionId, generation, ["running", "paused"]),
       },
+      finalizeResult: async (_item, result) => {
+        await (result as ApplyExecutionResult).release?.();
+      },
+      onFinalizeError: async (_item, error) => {
+        if (!this.isCurrent(sessionId, generation)) return;
+        await this.publishLog(this.require(sessionId), "warning", `Staging cleanup failed: ${errorMessage(error)}`);
+      },
       ...execution,
     });
     this.active = { sessionId, generation, executor };
@@ -622,7 +765,7 @@ export class MaintenanceSessionCoordinator {
     librarySource: MaintenanceLibrarySource | null,
   ): void {
     const session = this.assertCurrent(sessionId, generation, ["running", "paused"]);
-    session.addPreview(generation, {
+    session.commitPreview(generation, {
       rootId: item.rootId,
       relativePath: item.relativePath,
       status: item.status,
@@ -741,7 +884,7 @@ export class MaintenanceSessionCoordinator {
   }
 
   private async publishChanged(session: MaintenanceSession): Promise<void> {
-    await this.deps.events?.publish({ kind: "session-changed", session: session.statusSnapshot() });
+    await this.deps.events?.publish({ kind: "session-changed", session: session.snapshot() });
     this.notify(session.id);
   }
 

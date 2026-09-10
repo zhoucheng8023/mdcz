@@ -5,16 +5,17 @@ import {
   activateNewScrapeTask,
   buildUncensoredConfirmationItems,
   MaintenanceWorkbenchAdapter,
-  resetScrapeWorkbenchToSetup,
   ScrapeWorkbenchAdapter,
   type SharedWorkbenchPorts,
   startMaintenanceFlow,
+  useScrapeTerminalError,
   useWorkbenchSessionSnapshot,
   WorkbenchSetupAdapter,
   type WorkbenchSetupPort,
 } from "@mdcz/views/adapters";
-import { UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
+import { ScrapeStartErrorDialog, UncensoredConfirmDialog, type UncensoredConfirmSelection } from "@mdcz/views/scrape";
 import {
+  runScrapeRequest,
   selectIsScraping,
   selectScrapeResults,
   selectScrapeTaskId,
@@ -72,6 +73,7 @@ function WorkbenchPage() {
   const ports = useMemo<SharedWorkbenchPorts>(() => createWebWorkbenchPorts(), []);
   const setupPort = useMemo(() => createWebSetupPort(), []);
   const [uncensoredDialogOpen, setUncensoredDialogOpen] = useState(false);
+  const [startError, setStartError] = useState<unknown>(null);
   const { hydrationState, clearUncensoredConfirmation, refreshError } = useWorkbenchTaskStore(
     useShallow((state) => ({
       hydrationState: state.hydrationState,
@@ -97,7 +99,12 @@ function WorkbenchPage() {
 
   const sessionSnapshot = useWorkbenchSessionSnapshot(workbenchMode, search.intent);
   const showSetup = sessionSnapshot.showSetup;
-  const failedCount = useMemo(() => results.filter((result) => result.status === "failed").length, [results]);
+  const failedCount = useMemo(
+    () => results.filter((result) => result.status === "failed" || result.status === "skipped").length,
+    [results],
+  );
+
+  useScrapeTerminalError(setStartError);
 
   useEffect(() => {
     if (sessionSnapshot.workbenchMode !== workbenchMode) {
@@ -112,27 +119,34 @@ function WorkbenchPage() {
   }, [hydrationState.shouldOpenUncensoredDialog]);
 
   const handleStartSelectedScrape = async (candidates: MediaCandidate[], targetDir: string) => {
-    activateNewScrapeTask();
     try {
-      const outputRoot = await api.mediaRoots.prepareOutputDirectory({ hostPath: targetDir });
-      await api.scrape.start({
-        refs: candidates.map((candidate) => candidate.ref),
-        executionMode: "batch",
-        outputRootId: outputRoot.id,
-        outputRelativeDirectory: outputRoot.relativeDirectory,
+      activateNewScrapeTask();
+      await runScrapeRequest(async () => {
+        const outputRoot = await api.mediaRoots.prepareOutputDirectory({ hostPath: targetDir });
+        await api.scrape.start({
+          refs: candidates.map((candidate) => candidate.ref),
+          executionMode: "batch",
+          outputRootId: outputRoot.id,
+          outputRelativeDirectory: outputRoot.relativeDirectory,
+        });
+        requestScrapeLiveRunsRefresh();
       });
-      requestScrapeLiveRunsRefresh();
       toast.success("已启动选中文件刮削");
     } catch (error) {
-      resetScrapeWorkbenchToSetup();
-      toast.error(`启动失败: ${toErrorMessage(error)}`);
+      useScrapeStore.getState().setError(toErrorMessage(error));
+      setStartError(error);
     }
   };
 
-  const handleStartSelectedMaintenance = async (candidates: MediaCandidate[], presetId: MaintenancePresetId) => {
+  const handleStartSelectedMaintenance = async (
+    candidates: MediaCandidate[],
+    presetId: MaintenancePresetId,
+    targetDir?: string,
+  ) => {
     await startMaintenanceFlow({
       candidates,
       presetId,
+      targetDir,
       port: ports.maintenance,
       isScraping,
       setWorkbenchMode,
@@ -156,8 +170,10 @@ function WorkbenchPage() {
     const taskId = requireActiveScrapeTaskId();
     if (!taskId) return;
     try {
-      await api.scrape.pause({ taskId });
-      requestScrapeLiveRunsRefresh();
+      await runScrapeRequest(async () => {
+        await api.scrape.pause({ taskId });
+        requestScrapeLiveRunsRefresh();
+      });
       toast.info("任务已暂停");
     } catch (error) {
       toast.error(`暂停失败: ${toErrorMessage(error)}`);
@@ -168,8 +184,10 @@ function WorkbenchPage() {
     const taskId = requireActiveScrapeTaskId();
     if (!taskId) return;
     try {
-      await api.scrape.resume({ taskId });
-      requestScrapeLiveRunsRefresh();
+      await runScrapeRequest(async () => {
+        await api.scrape.resume({ taskId });
+        requestScrapeLiveRunsRefresh();
+      });
       toast.success("任务已恢复");
     } catch (error) {
       toast.error(`恢复失败: ${toErrorMessage(error)}`);
@@ -181,8 +199,10 @@ function WorkbenchPage() {
     if (!taskId) return;
     if (!window.confirm(STOP_SCRAPE_CONFIRM_MESSAGE)) return;
     try {
-      await api.scrape.stop({ taskId });
-      requestScrapeLiveRunsRefresh();
+      await runScrapeRequest(async () => {
+        await api.scrape.stop({ taskId });
+        requestScrapeLiveRunsRefresh();
+      });
       toast.info("正在停止...");
     } catch (error) {
       toast.error(`停止失败: ${toErrorMessage(error)}`);
@@ -201,7 +221,7 @@ function WorkbenchPage() {
       const result = await ports.scrape.retryFailed();
       toast.success(result.message);
     } catch (error) {
-      toast.error(`重试失败: ${toErrorMessage(error)}`);
+      setStartError(error);
     }
   };
 
@@ -245,6 +265,7 @@ function WorkbenchPage() {
           <MaintenanceWorkbenchAdapter ports={ports} />
         )}
       </div>
+      <ScrapeStartErrorDialog error={startError} onClose={() => setStartError(null)} />
       <UncensoredConfirmDialog
         open={uncensoredDialogOpen && hydrationState.ambiguousUncensoredItems.length > 0}
         items={hydrationState.ambiguousUncensoredItems}

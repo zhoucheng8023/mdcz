@@ -1,7 +1,7 @@
 import { buildMovieAssetFileNames } from "@mdcz/shared/assetNaming";
 import type { Configuration } from "@mdcz/shared/config";
-import type { CrawlerData, DownloadedAssets } from "@mdcz/shared/types";
-import type { RuntimeDownloadNetworkClient } from "../../network";
+import type { CrawlerData, DiscoveredAssets, DownloadedAssets } from "@mdcz/shared/types";
+import { type RuntimeDownloadNetworkClient, runWithNetworkChannel } from "../../network";
 import { type RuntimeLogger, runtimeLoggerService } from "../../shared";
 import type { ImageAlternatives } from "../aggregation";
 import { throwIfAborted } from "../utils/abort";
@@ -29,6 +29,7 @@ export interface DownloadManagerOptions {
 interface DownloadExecutionOptions {
   movieBaseName?: string;
   existingAssetDir?: string;
+  existingAssets?: DiscoveredAssets;
 }
 
 export class DownloadManager {
@@ -78,14 +79,13 @@ export class DownloadManager {
 
     throwIfAborted(plan.signal);
 
-    for (const downloader of this.downloaders) {
-      if (!downloader.shouldDownload(plan)) {
-        continue;
+    await runWithNetworkChannel("media", async () => {
+      for (const downloader of this.downloaders) {
+        if (!downloader.shouldDownload(plan)) continue;
+        throwIfAborted(plan.signal);
+        await downloader.download(context);
       }
-
-      throwIfAborted(plan.signal);
-      await downloader.download(context);
-    }
+    });
 
     const downloadedPaths = new Set(assets.downloaded);
     const existingKinds = [
@@ -117,6 +117,7 @@ export class DownloadManager {
     return {
       outputDir,
       existingAssetDir: options.existingAssetDir ?? outputDir,
+      existingAssets: options.existingAssets,
       movieBaseName,
       assetFileNames: buildMovieAssetFileNames(movieBaseName, config.naming.assetNamingMode),
       data,

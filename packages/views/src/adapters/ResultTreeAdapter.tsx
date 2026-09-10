@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import type { MediaBrowserFilter, MediaBrowserItem } from "../common";
 import { getScrapeResultTitle, type ResultTreeManualUrlTarget, ResultTreeView } from "../detail";
 import type { ScrapeActionPort } from "./ports";
-import { activateRetryScrapeTask } from "./workbenchSession";
+import { activateNewScrapeTask } from "./workbenchSession";
 
 function getFileNameFromPath(filePath: string) {
   const slash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
@@ -57,7 +57,6 @@ function buildMenuContent(
   const handleRetryScrape = async () => {
     try {
       const response = await port.retryFailed([result.fileId]);
-      activateRetryScrapeTask();
       toast.success(response.message);
     } catch (error) {
       toast.error(toErrorMessage(error, "重新刮削失败"));
@@ -222,10 +221,10 @@ export function ResultTreeAdapter({ port }: { port: ScrapeActionPort }) {
           setManualUrlTarget(null);
         }
       }}
-      onManualUrlSubmit={async () => {
+      onManualUrlSubmit={async (target, manualUrl) => {
+        activateNewScrapeTask();
         try {
-          const response = await port.retryFailed();
-          activateRetryScrapeTask();
+          const response = await port.rescrapeByUrl(target.targets, manualUrl);
           toast.success(response.message);
         } catch (error) {
           toast.error(toErrorMessage(error, "按 URL 重新刮削失败"));

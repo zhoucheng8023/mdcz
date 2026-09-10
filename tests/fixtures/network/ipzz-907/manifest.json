@@ -1,0 +1,1969 @@
+{
+  "schemaVersion": 1,
+  "caseId": "ipzz-907",
+  "credentialSeed": {
+    "cookies": {
+      "sort_search": "mdcz-test-cookie-sort_search"
+    },
+    "tokens": {}
+  },
+  "interactions": [
+    {
+      "sequence": 1,
+      "request": {
+        "method": "GET",
+        "url": "https://www.avbase.net/works?q=IPZZ-907",
+        "headers": [
+          [
+            "referer",
+            "https://www.avbase.net/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://www.avbase.net/works?q=IPZZ-907",
+        "headers": [
+          [
+            "cache-control",
+            "private, no-cache, no-store, max-age=0, must-revalidate"
+          ],
+          [
+            "cf-cache-status",
+            "BYPASS"
+          ],
+          [
+            "cf-ray",
+            "a34cf6838c552fbd-SIN"
+          ],
+          [
+            "content-encoding",
+            "br"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 13:46:48 GMT"
+          ],
+          [
+            "nel",
+            "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}"
+          ],
+          [
+            "report-to",
+            "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=aN56tNklMad%2B9STPQF48Q3zGB3UxvuqgZ%2FImURIcZ69aBeDudXteubkgMksryzupuGmTfKz4MUbIIHeehfuqrmuY%2Ful9sSekO5cDLO065%2Ba2uHD4wVn%2F%2FtQ06iZ9wQB61YYzbzfs4DORpxYU\"}]}"
+          ],
+          [
+            "server",
+            "cloudflare"
+          ],
+          [
+            "server-timing",
+            "cfCacheStatus;desc=\"BYPASS\", cfEdge;dur=14,cfOrigin;dur=175"
+          ],
+          [
+            "vary",
+            "Accept-Encoding"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "path": "responses/crawler/avbase/001.html",
+          "sha256": "5b58b43270eec858353007561dc122ac9de9d1d12eac677083a90760d6ccc076",
+          "byteLength": 45128
+        }
+      },
+      "channel": "crawler:avbase"
+    },
+    {
+      "sequence": 2,
+      "request": {
+        "method": "GET",
+        "url": "https://www.avbase.net/works/idp:IPZZ-907",
+        "headers": [
+          [
+            "referer",
+            "https://www.avbase.net/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://www.avbase.net/works/idp:IPZZ-907",
+        "headers": [
+          [
+            "age",
+            "5334"
+          ],
+          [
+            "cache-control",
+            "public, max-age=0"
+          ],
+          [
+            "cdn-cache-control",
+            "public, max-age=21600"
+          ],
+          [
+            "cf-cache-status",
+            "HIT"
+          ],
+          [
+            "cf-ray",
+            "a34cf68c198d2fbd-SIN"
+          ],
+          [
+            "content-encoding",
+            "br"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 13:46:49 GMT"
+          ],
+          [
+            "nel",
+            "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}"
+          ],
+          [
+            "report-to",
+            "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=pM9dO3JO9q6e3tNiNGG4Ngn3Ii7%2BhfW2se0lfl2%2FH3y012MQ3wrYv0jbaCPwStsr1MTw2BvgyPrsp9qQ9cZEQyE6h9tewU7Mp3bw3RscUHeHnsdFDwvkrI4cVlVhzvzx6NQqh5P8SALNO%2B2t\"}]}"
+          ],
+          [
+            "server",
+            "cloudflare"
+          ],
+          [
+            "server-timing",
+            "cfCacheStatus;desc=\"HIT\", cfEdge;dur=13,cfOrigin;dur=0"
+          ],
+          [
+            "vary",
+            "Accept-Encoding"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "path": "responses/crawler/avbase/002.html",
+          "sha256": "dcd2c4c61580f953b980e4e125183639d7d4ce159309555fa98907dae4894afe",
+          "byteLength": 52023
+        }
+      },
+      "channel": "crawler:avbase"
+    },
+    {
+      "sequence": 1,
+      "request": {
+        "method": "GET",
+        "url": "https://www.dmm.co.jp/search/=/searchstr=ipzz00907/sort=ranking/",
+        "headers": [
+          [
+            "accept-language",
+            "ja-JP,ja;q=0.9"
+          ],
+          [
+            "cookie",
+            "age_check_done=1; ckcy=1; cklg=ja"
+          ],
+          [
+            "referer",
+            "https://www.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://www.dmm.co.jp/search/=/searchstr=ipzz00907/sort=ranking/",
+        "headers": [
+          [
+            "cache-control",
+            "private, no-store, no-cache, must-revalidate"
+          ],
+          [
+            "content-encoding",
+            "gzip"
+          ],
+          [
+            "content-type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "date",
+            "Thu, 03 Sep 2026 05:55:26 GMT"
+          ],
+          [
+            "expires",
+            "0"
+          ],
+          [
+            "link",
+            "</search/_next/static/media/4473ecc91f70f139-s.p.woff>; rel=preload; as=\"font\"; crossorigin=\"\"; type=\"font/woff\", </search/_next/static/media/463dafcda517f24f-s.p.woff>; rel=preload; as=\"font\"; crossorigin=\"\"; type=\"font/woff\", </search/_next/static/css/14392d5060132f6f.css>; rel=preload; as=\"style\""
+          ],
+          [
+            "set-cookie",
+            "sort_search=mdcz-test-cookie-sort_search; Path=/; Domain=.dmm.co.jp; HttpOnly"
+          ],
+          [
+            "vary",
+            "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch, Accept-Encoding"
+          ],
+          [
+            "via",
+            "1.1 a0e6840b8e183d8f159cb194a62c98f8.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "wD4icSUtcl5ZgAjQbNvdffj1viILRqtIbQMEDp_9iZ0_QhOg_GPkqA=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P8"
+          ],
+          [
+            "x-cache",
+            "Miss from cloudfront"
+          ],
+          [
+            "x-powered-by",
+            "Next.js"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "path": "responses/crawler/dmm/001.html",
+          "sha256": "4631b35e6f497f7683708e075a0cf3cdf7844d7c4bf5f6089dfe5323fe2f33ea",
+          "byteLength": 63656
+        }
+      },
+      "channel": "crawler:dmm"
+    },
+    {
+      "sequence": 2,
+      "request": {
+        "method": "POST",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "accept",
+            "application/graphql-response+json, application/graphql+json, application/json"
+          ],
+          [
+            "accept-language",
+            "ja-JP,ja;q=0.9"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "cookie",
+            "age_check_done=1; ckcy=1; cklg=ja"
+          ],
+          [
+            "fanza-device",
+            "BROWSER"
+          ],
+          [
+            "origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "referer",
+            "https://video.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": "eyJvcGVyYXRpb25OYW1lIjoiQ29udGVudFBhZ2VEYXRhIiwicXVlcnkiOiJxdWVyeSBDb250ZW50UGFnZURhdGEoJGlkOiBJRCEsICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzOiBCb29sZWFuID0gdHJ1ZSkgeyBwcHZDb250ZW50KGlkOiAkaWQpIHsgdGl0bGUgZGVzY3JpcHRpb24gbWFrZXJDb250ZW50SWQgbWFrZXJSZWxlYXNlZEF0IGRlbGl2ZXJ5U3RhcnREYXRlIGR1cmF0aW9uIHBhY2thZ2VJbWFnZSB7IGxhcmdlVXJsIG1lZGl1bVVybCB9IHNhbXBsZUltYWdlcyB7IGxhcmdlSW1hZ2VVcmwgfSBzYW1wbGUyRE1vdmllIHsgaGlnaGVzdE1vdmllVXJsIGhsc01vdmllVXJsIH0gYWN0cmVzc2VzIHsgbmFtZSB9IGRpcmVjdG9ycyB7IG5hbWUgfSBzZXJpZXMgeyBuYW1lIH0gbWFrZXIgeyBuYW1lIH0gbGFiZWwgeyBuYW1lIH0gZ2VucmVzIHsgbmFtZSB9IHJlbGF0ZWRUYWdzKGxpbWl0OiAxNikgQGluY2x1ZGUoaWY6ICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzKSB7IC4uLiBvbiBDb250ZW50VGFnR3JvdXAgeyB0YWdzIHsgbmFtZSB9IH0gLi4uIG9uIENvbnRlbnRUYWcgeyBuYW1lIH0gfSB9IHJldmlld1N1bW1hcnkoY29udGVudElkOiAkaWQpIHsgYXZlcmFnZSB9IH0iLCJ2YXJpYWJsZXMiOnsiaWQiOiJpcHp6MDA5MDciLCJzaG91bGRGZXRjaFJlbGF0ZWRUYWdzIjp0cnVlfX0="
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "access-control-allow-credentials",
+            "true"
+          ],
+          [
+            "access-control-allow-origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=2592000"
+          ],
+          [
+            "content-encoding",
+            "gzip"
+          ],
+          [
+            "content-length",
+            "2679"
+          ],
+          [
+            "content-type",
+            "application/graphql-response+json"
+          ],
+          [
+            "date",
+            "Thu, 03 Sep 2026 05:55:29 GMT"
+          ],
+          [
+            "vary",
+            "Origin,Accept-Encoding"
+          ],
+          [
+            "via",
+            "1.1 google"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "path": "responses/crawler/dmm/002.json",
+          "sha256": "d3fcd3508ea4850c056f1d9a2486be357e85d760403f288fc37e7ec229cf2706",
+          "byteLength": 2679
+        }
+      },
+      "channel": "crawler:dmm"
+    },
+    {
+      "sequence": 1,
+      "request": {
+        "method": "POST",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "accept",
+            "application/graphql-response+json, application/graphql+json, application/json"
+          ],
+          [
+            "accept-language",
+            "ja-JP,ja;q=0.9"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "cookie",
+            "age_check_done=1; ckcy=1; cklg=ja"
+          ],
+          [
+            "fanza-device",
+            "BROWSER"
+          ],
+          [
+            "origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "referer",
+            "https://video.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": "eyJvcGVyYXRpb25OYW1lIjoiQ29udGVudFBhZ2VEYXRhIiwicXVlcnkiOiJxdWVyeSBDb250ZW50UGFnZURhdGEoJGlkOiBJRCEsICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzOiBCb29sZWFuID0gdHJ1ZSkgeyBwcHZDb250ZW50KGlkOiAkaWQpIHsgdGl0bGUgZGVzY3JpcHRpb24gbWFrZXJDb250ZW50SWQgbWFrZXJSZWxlYXNlZEF0IGRlbGl2ZXJ5U3RhcnREYXRlIGR1cmF0aW9uIHBhY2thZ2VJbWFnZSB7IGxhcmdlVXJsIG1lZGl1bVVybCB9IHNhbXBsZUltYWdlcyB7IGxhcmdlSW1hZ2VVcmwgfSBzYW1wbGUyRE1vdmllIHsgaGlnaGVzdE1vdmllVXJsIGhsc01vdmllVXJsIH0gYWN0cmVzc2VzIHsgbmFtZSB9IGRpcmVjdG9ycyB7IG5hbWUgfSBzZXJpZXMgeyBuYW1lIH0gbWFrZXIgeyBuYW1lIH0gbGFiZWwgeyBuYW1lIH0gZ2VucmVzIHsgbmFtZSB9IHJlbGF0ZWRUYWdzKGxpbWl0OiAxNikgQGluY2x1ZGUoaWY6ICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzKSB7IC4uLiBvbiBDb250ZW50VGFnR3JvdXAgeyB0YWdzIHsgbmFtZSB9IH0gLi4uIG9uIENvbnRlbnRUYWcgeyBuYW1lIH0gfSB9IHJldmlld1N1bW1hcnkoY29udGVudElkOiAkaWQpIHsgYXZlcmFnZSB9IH0iLCJ2YXJpYWJsZXMiOnsiaWQiOiIxaXB6ejAwOTA3Iiwic2hvdWxkRmV0Y2hSZWxhdGVkVGFncyI6dHJ1ZX19"
+      },
+      "transportError": {
+        "name": "TimeoutError",
+        "message": "Request timeout (2500 ms) exceeded."
+      },
+      "channel": "crawler:dmm_tv"
+    },
+    {
+      "sequence": 2,
+      "request": {
+        "method": "POST",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "accept",
+            "application/graphql-response+json, application/graphql+json, application/json"
+          ],
+          [
+            "accept-language",
+            "ja-JP,ja;q=0.9"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "cookie",
+            "age_check_done=1; ckcy=1; cklg=ja"
+          ],
+          [
+            "fanza-device",
+            "BROWSER"
+          ],
+          [
+            "origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "referer",
+            "https://video.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": "eyJvcGVyYXRpb25OYW1lIjoiQ29udGVudFBhZ2VEYXRhIiwicXVlcnkiOiJxdWVyeSBDb250ZW50UGFnZURhdGEoJGlkOiBJRCEsICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzOiBCb29sZWFuID0gdHJ1ZSkgeyBwcHZDb250ZW50KGlkOiAkaWQpIHsgdGl0bGUgZGVzY3JpcHRpb24gbWFrZXJDb250ZW50SWQgbWFrZXJSZWxlYXNlZEF0IGRlbGl2ZXJ5U3RhcnREYXRlIGR1cmF0aW9uIHBhY2thZ2VJbWFnZSB7IGxhcmdlVXJsIG1lZGl1bVVybCB9IHNhbXBsZUltYWdlcyB7IGxhcmdlSW1hZ2VVcmwgfSBzYW1wbGUyRE1vdmllIHsgaGlnaGVzdE1vdmllVXJsIGhsc01vdmllVXJsIH0gYWN0cmVzc2VzIHsgbmFtZSB9IGRpcmVjdG9ycyB7IG5hbWUgfSBzZXJpZXMgeyBuYW1lIH0gbWFrZXIgeyBuYW1lIH0gbGFiZWwgeyBuYW1lIH0gZ2VucmVzIHsgbmFtZSB9IHJlbGF0ZWRUYWdzKGxpbWl0OiAxNikgQGluY2x1ZGUoaWY6ICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzKSB7IC4uLiBvbiBDb250ZW50VGFnR3JvdXAgeyB0YWdzIHsgbmFtZSB9IH0gLi4uIG9uIENvbnRlbnRUYWcgeyBuYW1lIH0gfSB9IHJldmlld1N1bW1hcnkoY29udGVudElkOiAkaWQpIHsgYXZlcmFnZSB9IH0iLCJ2YXJpYWJsZXMiOnsiaWQiOiIxaXB6ejAwOTA3Iiwic2hvdWxkRmV0Y2hSZWxhdGVkVGFncyI6dHJ1ZX19"
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "access-control-allow-credentials",
+            "true"
+          ],
+          [
+            "access-control-allow-origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=2592000"
+          ],
+          [
+            "content-encoding",
+            "gzip"
+          ],
+          [
+            "content-length",
+            "49"
+          ],
+          [
+            "content-type",
+            "application/graphql-response+json"
+          ],
+          [
+            "date",
+            "Thu, 03 Sep 2026 05:55:26 GMT"
+          ],
+          [
+            "vary",
+            "Origin,Accept-Encoding"
+          ],
+          [
+            "via",
+            "1.1 google"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "path": "responses/crawler/dmm_tv/002.json",
+          "sha256": "edc391758eb12d697f4fbe2f6b4671df52aeaced6884ba962572eb295062bbaa",
+          "byteLength": 49
+        }
+      },
+      "channel": "crawler:dmm_tv"
+    },
+    {
+      "sequence": 3,
+      "request": {
+        "method": "POST",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "accept",
+            "application/graphql-response+json, application/graphql+json, application/json"
+          ],
+          [
+            "accept-language",
+            "ja-JP,ja;q=0.9"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "cookie",
+            "age_check_done=1; ckcy=1; cklg=ja"
+          ],
+          [
+            "fanza-device",
+            "BROWSER"
+          ],
+          [
+            "origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "referer",
+            "https://video.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": "eyJvcGVyYXRpb25OYW1lIjoiQ29udGVudFBhZ2VEYXRhIiwicXVlcnkiOiJxdWVyeSBDb250ZW50UGFnZURhdGEoJGlkOiBJRCEsICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzOiBCb29sZWFuID0gdHJ1ZSkgeyBwcHZDb250ZW50KGlkOiAkaWQpIHsgdGl0bGUgZGVzY3JpcHRpb24gbWFrZXJDb250ZW50SWQgbWFrZXJSZWxlYXNlZEF0IGRlbGl2ZXJ5U3RhcnREYXRlIGR1cmF0aW9uIHBhY2thZ2VJbWFnZSB7IGxhcmdlVXJsIG1lZGl1bVVybCB9IHNhbXBsZUltYWdlcyB7IGxhcmdlSW1hZ2VVcmwgfSBzYW1wbGUyRE1vdmllIHsgaGlnaGVzdE1vdmllVXJsIGhsc01vdmllVXJsIH0gYWN0cmVzc2VzIHsgbmFtZSB9IGRpcmVjdG9ycyB7IG5hbWUgfSBzZXJpZXMgeyBuYW1lIH0gbWFrZXIgeyBuYW1lIH0gbGFiZWwgeyBuYW1lIH0gZ2VucmVzIHsgbmFtZSB9IHJlbGF0ZWRUYWdzKGxpbWl0OiAxNikgQGluY2x1ZGUoaWY6ICRzaG91bGRGZXRjaFJlbGF0ZWRUYWdzKSB7IC4uLiBvbiBDb250ZW50VGFnR3JvdXAgeyB0YWdzIHsgbmFtZSB9IH0gLi4uIG9uIENvbnRlbnRUYWcgeyBuYW1lIH0gfSB9IHJldmlld1N1bW1hcnkoY29udGVudElkOiAkaWQpIHsgYXZlcmFnZSB9IH0iLCJ2YXJpYWJsZXMiOnsiaWQiOiJpcHp6MDA5MDciLCJzaG91bGRGZXRjaFJlbGF0ZWRUYWdzIjp0cnVlfX0="
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://api.video.dmm.co.jp/graphql",
+        "headers": [
+          [
+            "access-control-allow-credentials",
+            "true"
+          ],
+          [
+            "access-control-allow-origin",
+            "https://video.dmm.co.jp"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=2592000"
+          ],
+          [
+            "content-encoding",
+            "gzip"
+          ],
+          [
+            "content-length",
+            "2679"
+          ],
+          [
+            "content-type",
+            "application/graphql-response+json"
+          ],
+          [
+            "date",
+            "Thu, 03 Sep 2026 05:55:26 GMT"
+          ],
+          [
+            "vary",
+            "Origin,Accept-Encoding"
+          ],
+          [
+            "via",
+            "1.1 google"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "path": "responses/crawler/dmm_tv/003.json",
+          "sha256": "d3fcd3508ea4850c056f1d9a2486be357e85d760403f288fc37e7ec229cf2706",
+          "byteLength": 2679
+        }
+      },
+      "channel": "crawler:dmm_tv"
+    },
+    {
+      "sequence": 1,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907pl.jpg",
+        "headers": [
+          [
+            "range",
+            "bytes=0-65535"
+          ],
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "transportError": {
+        "name": "TimeoutError",
+        "message": "Request timeout (10000 ms) exceeded."
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 2,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907pl.jpg",
+        "headers": [
+          [
+            "range",
+            "bytes=0-65535"
+          ],
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 206,
+        "statusText": "Partial Content",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907pl.jpg",
+        "headers": [
+          [
+            "age",
+            "328955"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "65536"
+          ],
+          [
+            "content-range",
+            "bytes 0-65535/918368"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Sun, 30 Aug 2026 10:33:12 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545063-e0360\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 02:41:39 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "YE7DoxrHnsl9y0EVY6KWFW9tIRAAq95sw9fUG_8bIhX_3C_YH0SuLA=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "ff8912fb93c6eec897d18f5b9ed79f40a17b8c1d20eba5c92577c317b574dab0",
+          "byteLength": 65536
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 3,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz907/ipzz907pl.jpg",
+        "headers": [
+          [
+            "range",
+            "bytes=0-65535"
+          ],
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 404,
+        "statusText": "Not Found",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz907/ipzz907pl.jpg",
+        "headers": [
+          [
+            "age",
+            "591970"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "2732"
+          ],
+          [
+            "content-range",
+            "bytes 0-2731/2732"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Thu, 03 Sep 2026 05:55:48 GMT"
+          ],
+          [
+            "etag",
+            "\"47671c0b-aac\""
+          ],
+          [
+            "last-modified",
+            "Tue, 18 Dec 2007 01:02:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 ed189a437cfac2413240746357610054.cloudfront.net (CloudFront), 1.1 2b28046139587877c3fa50cdd371aa26.cloudfront.net (CloudFront), 1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "GoU-vb_6D88ChJJObdB5VchlWZivGe7o5Mvmdb5kyIkxE19PwxgusQ=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P6, NRT12-P7, NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Error from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT, HIT"
+          ],
+          [
+            "x-pics-origin",
+            "imgsrc"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "efea457c7fc0fae1eb0ec93f4f719189e38b0679cac47c11b829740d9b5675d8",
+          "byteLength": 2732
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 4,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907ps.jpg",
+        "headers": [
+          [
+            "range",
+            "bytes=0-65535"
+          ],
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 206,
+        "statusText": "Partial Content",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907ps.jpg",
+        "headers": [
+          [
+            "age",
+            "40299"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "65536"
+          ],
+          [
+            "content-range",
+            "bytes 0-65535/403602"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 18:44:09 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545063-62892\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 02:41:39 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "9S69BcDz5EhH1NUNlIxEG3zPoNtZIE8e1etpp6BxiWgMqwJljWUc_w=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "6a812ead58c00ee6d38be7f02d0f526cb573826413582c96af065b331dc22037",
+          "byteLength": 65536
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 5,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz907/ipzz907ps.jpg",
+        "headers": [
+          [
+            "range",
+            "bytes=0-65535"
+          ],
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 404,
+        "statusText": "Not Found",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz907/ipzz907ps.jpg",
+        "headers": [
+          [
+            "age",
+            "592014"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "2732"
+          ],
+          [
+            "content-range",
+            "bytes 0-2731/2732"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Thu, 03 Sep 2026 05:55:48 GMT"
+          ],
+          [
+            "etag",
+            "\"47671c0b-aac\""
+          ],
+          [
+            "last-modified",
+            "Tue, 18 Dec 2007 01:02:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 e996ef6a9b635520a6bffcbe2aa967ce.cloudfront.net (CloudFront), 1.1 0cf2f9f29d4ea64bbc1cf639883c7e5a.cloudfront.net (CloudFront), 1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "C5rjTwniSO-leGPM0iVhKiZjrEWu41hdEJB7JSwQCzIxDrAqHEp2OA=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P6, NRT12-P7, NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Error from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT, HIT"
+          ],
+          [
+            "x-pics-origin",
+            "imgsrc"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "efea457c7fc0fae1eb0ec93f4f719189e38b0679cac47c11b829740d9b5675d8",
+          "byteLength": 2732
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 6,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907pl.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907pl.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "328957"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "918368"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Sun, 30 Aug 2026 10:33:12 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545063-e0360\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 02:41:39 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "7VvvvufX-NaOrErI4_IuTzXH1_wAXVxHLgXzKrBmhNcxTZ0fGv_Vkg=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "744d931404a57efa0b421e2cdde91ec1bf7dd0b8beca750146ba1cde45e57d15",
+          "byteLength": 918368
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 7,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907ps.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907ps.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "40300"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "403602"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 18:44:09 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545063-62892\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 02:41:39 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "HSahns4glNuJeWuKtOJW_2gtbt5uTft_vaZ4QmOCW7fILV-oM-BSBA=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "e5ebd3e4f4792110e40872babef524d982c2f3c44c30879c7225aa71c404ea16",
+          "byteLength": 403602
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 8,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-1.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-1.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "42040"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "77403"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 18:15:10 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-12e5b\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "EjihBsRQd9QI2eUWdijkO-2czjO2Vra1APRJxUn3VuA8LzaO4gKfFw=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "a4c5220937f3250f6e22f2f47cc071af03cc492588685d2faf23c39e97a3aad0",
+          "byteLength": 77403
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 9,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-2.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-2.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "189030"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "96786"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Tue, 01 Sep 2026 01:25:20 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-17a12\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "M0TELf6mTS3ns7rNNd3NDkagqE4X6NxPD1oiPQ1d1FFaAzOAV8WhEw=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "677726352dc13a33e729dbebb420236a3c1da28136d37f3f6ff4491cf9be1958",
+          "byteLength": 96786
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 10,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-3.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-3.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "213707"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "66755"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Mon, 31 Aug 2026 18:34:03 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-104c3\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "jk6IvmkCfzrXKyv5hm3OIJbjOCuLioMeQNXbpWJUBW5OQsSft54Uuw=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "4acc2b97d316572f6b270eee6bca6b29298fa5433b7960e0ba306552f777f88d",
+          "byteLength": 66755
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 11,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-4.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-4.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "40388"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "103828"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 18:42:43 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-19594\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "UG7eW8_1wHAD3qw9HC40ANmu8g9IVpK64ScWhnzFcf7dQ7z6-TR3lQ=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "18ebdf14df749b13ec7e38415363ec5ba5d2d5f85ad634bdf6d90b4d0af0355f",
+          "byteLength": 103828
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 12,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-5.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-5.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "369084"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "87019"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Sat, 29 Aug 2026 23:24:27 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-153eb\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "RDcYEvsl4kaD2eOGNVgYtJsOzxVb-yTIiumzLSaj032fuwvECdlaZg=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "MISS"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "d94a66d03e42c3e55ec98ff99aceab0a18f5faccf586ca7d56b5cc3ee74bc1c6",
+          "byteLength": 87019
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 13,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-6.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-6.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "547068"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "99606"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Thu, 27 Aug 2026 21:58:04 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-18516\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "v9Y50ltTAClj32ErQd-sHUQM_kBLDkjSfLQ82Liyb2hnJkuzmnDM3Q=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "323cf98efd6f357c7e86ed0831e8a1980e46d40300696a9786d2d64b2e13ca48",
+          "byteLength": 99606
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 14,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-7.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-7.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "25297"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "89879"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Wed, 02 Sep 2026 22:54:15 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-15f17\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "Yg5HBSBJOY6PJK3VINLCx90mt-nsubXRk7gVJSRTXZvq8WWHBzqJVA=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "fa825947324a90b181e7ff7827f8f44a0857055a1a0460fa50cedef3f544c74c",
+          "byteLength": 89879
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 15,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-8.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-8.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "555773"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "87034"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Thu, 27 Aug 2026 19:32:59 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-153fa\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "St5Kr0kwiM_Jb7zC2LMuSI6Bg3sb7do2yGPlYnjgmLD9q1Bn0RMLVA=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "80e3aafa0e4e87bcee41cb286a6c089d04a5e3a955ff30974ad2e12eff8c3a35",
+          "byteLength": 87034
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 16,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-9.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-9.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "484159"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "91211"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Fri, 28 Aug 2026 15:26:34 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-1644b\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "dVksopZDAHnl1T0tGYkM9gKj4xwVY-D7gtNb09aeQQWBwKQF9gkhHw=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "8042ebdd99c7961b4eaf4e93dd13433f5f3929d89d79d8869173b9e34fb99402",
+          "byteLength": 91211
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 17,
+      "request": {
+        "method": "GET",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-10.jpg",
+        "headers": [
+          [
+            "referer",
+            "https://awsimgsrc.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ipzz00907/ipzz00907jp-10.jpg",
+        "headers": [
+          [
+            "accept-ranges",
+            "bytes"
+          ],
+          [
+            "age",
+            "126254"
+          ],
+          [
+            "alt-svc",
+            "h3=\":443\"; ma=86400"
+          ],
+          [
+            "content-length",
+            "92835"
+          ],
+          [
+            "content-type",
+            "image/jpeg"
+          ],
+          [
+            "date",
+            "Tue, 01 Sep 2026 18:51:39 GMT"
+          ],
+          [
+            "etag",
+            "\"6a545c6f-16aa3\""
+          ],
+          [
+            "last-modified",
+            "Mon, 13 Jul 2026 03:33:03 GMT"
+          ],
+          [
+            "server",
+            "openresty"
+          ],
+          [
+            "via",
+            "1.1 197a70266e703819edeb56a5b91db3ce.cloudfront.net (CloudFront)"
+          ],
+          [
+            "x-amz-cf-id",
+            "XLlFQSmdTNAk6HoiS-E0V8KQtg3yxKbcq7DJMsfiUKWxs4Qy-29lRg=="
+          ],
+          [
+            "x-amz-cf-pop",
+            "NRT20-P9"
+          ],
+          [
+            "x-cache",
+            "Hit from cloudfront"
+          ],
+          [
+            "x-cache-status",
+            "HIT"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "b8ce83fcf7be20a3cc8062adf5156cdea336aa13a52bf7ce7ae3677a694ae4fa",
+          "byteLength": 92835
+        }
+      },
+      "channel": "media"
+    },
+    {
+      "sequence": 18,
+      "request": {
+        "method": "GET",
+        "url": "https://cc3001.dmm.co.jp/pv/ChcRHzETsPXjbw-UeBkngQbhEYowJkash2gstwFhEzoGwwF1AnLeBA3YlY1rQD/ipzz00907hhb.mp4",
+        "headers": [
+          [
+            "referer",
+            "https://cc3001.dmm.co.jp/"
+          ]
+        ],
+        "bodyBase64": null
+      },
+      "response": {
+        "status": 200,
+        "statusText": "OK",
+        "url": "https://cc3001.dmm.co.jp/pv/ChcRHzETsPXjbw-UeBkngQbhEYowJkash2gstwFhEzoGwwF1AnLeBA3YlY1rQD/ipzz00907hhb.mp4",
+        "headers": [
+          [
+            "content-length",
+            "44554584"
+          ],
+          [
+            "content-type",
+            "video/mp4"
+          ]
+        ],
+        "body": {
+          "kind": "blob",
+          "sha256": "d607c28bd33d56e8bf78c337d2eca051772369781c9cfef256f729fcf6070682",
+          "byteLength": 44554584
+        }
+      },
+      "channel": "media"
+    }
+  ]
+}

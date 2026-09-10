@@ -1,8 +1,8 @@
-import { parseWireRelativePath, type RootFileRef, rootFileRefSchema } from "@mdcz/shared/mediaRef";
+import { type RootFileRef, rootFileRefSchema, wireRelativePathSchema } from "@mdcz/shared/mediaRef";
 import { z } from "zod";
 import type { PublicationJournalManifest } from "./types";
 
-const wireRelativePath = z.string().transform(parseWireRelativePath);
+const wireRelativePath = wireRelativePathSchema;
 
 const publicationObsoleteObservationSchema = z.union([
   z.object({ exists: z.literal(false) }).strict(),
@@ -21,6 +21,7 @@ const publicationJournalManifestEntrySchema = rootFileRefSchema
     temporaryPath: wireRelativePath,
     backupPath: z.union([wireRelativePath, z.null()]),
     targetExisted: z.boolean(),
+    source: rootFileRefSchema.optional(),
   })
   .strict();
 
@@ -45,5 +46,6 @@ export const parsePublicationJournalManifest = (value: unknown): PublicationJour
 
 export const manifestRefs = (manifest: PublicationJournalManifest): RootFileRef[] => [
   ...manifest.entries,
+  ...manifest.entries.flatMap((entry) => (entry.source ? [entry.source] : [])),
   ...manifest.obsolete,
 ];

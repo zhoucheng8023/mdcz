@@ -1,13 +1,13 @@
 import type { MediaRoot } from "@mdcz/media-store";
 import { resolveRootRelativePath, toRootRelativePath } from "@mdcz/media-store";
 import type { Configuration, DeepPartial } from "@mdcz/shared/config";
-import type { MaintenanceFieldSelectionSide } from "@mdcz/shared/maintenanceTasks";
 import type {
   CrawlerData,
   FieldDiff,
   LocalScanEntry,
   MaintenanceImageAlternatives,
   MaintenancePresetId,
+  MaintenancePreviewStatus,
   PathDiff,
 } from "@mdcz/shared/types";
 import type { PreparedPublicationPlan } from "../publication";
@@ -21,13 +21,14 @@ import {
   type TranslateService,
 } from "../scrape";
 import type { RuntimeActorImageService, RuntimeActorSourceProvider } from "../scrape/actorOutput";
-import { buildCommittedCrawlerData } from "./applyData";
+import { isPathInside } from "../scrape/utils/filesystem";
 import { LocalScanService } from "./LocalScanService";
 import {
   MaintenanceFileScraper,
   type MaintenanceFileScraperDependencies,
   type MaintenanceSignalService,
 } from "./MaintenanceFileScraper";
+import type { CommittedMaintenanceFile } from "./MaintenancePreparationService";
 import { getMaintenancePreset, supportsMaintenanceExecution } from "./presets";
 
 export interface MaintenanceRuntimeConfigProvider {
@@ -49,12 +50,14 @@ export interface MaintenanceRuntimeDependencies {
   nfoGenerator: NfoGenerator;
   signalService: MaintenanceSignalService;
   translateService: TranslateService;
+  postProcessAssets?: MaintenanceFileScraperDependencies["postProcessAssets"];
 }
 
 export interface MaintenanceRuntimePreviewEntriesInput {
   root: MediaRoot;
   presetId: MaintenancePresetId;
   entries: LocalScanEntry[];
+  sharedData?: CommittedMaintenanceFile;
   signal?: AbortSignal;
 }
 
@@ -62,7 +65,7 @@ export interface MaintenanceRuntimePreviewItem {
   entry: LocalScanEntry;
   rootId: string;
   relativePath: string;
-  status: "ready" | "blocked";
+  status: MaintenancePreviewStatus;
   error: string | null;
   fieldDiffs: FieldDiff[];
   unchangedFieldDiffs: FieldDiff[];
@@ -75,10 +78,9 @@ export interface MaintenanceRuntimeApplyEntryInput {
   root: MediaRoot;
   presetId: MaintenancePresetId;
   entry: LocalScanEntry;
+  sharedOutput?: LocalScanEntry;
   committed?: {
     crawlerData?: CrawlerData;
-    fieldDiffs?: FieldDiff[];
-    fieldSelections?: Record<string, MaintenanceFieldSelectionSide>;
     imageAlternatives?: MaintenanceImageAlternatives;
     assetDecisions?: import("@mdcz/shared/types").MaintenanceAssetDecisions;
   };
@@ -96,6 +98,7 @@ export interface MaintenanceRuntimeApplySuccess {
   pathDiff?: PathDiff;
   outputRelativePath: string;
   plan?: PreparedPublicationPlan;
+  release?: () => Promise<void>;
 }
 
 export interface MaintenanceRuntimeApplyFailure {
@@ -125,15 +128,35 @@ const mergeDeep = <T>(base: T, override: DeepPartial<T>): T => {
   return merged as T;
 };
 
-const emptySignalService: MaintenanceSignalService = {
-  setProgress: () => undefined,
-  showLogText: () => undefined,
-};
-
 export class MaintenanceRuntime {
   private readonly localScanService = new LocalScanService();
 
-  constructor(private readonly deps: MaintenanceRuntimeDependencies) {}
+  constructor(
+    private readonly deps: MaintenanceRuntimeDependencies,
+    private readonly sourceMediaPath?: string,
+  ) {}
+
+  async createSession(input: {
+    root: MediaRoot;
+    outputRoot: MediaRoot;
+    outputRelativeDirectory: string;
+    registerRoot: (hostPath: string) => Promise<unknown>;
+  }): Promise<MaintenanceRuntime> {
+    const config = structuredClone(await this.deps.config.get());
+    const sourceMediaPath = config.paths.mediaPath.trim() || input.root.hostPath;
+    const outputBaseDirectory = input.outputRelativeDirectory
+      ? resolveRootRelativePath(input.outputRoot, input.outputRelativeDirectory)
+      : input.outputRoot.hostPath;
+    config.paths.mediaPath = isPathInside(sourceMediaPath, outputBaseDirectory)
+      ? sourceMediaPath
+      : input.outputRoot.hostPath;
+    config.paths.successOutputFolder = outputBaseDirectory;
+    if (config.paths.metadataPath.trim()) {
+      this.deps.fileOrganizer.resolveMetadataDir(outputBaseDirectory, config);
+      await input.registerRoot(config.paths.metadataPath.trim());
+    }
+    return new MaintenanceRuntime({ ...this.deps, config: { get: async () => config } }, sourceMediaPath);
+  }
 
   /** Applies the current per-site scrape policy to maintenance HTTP work. */
   async applyNetworkPolicy(): Promise<void> {
@@ -148,7 +171,10 @@ export class MaintenanceRuntime {
   }): Promise<LocalScanEntry[]> {
     const config = await this.getPresetConfig("read_local", input.root);
     const filePaths = input.refs.map((ref) => resolveRootRelativePath(input.root, ref.relativePath));
-    return await this.localScanService.scanFiles(input.root, filePaths, config.paths.sceneImagesFolder, input.signal);
+    return await this.localScanService.scanFiles(input.root, filePaths, config.paths.sceneImagesFolder, input.signal, {
+      mediaPath: this.sourceMediaPath ?? config.paths.mediaPath,
+      metadataPath: config.paths.metadataPath,
+    });
   }
 
   async previewEntries(input: MaintenanceRuntimePreviewEntriesInput): Promise<MaintenanceRuntimePreviewItem[]> {
@@ -164,7 +190,7 @@ export class MaintenanceRuntime {
     const items: MaintenanceRuntimePreviewItem[] = [];
     for (const entry of entries) {
       const relativePath = this.toRelativePath(input.root, entry.fileInfo.filePath);
-      const preview = await scraper.previewFile(entry, config, input.signal);
+      const preview = await scraper.previewFile(entry, config, input.signal, input.sharedData);
       items.push({
         entry,
         rootId: input.root.id,
@@ -196,28 +222,13 @@ export class MaintenanceRuntime {
     const entry = input.entry;
     const config = await this.getPresetConfig(input.presetId, input.root);
     const scraper = new MaintenanceFileScraper(this.createFileScraperDependencies(input.signalService), preset);
-    const committedCrawlerData =
-      input.committed?.crawlerData && input.committed.fieldDiffs === undefined
-        ? input.committed.crawlerData
-        : buildCommittedCrawlerData(
-            entry,
-            {
-              fieldDiffs: input.committed?.fieldDiffs ?? [],
-              proposedCrawlerData: input.committed?.crawlerData,
-              imageAlternatives: input.committed?.imageAlternatives,
-            },
-            input.committed?.fieldSelections,
-          );
     const result = await scraper.processFile(
       entry,
       config,
       input.progress ?? { fileIndex: 1, totalFiles: 1 },
       input.signal,
-      {
-        crawlerData: committedCrawlerData,
-        imageAlternatives: input.committed?.imageAlternatives,
-        assetDecisions: input.committed?.assetDecisions,
-      },
+      input.committed,
+      input.sharedOutput,
     );
 
     if (result.status !== "success") {
@@ -226,7 +237,7 @@ export class MaintenanceRuntime {
 
     const updatedEntry = result.updatedEntry ?? entry;
     const plan = result.publicationPlan;
-    if (!plan && supportsMaintenanceExecution(preset)) {
+    if (!plan) {
       return { status: "failed", error: "维护应用未生成发布计划" };
     }
     return {
@@ -238,6 +249,7 @@ export class MaintenanceRuntime {
       pathDiff: result.pathDiff,
       outputRelativePath: this.toRelativePath(input.root, updatedEntry.fileInfo.filePath),
       plan,
+      release: result.release,
     };
   }
 
@@ -279,8 +291,9 @@ export class MaintenanceRuntime {
       downloadManager: this.deps.downloadManager,
       fileOrganizer: this.deps.fileOrganizer,
       nfoGenerator: this.deps.nfoGenerator,
-      signalService: signalService ?? this.deps.signalService ?? emptySignalService,
+      signalService: signalService ?? this.deps.signalService,
       translateService: this.deps.translateService,
+      postProcessAssets: this.deps.postProcessAssets,
     };
   }
 
@@ -292,7 +305,7 @@ export class MaintenanceRuntime {
         ...baseConfig,
         paths: {
           ...baseConfig.paths,
-          mediaPath: root.hostPath,
+          mediaPath: baseConfig.paths.mediaPath.trim() || root.hostPath,
         },
       },
       preset.configOverrides,

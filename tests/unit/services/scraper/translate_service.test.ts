@@ -17,7 +17,6 @@ vi.mock("node:timers/promises", () => {
   };
 });
 
-const appendMappingCandidate = vi.fn();
 const findMappedActorName = vi.fn();
 const findMappedGenreName = vi.fn();
 
@@ -43,7 +42,6 @@ const createTranslateService = (networkClient: NetworkClient, llmApiClient: LlmA
     llmApiClient,
     logger,
     mappingStore: {
-      appendMappingCandidate,
       findMappedActorName,
       findMappedGenreName,
     },
@@ -59,14 +57,14 @@ const createLogger = () => ({
 describe("TranslateService term consistency", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(appendMappingCandidate).mockResolvedValue(undefined);
     vi.mocked(findMappedActorName).mockResolvedValue(null);
     vi.mocked(findMappedGenreName).mockResolvedValue(null);
     sleepMock.mockClear();
   });
 
-  it("keeps actor original term and only translates genre term", async () => {
-    const generateText = vi.fn().mockResolvedValue("统一译名");
+  it("batches metadata and preserves translated names", async () => {
+    const plot = "这是あき的旅行日记。";
+    const generateText = vi.fn().mockResolvedValue(JSON.stringify({ title: "中文标题", plot, genres: ["统一译名"] }));
     const llmApiClient = createLlmApiClient(generateText);
 
     const service = createTranslateService(new NetworkClient({}), llmApiClient);
@@ -74,7 +72,8 @@ describe("TranslateService term consistency", () => {
 
     const translated = await service.translateCrawlerData(
       {
-        title: " ",
+        title: "Japanese title",
+        plot: "Japanese plot",
         number: "DLDSS-463",
         actors: ["同一日语词", "同一日语词"],
         genres: ["同一日语词"],
@@ -85,15 +84,17 @@ describe("TranslateService term consistency", () => {
     );
 
     expect(generateText).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(appendMappingCandidate)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(appendMappingCandidate)).toHaveBeenCalledWith(
+    expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        category: "genre",
-        keyword: "同一日语词",
+        prompt: expect.stringContaining('"title":"Japanese title","plot":"Japanese plot","genres":["同一日语词"]'),
+        reasoning: "default",
       }),
+      undefined,
     );
-    expect(translated.actors).toEqual(["同一日语词", "同一日语词"]);
-    expect(translated.genres).toEqual(["统一译名"]);
+    expect(translated.data.actors).toEqual(["同一日语词", "同一日语词"]);
+    expect(translated.data.title_zh).toBe("中文标题");
+    expect(translated.data.plot_zh).toBe(plot);
+    expect(translated.data.genres).toEqual(["统一译名"]);
   });
 
   it("prefers mapped actor/genre names and avoids llm", async () => {
@@ -101,7 +102,7 @@ describe("TranslateService term consistency", () => {
     const llmApiClient = createLlmApiClient(generateText);
 
     vi.mocked(findMappedActorName).mockResolvedValue("小花暖");
-    vi.mocked(findMappedGenreName).mockResolvedValue("小花暖");
+    vi.mocked(findMappedGenreName).mockImplementation(async (term) => (term === "Sample" ? "" : "小花暖"));
 
     const service = createTranslateService(new NetworkClient({}), llmApiClient);
     const config = createBaseConfig();
@@ -111,7 +112,7 @@ describe("TranslateService term consistency", () => {
         title: " ",
         number: "DLDSS-463",
         actors: ["小花のん"],
-        genres: ["小花のん"],
+        genres: ["小花のん", "Sample", "Sample"],
         scene_images: [],
         website: Website.DMM,
       },
@@ -119,11 +120,10 @@ describe("TranslateService term consistency", () => {
     );
 
     expect(generateText).not.toHaveBeenCalled();
-    expect(vi.mocked(appendMappingCandidate)).not.toHaveBeenCalled();
     expect(vi.mocked(findMappedActorName)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(findMappedGenreName)).toHaveBeenCalledTimes(1);
-    expect(translated.actors).toEqual(["小花暖"]);
-    expect(translated.genres).toEqual(["小花暖"]);
+    expect(vi.mocked(findMappedGenreName)).toHaveBeenCalledTimes(2);
+    expect(translated.data.actors).toEqual(["小花暖"]);
+    expect(translated.data.genres).toEqual(["小花暖"]);
   });
 
   it("keeps actor profile photos attached after actor alias normalization", async () => {
@@ -155,8 +155,8 @@ describe("TranslateService term consistency", () => {
 
     expect(generateText).not.toHaveBeenCalled();
     expect(vi.mocked(findMappedActorName)).toHaveBeenCalledTimes(1);
-    expect(translated.actors).toEqual(["小花暖"]);
-    expect(translated.actor_profiles).toEqual([
+    expect(translated.data.actors).toEqual(["小花暖"]);
+    expect(translated.data.actor_profiles).toEqual([
       {
         name: "小花暖",
         aliases: ["小花のん"],
@@ -231,21 +231,28 @@ describe("TranslateService term consistency", () => {
     const config = createBaseConfig();
     config.translate.llmMaxRetries = 3;
 
-    await expect(service.translateText("hello", "zh_cn", config)).resolves.toBe("hello");
+    await expect(service.translateText("hello", "zh_cn", config)).rejects.toBe(transportError);
 
     expect(generateText).toHaveBeenCalledTimes(4);
     expect(sleepMock).toHaveBeenCalledTimes(3);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("transport error (1/3)"));
   });
 
-  it("logs the translated field and media number when falling back to source text", async () => {
-    const generateText = vi.fn().mockRejectedValue(new Error("provider failed"));
+  it.each([
+    [null, "engine returned no translation"],
+    [" English plot\r\n", "source echoed"],
+    [" ", "engine returned no translation"],
+  ])("logs field fallback without response content (%s)", async (plot, reason) => {
+    const generateText =
+      plot === null
+        ? vi.fn().mockRejectedValue(new Error("provider failed"))
+        : vi.fn().mockResolvedValue(JSON.stringify({ title: "中文标题", plot, genres: [] }));
     const logger = createLogger();
     const service = createTranslateService(new NetworkClient({}), createLlmApiClient(generateText), logger);
     const config = createBaseConfig();
     config.translate.llmMaxRetries = 0;
 
-    await service.translateCrawlerData(
+    const result = await service.translateCrawlerData(
       {
         title: "English title",
         plot: "English plot",
@@ -258,12 +265,15 @@ describe("TranslateService term consistency", () => {
       config,
     );
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Translation engine failed for title (HMN-869), returning original text: engine returned no translation",
-    );
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Translation engine failed for plot (HMN-869), returning original text: engine returned no translation",
-    );
+    expect(result.data.plot_zh).toBeUndefined();
+    if (plot === null || !plot.trim()) {
+      expect(result.error).toContain(plot === null ? "provider failed" : "invalid structured output");
+    } else {
+      expect(logger.warn).toHaveBeenCalledWith(
+        `Translation engine failed for plot (HMN-869), returning original text: ${reason}`,
+      );
+    }
+    expect(JSON.stringify([logger.info.mock.calls, logger.warn.mock.calls])).not.toContain("English plot");
   });
 
   it("does not retry llm request when the provider returns an empty successful response", async () => {
@@ -278,7 +288,7 @@ describe("TranslateService term consistency", () => {
     const service = createTranslateService(networkClient, llmApiClient);
     const config = createBaseConfig();
 
-    await expect(service.translateText("hello", "zh_cn", config)).resolves.toBe("hello");
+    await expect(service.translateText("hello", "zh_cn", config)).rejects.toBe(emptyResponseError);
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(sleepMock).not.toHaveBeenCalled();
@@ -300,7 +310,7 @@ describe("TranslateService term consistency", () => {
     const service = createTranslateService(networkClient, llmApiClient);
     const config = createBaseConfig();
 
-    await expect(service.translateText("hello", "zh_cn", config)).resolves.toBe("hello");
+    await expect(service.translateText("hello", "zh_cn", config)).rejects.toBe(serverError);
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(sleepMock).not.toHaveBeenCalled();
@@ -328,16 +338,18 @@ describe("TranslateService term consistency", () => {
       config,
     );
 
-    expect(translated.title_zh).toBeUndefined();
-    expect(translated.plot_zh).toBeUndefined();
-    expect(generateText).toHaveBeenCalledTimes(2);
+    expect(translated.data.title_zh).toBeUndefined();
+    expect(translated.data.plot_zh).toBeUndefined();
+    expect(generateText).toHaveBeenCalledTimes(1);
   });
 
-  it("does not call llm for genre terms when the selected engine is google", async () => {
+  it.each(["Original plot"])("uses Google and validates field output (%s)", async (plot) => {
     const generateText = vi.fn();
     const llmApiClient = createLlmApiClient(generateText);
     const networkClient = new NetworkClient({});
-    vi.spyOn(networkClient, "getJson").mockResolvedValue([[["剧情"]]] as unknown);
+    vi.spyOn(networkClient, "getJson")
+      .mockResolvedValueOnce([[[plot]]])
+      .mockResolvedValue([[["剧情"]]]);
 
     const service = createTranslateService(networkClient, llmApiClient);
     const config = configurationSchema.parse({
@@ -351,6 +363,7 @@ describe("TranslateService term consistency", () => {
     const translated = await service.translateCrawlerData(
       {
         title: " ",
+        plot: "Original plot",
         number: "DLDSS-463",
         actors: [],
         genres: ["Drama"],
@@ -361,7 +374,8 @@ describe("TranslateService term consistency", () => {
     );
 
     expect(generateText).not.toHaveBeenCalled();
-    expect(translated.genres).toEqual(["剧情"]);
+    expect(translated.data.genres).toEqual(["剧情"]);
+    expect(translated.data.plot_zh).toBe(plot && plot !== "Original plot" ? plot : undefined);
   });
 
   it("keeps original genre terms after llm term translation fails", async () => {
@@ -387,7 +401,7 @@ describe("TranslateService term consistency", () => {
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(networkClient.getJson).not.toHaveBeenCalled();
-    expect(translated.genres).toEqual(["Drama"]);
+    expect(translated.data.genres).toEqual(["Drama"]);
   });
 
   it("normalizes unsupported translation target config values to zh-CN without migration", () => {

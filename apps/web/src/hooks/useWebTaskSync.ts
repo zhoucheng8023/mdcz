@@ -5,7 +5,11 @@ import { createRefreshCoordinator } from "@mdcz/views/state/refreshCoordinator";
 import { useWorkbenchTaskStore } from "@mdcz/views/state/workbenchTaskStore";
 import { useEffect } from "react";
 import { api, subscribeTaskNotifications } from "../client";
-import { applyPendingUncensoredConfirmation, applyScrapeLiveRunsSnapshot } from "../taskHydration";
+import {
+  applyPendingUncensoredConfirmation,
+  applyScrapeLiveRunsSnapshot,
+  readScrapeRunsSnapshot,
+} from "../taskHydration";
 
 const FAST_POLL_INTERVAL_MS = 2_000;
 const HEARTBEAT_TIMEOUT_MS = 60_000;
@@ -60,7 +64,7 @@ export const useWebTaskSync = (): void => {
     };
 
     const coordinator = createRefreshCoordinator<ScrapeLiveRunsResponse>({
-      read: async () => await api.scrape.liveRuns(),
+      read: readScrapeRunsSnapshot,
       apply: (response) => {
         if (closed) return;
         applyScrapeLiveRunsSnapshot(response.runs);

@@ -12,15 +12,7 @@ import {
   probeMediaServer,
 } from "@mdcz/runtime/mediaserver";
 import type { NetworkClient } from "@mdcz/runtime/network";
-import { commitRegisteredPublication } from "@mdcz/runtime/publication";
-import {
-  AggregationService,
-  getNfoWritePaths,
-  LlmApiClient,
-  NfoGenerator,
-  TranslateService,
-  toTarget,
-} from "@mdcz/runtime/scrape";
+import { AggregationService, LlmApiClient, NfoGenerator, TranslateService, toTarget } from "@mdcz/runtime/scrape";
 import { runtimeLoggerService } from "@mdcz/runtime/shared";
 import {
   applyAmazonPosters,
@@ -30,7 +22,7 @@ import {
   scanAmazonPosters,
   scanBatchNfoTranslations,
 } from "@mdcz/runtime/tools";
-import { validateManualScrapeUrl } from "@mdcz/shared/manualScrapeUrl";
+import { resolveManualScrapeRoute } from "@mdcz/shared/manualScrapeUrl";
 import type { ToolCatalogResponse, ToolExecuteInput, ToolExecuteResponse } from "@mdcz/shared/serverDtos";
 import { TOOL_DEFINITIONS } from "@mdcz/shared/toolCatalog";
 import type { ServerConfigService } from "./configService";
@@ -94,19 +86,11 @@ export class ToolsService {
       }
       case "crawler-tester": {
         const config = await this.config.get();
-        const manual = input.manualUrl ? validateManualScrapeUrl(input.manualUrl) : null;
-        if (manual && !manual.valid) {
-          return { toolId: input.toolId, ok: false, message: manual.message };
-        }
         const result = await this.aggregation.aggregate(
           input.number,
           config,
           undefined,
-          manual?.valid
-            ? { site: manual.route.site, detailUrl: manual.route.detailUrl }
-            : input.site
-              ? { site: input.site }
-              : undefined,
+          resolveManualScrapeRoute(input.manualUrl) ?? (input.site ? { site: input.site } : undefined),
         );
         if (!result) {
           return { toolId: input.toolId, ok: false, message: "未抓取到可聚合结果" };
@@ -169,6 +153,7 @@ export class ToolsService {
               hostPath: resolveDesktopInputRootPath(items.map((item) => item.nfoPath)),
             });
           }
+          const state = await this.persistence.getState();
           const results = await applyBatchNfoTranslations(
             items,
             config,
@@ -176,31 +161,11 @@ export class ToolsService {
               llmApiClient: this.llmApiClient,
               localScanService: this.localScanService,
               nfoGenerator: this.nfoGenerator,
-              writeNfo: async (writeInput) => {
-                const artifacts: Array<{ targetPath: string; content: { kind: "text"; data: string } }> = [];
-                const savedNfoPath = await writePreparedNfo({
-                  ...writeInput,
-                  writeFile: async (targetPath, content) => {
-                    artifacts.push({ targetPath, content: { kind: "text", data: content } });
-                  },
-                });
-                const state = await this.persistence.getState();
-                await commitRegisteredPublication(
-                  {
-                    operationId: `batch-nfo-translation:${writeInput.fileInfo.filePath}`,
-                    operationType: "maintenance",
-                    artifacts,
-                    obsoletePaths: getNfoWritePaths(writeInput.nfoPath, writeInput.config.download.nfoNaming)
-                      .stalePaths,
-                    replaceExistingArtifacts: true,
-                  },
-                  {
-                    journal: state.repositories.publicationJournal,
-                    repairIssues: state.repositories.libraryRepairIssues,
-                    roots: await this.mediaRoots.listRoots(),
-                  },
-                );
-                return savedNfoPath;
+              writeNfo: writePreparedNfo,
+              publication: {
+                journal: state.repositories.publicationJournal,
+                repairIssues: state.repositories.libraryRepairIssues,
+                roots: await this.mediaRoots.listRoots(),
               },
             },
             {

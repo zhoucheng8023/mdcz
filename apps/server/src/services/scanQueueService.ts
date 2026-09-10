@@ -9,6 +9,7 @@ import {
 } from "@mdcz/media-store";
 import type { ScanTask } from "@mdcz/persistence";
 import { TaskScheduler } from "@mdcz/runtime/tasks";
+import { hasLiteralFilenameToken } from "@mdcz/shared/filenameTokens";
 import { isHostPathWithinDirectory } from "@mdcz/shared/mediaCandidate";
 import type {
   LogListResponse,
@@ -23,6 +24,7 @@ import type {
 import { isPrimaryVideoFileName } from "@mdcz/shared/videoClassification";
 import { toTaskEventDto } from "../taskDto";
 import type { TaskEventBus } from "../taskEvents";
+import type { ServerConfigService } from "./configService";
 import type { MediaRootService } from "./mediaRootService";
 import type { ServerPersistenceService } from "./persistenceService";
 import { decorateTaskLog } from "./runtimeLogService";
@@ -47,28 +49,51 @@ export class ScanQueueService {
   private readonly queuedTaskIds: string[] = [];
   private activeScan: { taskId: string; controller: AbortController } | null = null;
   private closing = false;
+  private fault: string | null = null;
+  private failedExecution: { taskId: string; error: unknown } | null = null;
 
   constructor(
     private readonly persistence: ServerPersistenceService,
     private readonly mediaRoots: MediaRootService,
     private readonly taskEvents: TaskEventBus,
+    private readonly config: ServerConfigService,
   ) {
     this.scheduler = new TaskScheduler({
       claimNext: async () => await this.claimNext(),
       runExecution: async (task) => await this.runTask(task),
+      onExecutionError: async (task, error) => {
+        this.failedExecution = { taskId: task.id, error };
+        await this.failTask(task.id, error);
+        this.failedExecution = null;
+      },
+      onDrainError: async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.fault = message;
+        this.taskEvents.log({
+          id: `scan-queue:${Date.now()}`,
+          taskId: "scan-queue",
+          type: "failed",
+          message: `扫描队列停止排水：${message}`,
+          createdAt: new Date().toISOString(),
+          source: "task",
+        });
+      },
     });
   }
 
   async start(rootId: string): Promise<ScanTaskDto> {
-    if (this.closing) throw new Error("Scan queue is closing");
+    this.assertAdmittable();
     await this.mediaRoots.get(rootId);
     const state = await this.persistence.getState();
     const task = await state.repositories.scanTasks.create({ rootId });
-    await this.addEvent(task.id, "queued", "扫描任务已排队");
-    const queuedTask = await this.toDto(task.id);
-    this.publishTask(queuedTask);
-    this.enqueue(task.id);
-    return queuedTask;
+    try {
+      await this.addEvent(task.id, "queued", "扫描任务已排队");
+      const queuedTask = await this.toDto(task.id);
+      this.publishTask(queuedTask);
+      return queuedTask;
+    } finally {
+      this.enqueue(task.id);
+    }
   }
 
   async list(): Promise<ScanTaskListResponse> {
@@ -104,22 +129,32 @@ export class ScanQueueService {
   async retry(taskId: string): Promise<ScanTaskDto> {
     if (this.closing) throw new Error("Scan queue is closing");
     const state = await this.persistence.getState();
-    const task = await state.repositories.scanTasks.get(taskId);
+    let task = await state.repositories.scanTasks.get(taskId);
+    if (this.fault) {
+      const wasQueued = task.status === "queued";
+      await this.recover();
+      if (wasQueued) return await this.toDto(taskId);
+      task = await state.repositories.scanTasks.get(taskId);
+    }
     if (task.status === "running" || task.status === "queued") {
       throw new Error("Only completed or failed scan tasks can be retried");
     }
     await this.mediaRoots.get(task.rootId);
     const queued = await state.repositories.scanTasks.requeue(taskId);
     if (!queued) throw new Error(`Failed to requeue scan task: ${taskId}`);
-    await this.addEvent(taskId, "queued", "重试扫描已排队");
-    const queuedTask = await this.toDto(taskId);
-    this.publishTask(queuedTask);
-    this.enqueue(taskId);
-    return queuedTask;
+    try {
+      await this.addEvent(taskId, "queued", "重试扫描已排队");
+      const queuedTask = await this.toDto(taskId);
+      this.publishTask(queuedTask);
+      return queuedTask;
+    } finally {
+      this.enqueue(taskId);
+    }
   }
 
   async candidates(input: ScanCandidatesInput): Promise<ScanCandidatesResponse> {
     if (this.closing) throw new Error("Scan queue is closing");
+    const configuration = await this.config.get();
     const hostPath = normalizeHostPath(input.scanDir);
     const excludeDirPaths = input.excludeDirPaths?.map((path) => normalizeHostPath(path)) ?? [];
     await this.mediaRoots.ensurePathRecord({ hostPath: input.scanDir });
@@ -132,6 +167,9 @@ export class ScanQueueService {
     const candidates = await Promise.all(
       files
         .filter((file) => {
+          if (hasLiteralFilenameToken(path.basename(file.relativePath), configuration.scrape.filenameBlacklistTokens)) {
+            return false;
+          }
           const extension = path.extname(file.relativePath).replace(/^\./u, "").toLowerCase();
           if (excludeDirPaths.some((directoryPath) => isHostPathWithinDirectory(file.absolutePath, directoryPath))) {
             return false;
@@ -162,14 +200,14 @@ export class ScanQueueService {
   }
 
   private async runTask(task: ScanTask): Promise<void> {
-    const state = await this.persistence.getState();
     const { id: taskId, rootId } = task;
     const controller = new AbortController();
-    this.activeScan = { taskId, controller };
-    await this.addEvent(taskId, "running", "开始扫描媒体目录");
-    this.publishTask(await this.toDto(taskId));
 
     try {
+      const state = await this.persistence.getState();
+      this.activeScan = { taskId, controller };
+      await this.addEvent(taskId, "running", "开始扫描媒体目录");
+      this.publishTask(await this.toDto(taskId));
       const root = await this.mediaRoots.get(rootId);
       const result = await this.scanDirectory(root, controller.signal);
       controller.signal.throwIfAborted();
@@ -187,16 +225,8 @@ export class ScanQueueService {
       );
       this.publishTask(await this.toDto(taskId));
     } catch (error) {
-      const message =
-        this.closing && controller.signal.aborted
-          ? SCAN_SERVICE_CLOSED_MESSAGE
-          : error instanceof Error
-            ? error.message
-            : String(error);
-      const committed = await state.repositories.scanTasks.fail(taskId, message);
-      if (!committed) return;
-      await this.addEvent(taskId, "failed", message);
-      this.publishTask(await this.toDto(taskId));
+      if (this.closing && controller.signal.aborted) throw new Error(SCAN_SERVICE_CLOSED_MESSAGE, { cause: error });
+      throw error;
     } finally {
       if (this.activeScan?.taskId === taskId) this.activeScan = null;
     }
@@ -257,18 +287,45 @@ export class ScanQueueService {
     this.scheduler.drain();
   }
 
+  private assertAdmittable(): void {
+    if (this.closing) throw new Error("Scan queue is closing");
+    if (this.fault) throw new Error(`Scan queue requires repair: ${this.fault}`);
+  }
+
   private async claimNext(): Promise<ScanTask | null> {
     const state = await this.persistence.getState();
     while (true) {
-      const taskId = this.queuedTaskIds.shift();
+      const taskId = this.queuedTaskIds[0];
       if (!taskId) return null;
       const task = await state.repositories.scanTasks.claim(taskId);
+      this.queuedTaskIds.shift();
       if (task) return task;
     }
   }
 
+  private async failTask(taskId: string, error: unknown): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error);
+    const state = await this.persistence.getState();
+    const committed = await state.repositories.scanTasks.fail(taskId, message);
+    if (!committed) return;
+    await this.addEvent(taskId, "failed", message);
+    this.publishTask(await this.toDto(taskId));
+  }
+
   async recoverInterrupted(): Promise<void> {
     await this.interruptUnfinished(SCAN_BACKEND_INTERRUPTED_MESSAGE);
+  }
+
+  async recover(): Promise<void> {
+    if (this.closing) throw new Error("Scan queue is closing");
+    await this.scheduler.waitForIdle();
+    if (this.failedExecution) {
+      await this.failTask(this.failedExecution.taskId, this.failedExecution.error);
+      this.failedExecution = null;
+    }
+    this.fault = null;
+    this.scheduler.allowDrain();
+    if (this.queuedTaskIds.length > 0) this.scheduler.drain();
   }
 
   async close(): Promise<void> {

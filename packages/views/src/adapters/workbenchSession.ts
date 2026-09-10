@@ -1,13 +1,19 @@
-import type { AmbiguousUncensoredItemDto, ScrapeFileRefDto } from "@mdcz/shared/serverDtos";
+import type { AmbiguousUncensoredItemDto } from "@mdcz/shared/serverDtos";
 import type { MaintenancePresetId, MediaCandidate, UncensoredChoice } from "@mdcz/shared/types";
 import {
   changeMaintenancePreset,
   selectMaintenanceHasWork,
   useMaintenanceStore,
 } from "@mdcz/views/state/maintenanceStore";
-import { selectIsScraping, selectScrapeHasWork, useScrapeStore } from "@mdcz/views/state/scrapeStore";
+import {
+  selectIsScraping,
+  selectScrapeHasWork,
+  selectScrapeSnapshot,
+  useScrapeStore,
+} from "@mdcz/views/state/scrapeStore";
 import { useUIStore } from "@mdcz/views/state/uiStore";
 import { useWorkbenchTaskStore } from "@mdcz/views/state/workbenchTaskStore";
+import { useEffect, useRef } from "react";
 import type { MaintenanceActionPort } from "./ports";
 
 export type WorkbenchMode = "scrape" | "maintenance";
@@ -90,22 +96,22 @@ export const useWorkbenchSessionSnapshot = (
   };
 };
 
+export const useScrapeTerminalError = (showError: (error: string) => void): void => {
+  const scrapeSnapshot = useScrapeStore(selectScrapeSnapshot);
+  const shownErrors = useRef(new Set<string>());
+
+  useEffect(() => {
+    const task = scrapeSnapshot?.task;
+    if (task?.status !== "failed" || !task.error) return;
+    const key = `${task.id}:${task.updatedAt}`;
+    if (shownErrors.current.has(key)) return;
+    shownErrors.current.add(key);
+    showError(task.error);
+  }, [scrapeSnapshot, showError]);
+};
+
 export const activateNewScrapeTask = (): void => {
-  useScrapeStore.getState().reset();
-  useScrapeStore.getState().setPending(true);
   useUIStore.getState().setSelectedResultId(null);
-};
-
-/**
- * Activates a retry that the backend runs as its own task, without discarding the results
- * already in the queue. Only the retried entries are reset to `processing`.
- */
-export const activateRetryScrapeTask = (): void => {
-  useScrapeStore.getState().setPending(true);
-};
-
-export const applyScrapeTaskStatus = (): void => {
-  useScrapeStore.getState().setPending(true);
 };
 
 export interface UncensoredConfirmationSelection {
@@ -116,10 +122,10 @@ export interface UncensoredConfirmationSelection {
 export const buildUncensoredConfirmationItems = (
   ambiguousItems: AmbiguousUncensoredItemDto[],
   selections: UncensoredConfirmationSelection[],
-): Array<{ ref: ScrapeFileRefDto; choice: UncensoredChoice }> => {
+): Array<{ itemId: string; choice: UncensoredChoice }> => {
   const choicesById = new Map(selections.map((selection) => [selection.id, selection.choice]));
   return ambiguousItems.map((item) => ({
-    ref: item.ref,
+    itemId: item.fileId,
     choice: choicesById.get(item.id) ?? "uncensored",
   }));
 };
@@ -133,6 +139,7 @@ export const resetScrapeWorkbenchToSetup = (): void => {
 export interface StartMaintenanceFlowOptions {
   candidates: MediaCandidate[];
   presetId: MaintenancePresetId;
+  targetDir?: string;
   port: MaintenanceActionPort;
   isScraping: boolean;
   setWorkbenchMode?: (mode: WorkbenchMode) => void;
@@ -167,16 +174,11 @@ export const startMaintenanceFlow = async (options: StartMaintenanceFlowOptions)
       return;
     }
 
-    if (options.presetId === "read_local") {
-      await options.port.preview(refs, options.presetId);
-      options.toast.success(`本地读取已启动，共 ${options.candidates.length} 项`);
-      await options.onRefreshConfig?.();
-      return;
-    }
-
-    await options.port.preview(refs, options.presetId);
+    await options.port.preview(refs, options.presetId, options.targetDir);
     await options.onRefreshConfig?.();
-    options.toast.success("维护预览已生成");
+    options.toast.success(
+      options.presetId === "read_local" ? `本地读取已启动，共 ${options.candidates.length} 项` : "维护预览已启动",
+    );
   } catch (error) {
     if (options.toErrorMessage(error) === "Operation aborted") {
       executionStore.setPending(false);

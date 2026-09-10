@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import type { Plugin } from "vite";
 import pkg from "./package.json" with { type: "json" };
+import { buildRendererContentSecurityPolicy } from "./src/shared/rendererCsp";
 
 const appResolve = (subpath: string): string => resolve(__dirname, subpath);
 const workspaceResolve = (subpath: string): string => resolve(__dirname, "../..", subpath);
@@ -18,6 +19,9 @@ const workspacePackages = [
 const externalDependencies = Object.keys(pkg.dependencies).filter(
   (dependency) => !workspacePackages.includes(dependency),
 );
+const networkComposition = process.env.MDCZ_NETWORK_FIXTURE_MODE
+  ? appResolve("src/main/networkFixtureComposition.ts")
+  : appResolve("src/main/networkComposition.ts");
 
 const desktopDistributionAssets = (): Plugin => ({
   name: "mdcz-desktop-distribution-assets",
@@ -27,6 +31,25 @@ const desktopDistributionAssets = (): Plugin => ({
     await cp(workspaceResolve("packages/persistence/drizzle"), target, {
       recursive: true,
     });
+  },
+});
+
+const rendererContentSecurityPolicy = (): Plugin => ({
+  name: "mdcz-renderer-csp",
+  transformIndexHtml: {
+    order: "pre",
+    handler() {
+      return [
+        {
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: buildRendererContentSecurityPolicy(process.env.ELECTRON_RENDERER_URL, "meta"),
+          },
+          injectTo: "head-prepend",
+        },
+      ];
+    },
   },
 });
 
@@ -42,6 +65,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: workspacePackages }), desktopDistributionAssets()],
     resolve: {
       alias: {
+        "@main/networkComposition": networkComposition,
         "@main": appResolve("src/main"),
         "@mdcz/persistence": workspaceResolve("packages/persistence/src/index.ts"),
         "@mdcz/runtime": workspaceResolve("packages/runtime/src"),
@@ -77,6 +101,7 @@ export default defineConfig({
     },
   },
   renderer: {
+    plugins: [rendererContentSecurityPolicy()],
     root: appResolve("src/renderer"),
     base: "./",
     resolve: {

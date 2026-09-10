@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, extname, join, parse } from "node:path";
+import { dirname, extname, join, parse, relative, resolve } from "node:path";
 import { deterministicMediaRootId, type MediaRoot, toRootRelativePath } from "@mdcz/media-store";
 import { buildMovieAssetFileNames, isMovieNfoBaseName, MOVIE_NFO_BASE_NAME } from "@mdcz/shared/assetNaming";
 import { toErrorMessage } from "@mdcz/shared/error";
@@ -7,20 +7,22 @@ import { buildFileId } from "@mdcz/shared/mediaIdentity";
 import type { CrawlerData, DiscoveredAssets, LocalScanEntry } from "@mdcz/shared/types";
 import { isGeneratedSidecarVideo, resolveFileInfoWithSubtitles } from "../scrape";
 import { throwIfAborted } from "../scrape/utils/abort";
-import { DEFAULT_VIDEO_EXTENSIONS, listVideoFiles } from "../scrape/utils/filesystem";
+import { DEFAULT_VIDEO_EXTENSIONS, isPathInside, listVideoFiles } from "../scrape/utils/filesystem";
 import { parseFileInfo } from "../scrape/utils/number";
 import { runtimeLoggerService } from "../shared";
 import { resolveLocalAssetReference, uniqueDefinedPaths } from "./localAssetReferences";
 import { parseNfoSnapshot } from "./nfoSnapshot";
 
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+type MetadataLocation = { mediaPath: string; metadataPath: string };
 
 const fileExists = async (path: string): Promise<boolean> => {
   try {
     const s = await stat(path);
     return s.isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+    throw error;
   }
 };
 
@@ -28,8 +30,9 @@ const dirExists = async (path: string): Promise<boolean> => {
   try {
     const s = await stat(path);
     return s.isDirectory();
-  } catch {
-    return false;
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+    throw error;
   }
 };
 
@@ -112,14 +115,10 @@ const listSubdirFiles = async (parentDir: string, subDirName: string, extensions
   if (!(await dirExists(subDir))) {
     return [];
   }
-  try {
-    const entries = await readdir(subDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile() && extensions.has(extname(entry.name).toLowerCase()))
-      .map((entry) => join(subDir, entry.name));
-  } catch {
-    return [];
-  }
+  const entries = await readdir(subDir, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && extensions.has(extname(entry.name).toLowerCase()))
+    .map((entry) => join(subDir, entry.name));
 };
 
 export class LocalScanService {
@@ -180,6 +179,7 @@ export class LocalScanService {
     filePaths: string[],
     sceneImagesFolder: string,
     signal?: AbortSignal,
+    metadata?: MetadataLocation,
   ): Promise<LocalScanEntry[]>;
   async scanFiles(filePaths: string[], sceneImagesFolder: string, signal?: AbortSignal): Promise<LocalScanEntry[]>;
   async scanFiles(
@@ -187,6 +187,7 @@ export class LocalScanService {
     pathsOrSceneImagesFolder: string[] | string,
     sceneImagesFolderOrSignal?: string | AbortSignal,
     maybeSignal?: AbortSignal,
+    metadata?: MetadataLocation,
   ): Promise<LocalScanEntry[]> {
     const filePaths = Array.isArray(rootOrPaths) ? rootOrPaths : (pathsOrSceneImagesFolder as string[]);
     const sceneImagesFolder = Array.isArray(rootOrPaths)
@@ -209,27 +210,27 @@ export class LocalScanService {
     for (const videoPath of uniqueFilePaths) {
       throwIfAborted(signal);
       if (!DEFAULT_VIDEO_EXTENSIONS.has(extname(videoPath).toLowerCase())) {
-        continue;
+        throw new Error(`不支持的维护视频文件：${videoPath}`);
       }
 
       if (isGeneratedSidecarVideo(videoPath)) {
-        continue;
+        throw new Error(`不能单独维护生成的视频附属文件：${videoPath}`);
       }
 
       try {
         const fileStats = await stat(videoPath);
         if (!fileStats.isFile()) {
-          continue;
+          throw new Error("路径不是文件");
         }
 
-        const entry = await this.scanVideo(root, videoPath, sceneImagesFolder, signal);
+        const entry = await this.scanVideo(root, videoPath, sceneImagesFolder, signal, metadata);
         entries.push(entry);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           throw error;
         }
         const message = toErrorMessage(error);
-        this.logger.warn(`Failed to scan selected file ${videoPath}: ${message}`);
+        throw new Error(`维护扫描失败：${videoPath}：${message}`, { cause: error });
       }
     }
 
@@ -243,34 +244,19 @@ export class LocalScanService {
     videoPath: string,
     sceneImagesFolder: string,
     signal?: AbortSignal,
-  ): Promise<LocalScanEntry>;
-  async scanVideo(videoPath: string, sceneImagesFolder: string, signal?: AbortSignal): Promise<LocalScanEntry>;
-  async scanVideo(
-    rootOrVideoPath: MediaRoot | string,
-    pathOrSceneImagesFolder: string,
-    sceneImagesFolderOrSignal?: string | AbortSignal,
-    maybeSignal?: AbortSignal,
+    metadata?: MetadataLocation,
   ): Promise<LocalScanEntry> {
-    const videoPath = typeof rootOrVideoPath === "string" ? rootOrVideoPath : pathOrSceneImagesFolder;
-    const sceneImagesFolder =
-      typeof rootOrVideoPath === "string" ? pathOrSceneImagesFolder : (sceneImagesFolderOrSignal as string);
-    const signal =
-      typeof rootOrVideoPath === "string" ? (sceneImagesFolderOrSignal as AbortSignal | undefined) : maybeSignal;
-    const root: MediaRoot =
-      typeof rootOrVideoPath === "string"
-        ? {
-            id: deterministicMediaRootId(dirname(videoPath)),
-            displayName: dirname(videoPath),
-            hostPath: dirname(videoPath),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }
-        : rootOrVideoPath;
     throwIfAborted(signal);
     const { fileInfo } = await resolveFileInfoWithSubtitles(videoPath);
     const dir = dirname(videoPath);
 
-    const nfoPath = await this.findNfo(dir, fileInfo, signal);
+    const metadataDir =
+      metadata?.metadataPath.trim() && metadata.mediaPath && isPathInside(metadata.mediaPath, dir)
+        ? resolve(metadata.metadataPath, relative(metadata.mediaPath, dir))
+        : dir;
+    const nfoPath =
+      (await this.findNfo(metadataDir, fileInfo, signal)) ??
+      (metadataDir === dir ? undefined : await this.findNfo(dir, fileInfo, signal));
     let crawlerData: CrawlerData | undefined;
     let nfoLocalState: LocalScanEntry["nfoLocalState"];
     let scanError: string | undefined;
@@ -289,7 +275,8 @@ export class LocalScanService {
     }
 
     const assets = await this.discoverAssets({
-      dir,
+      dir: nfoPath ? dirname(nfoPath) : metadataDir,
+      videoDir: dir,
       fileInfo,
       nfoPath,
       crawlerData,
@@ -314,6 +301,7 @@ export class LocalScanService {
   /** Discover assets (NFO, images, trailer, actor photos) in a video directory. */
   private async discoverAssets(input: {
     dir: string;
+    videoDir: string;
     fileInfo: LocalScanEntry["fileInfo"];
     nfoPath?: string;
     crawlerData?: CrawlerData;
@@ -322,7 +310,7 @@ export class LocalScanService {
   }): Promise<DiscoveredAssets> {
     throwIfAborted(input.signal);
 
-    const allowDirectoryWideAssets = await this.isSingleMovieDirectory(input.dir, input.signal);
+    const allowDirectoryWideAssets = await this.isSingleMovieDirectory(input.videoDir, input.signal);
     const movieBaseNames = buildMovieBaseNameCandidates({
       fileName: input.fileInfo.fileName,
       part: input.fileInfo.part,
@@ -430,21 +418,26 @@ export class LocalScanService {
         return undefined;
       }
 
-      const videoBaseName = parse(fileInfo.fileName).name.toLowerCase();
+      const videoBaseName = fileInfo.fileName.toLowerCase();
       const partlessBaseName =
         fileInfo.part && fileInfo.fileName.endsWith(fileInfo.part.suffix)
           ? fileInfo.fileName.slice(0, -fileInfo.part.suffix.length).toLowerCase()
           : undefined;
-      const preferredBaseNames = [partlessBaseName, videoBaseName, MOVIE_NFO_BASE_NAME].filter(
-        (value): value is string => Boolean(value),
-      );
+      const singleMovieDirectory = await this.isSingleMovieDirectory(dirname(fileInfo.filePath), signal);
+      const preferredBaseNames = [
+        partlessBaseName,
+        videoBaseName,
+        singleMovieDirectory ? MOVIE_NFO_BASE_NAME : undefined,
+      ].filter((value): value is string => Boolean(value));
       const match = preferredBaseNames
         .map((baseName) => nfoEntries.find((entry) => parse(entry.name).name.toLowerCase() === baseName))
         .find(Boolean);
 
-      return join(dir, (match ?? nfoEntries[0]).name);
-    } catch {
-      return undefined;
+      if (match) return join(dir, match.name);
+      return nfoEntries.length === 1 && singleMovieDirectory ? join(dir, nfoEntries[0].name) : undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
     }
   }
 }

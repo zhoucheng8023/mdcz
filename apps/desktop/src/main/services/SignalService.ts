@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { IpcChannel } from "@mdcz/shared/IpcChannel";
-import type { EventChannel, EventPayloadByChannel } from "@mdcz/shared/ipcEvents";
+import type { EventChannel, EventPayloadByChannel, TaskSnapshotPayload } from "@mdcz/shared/ipcEvents";
 import type { BrowserWindow } from "electron";
 import { type LoggerEventPayload, loggerService } from "./LoggerService";
 
@@ -31,32 +31,12 @@ export class SignalService extends EventEmitter {
     });
   }
 
-  resetProgress(): void {
-    this.invalidate("scrape", "maintenance");
-  }
-
-  setProgress(_value: number, _current: number, _total: number): void {
-    this.invalidate("scrape", "maintenance");
-  }
-
-  showScrapeInfo(_payload: unknown): void {
-    this.invalidate("scrape");
-  }
-
-  showScrapeResult(_payload: unknown): void {
-    this.invalidate("scrape");
-  }
-
-  showFailedInfo(_payload: unknown): void {
-    this.invalidate("scrape");
-  }
-
-  setButtonStatus(_startEnabled: boolean, _stopEnabled: boolean): void {
-    this.invalidate("scrape", "overview");
-  }
-
   invalidate(...resources: Array<"scrape" | "maintenance" | "overview">): void {
     this.send(IpcChannel.Event_Invalidate, { resources: [...new Set(resources)] });
+  }
+
+  publishTaskSnapshot(payload: TaskSnapshotPayload): void {
+    this.send(IpcChannel.Event_TaskSnapshot, payload);
   }
 
   private send<TChannel extends EventChannel>(channel: TChannel, payload: EventPayloadByChannel[TChannel]): void {

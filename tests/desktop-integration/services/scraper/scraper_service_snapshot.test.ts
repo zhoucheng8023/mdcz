@@ -96,8 +96,10 @@ const seedFinalizedRun = async (
 const attachLiveRun = (service: ScraperService, status: "running" | "paused") => {
   const startedAt = new Date("2026-08-29T00:01:00.000Z");
   const snapshot: ScrapeRunSnapshot = {
+    executionGeneration: 0,
     runId: "live-run",
     generation: 1,
+    revision: 1,
     status,
     progress: { percent: 0, completedItems: 0, totalItems: 1 },
     items: [
@@ -115,6 +117,8 @@ const attachLiveRun = (service: ScraperService, status: "running" | "paused") =>
     error: null,
   };
   const run: ScrapeRunManifest = {
+    executionGeneration: 0,
+    revision: 0,
     id: snapshot.runId,
     rootId: "desktop-input",
     requestedOutputRootId: null,
@@ -211,12 +215,12 @@ describe("ScraperService.getSnapshot", () => {
     await host.onTerminal({ ...run, startedAt, completedAt, disposition: "completed" }, terminalSnapshot);
     Object.assign(service, { workflow: null });
 
-    await expect(service.getSnapshot("live-run")).resolves.toMatchObject({
+    expect(service.getSnapshot("live-run")).toMatchObject({
       task: { id: "live-run", status: "completed", continuity: "final" },
       progress: { percent: 100, completedItems: 1, totalItems: 1 },
       items: [{ id: "item-1", status: "success" }],
     });
-    await expect(service.getSnapshot("another-run")).resolves.toBeNull();
-    await expect(service.getSnapshot()).resolves.toBeNull();
+    expect(service.getSnapshot("another-run")).toBeNull();
+    expect(service.getSnapshot()).toBeNull();
   });
 });

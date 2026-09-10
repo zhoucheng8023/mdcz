@@ -1,21 +1,23 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
+import { commitPublishedMedia } from "@mdcz/runtime/publication";
+import { createMemoryPublicationJournal } from "@mdcz/runtime/publication/memoryJournal";
 import type {
   AggregationService,
   DownloadManager,
   FileOrganizer,
   NfoGenerator,
   OrganizePlan,
+  RuntimeScrapeSignalService,
   TranslateService,
 } from "@mdcz/runtime/scrape";
 import { Website } from "@mdcz/shared/enums";
 import type { CrawlerData, FileInfo } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockConfigManager } from "../../../helpers/scraper";
+import { mockConfigManager, prepareAndExecuteFile } from "../../../helpers/scraper";
 
 const config = configurationSchema.parse({
   ...defaultConfiguration,
@@ -80,11 +82,10 @@ const createScraper = (
   aggregate: ReturnType<typeof vi.fn>,
   overrides: {
     downloadAll?: ReturnType<typeof vi.fn>;
-    ensureOutputReady?: ReturnType<typeof vi.fn>;
     resolveOutputPlan?: ReturnType<typeof vi.fn>;
-    organizeVideo?: ReturnType<typeof vi.fn>;
     moveToFailedFolder?: ReturnType<typeof vi.fn>;
-    signalService?: SignalService;
+    signalService?: RuntimeScrapeSignalService;
+    plan?: ReturnType<typeof vi.fn>;
   } = {},
 ) => {
   mockConfigManager(config);
@@ -94,18 +95,22 @@ const createScraper = (
       downloaded: [],
       sceneImages: [],
     });
-  const ensureOutputReady = overrides.ensureOutputReady ?? vi.fn(async (plan: OrganizePlan) => plan);
   const resolveOutputPlan = overrides.resolveOutputPlan ?? vi.fn(async (plan: OrganizePlan) => plan);
-  const organizeVideo =
-    overrides.organizeVideo ?? vi.fn(async (_fileInfo: FileInfo, plan: OrganizePlan) => plan.targetVideoPath);
   const moveToFailedFolder = overrides.moveToFailedFolder ?? vi.fn(async (fileInfo: FileInfo) => fileInfo.filePath);
-  const signalService = overrides.signalService ?? new SignalService(null);
+  const defaultSignalService: RuntimeScrapeSignalService = {
+    showLogText: vi.fn(),
+    setProgress: vi.fn(),
+    showScrapeInfo: vi.fn(),
+    showScrapeResult: vi.fn(),
+    showFailedInfo: vi.fn(),
+  };
+  const signalService = overrides.signalService ?? defaultSignalService;
   const scraper = createFileScraper({
     aggregationService: {
       aggregate,
     } as unknown as AggregationService,
     translateService: {
-      translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+      translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
     } as unknown as TranslateService,
     nfoGenerator: {
       writeNfo: vi.fn(),
@@ -114,10 +119,8 @@ const createScraper = (
       downloadAll,
     } as unknown as DownloadManager,
     fileOrganizer: {
-      plan: vi.fn((fileInfo: FileInfo) => createPlan(fileInfo)),
+      plan: overrides.plan ?? vi.fn((fileInfo: FileInfo) => createPlan(fileInfo)),
       resolveOutputPlan,
-      ensureOutputReady,
-      organizeVideo,
       moveToFailedFolder,
     } as unknown as FileOrganizer,
     signalService,
@@ -127,8 +130,7 @@ const createScraper = (
     scraper,
     mocks: {
       downloadAll,
-      ensureOutputReady,
-      organizeVideo,
+      resolveOutputPlan,
       signalService,
       moveToFailedFolder,
     },
@@ -149,8 +151,18 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
 
     const [part1, part2] = await Promise.all([
-      scraper.scrapeFile(part1Path, { fileIndex: 1, totalFiles: 2 }),
-      scraper.scrapeFile(part2Path, { fileIndex: 2, totalFiles: 2 }),
+      prepareAndExecuteFile(scraper, part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
+      prepareAndExecuteFile(scraper, part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
     ]);
 
     expect(aggregate).toHaveBeenCalledTimes(1);
@@ -168,8 +180,18 @@ describe("FileScraper multipart aggregation cache", () => {
     const [partAPath, partHPath] = await createTempFiles("IDBD-905-A.mp4", "IDBD-905-H.mp4");
 
     const [partA, partH] = await Promise.all([
-      scraper.scrapeFile(partAPath, { fileIndex: 1, totalFiles: 2 }),
-      scraper.scrapeFile(partHPath, { fileIndex: 2, totalFiles: 2 }),
+      prepareAndExecuteFile(scraper, partAPath, { fileIndex: 1, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
+      prepareAndExecuteFile(scraper, partHPath, { fileIndex: 2, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
     ]);
 
     expect(aggregate).toHaveBeenCalledTimes(1);
@@ -190,8 +212,18 @@ describe("FileScraper multipart aggregation cache", () => {
     const [firstPath, secondPath] = await createTempFiles("ABC-123-1.mp4", "XYZ-999-1.mp4");
 
     const [first, second] = await Promise.all([
-      scraper.scrapeFile(firstPath, { fileIndex: 1, totalFiles: 2 }),
-      scraper.scrapeFile(secondPath, { fileIndex: 2, totalFiles: 2 }),
+      prepareAndExecuteFile(scraper, firstPath, { fileIndex: 1, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
+      prepareAndExecuteFile(scraper, secondPath, { fileIndex: 2, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
     ]);
 
     expect(aggregate).toHaveBeenCalledTimes(2);
@@ -205,8 +237,18 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
 
     const [part1, part2] = await Promise.all([
-      scraper.scrapeFile(part1Path, { fileIndex: 1, totalFiles: 2 }),
-      scraper.scrapeFile(part2Path, { fileIndex: 2, totalFiles: 2 }),
+      prepareAndExecuteFile(scraper, part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
+      prepareAndExecuteFile(scraper, part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      }),
     ]);
 
     expect(aggregate).toHaveBeenCalledTimes(1);
@@ -220,7 +262,7 @@ describe("FileScraper multipart aggregation cache", () => {
     });
   });
 
-  it("serializes same-number multipart files before output planning", async () => {
+  it("prepares same-number multipart files independently while sharing aggregation", async () => {
     const aggregate = vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData({ number: "FC2-123456" })));
     let markFirstStarted: (() => void) | undefined;
     const firstStarted = new Promise<void>((resolve) => {
@@ -240,36 +282,101 @@ describe("FileScraper multipart aggregation cache", () => {
     const [part1Path, part2Path] = await createTempFiles("FC2-123456-1.mp4", "FC2-123456-2.mp4");
     const { scraper } = createScraper(aggregate, { resolveOutputPlan });
 
-    const firstPromise = scraper.scrapeFile(part1Path, { fileIndex: 1, totalFiles: 2 });
+    const firstPromise = scraper.prepareFile(part1Path, { fileIndex: 1, totalFiles: 2 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
     await firstStarted;
 
-    const secondPromise = scraper.scrapeFile(part2Path, { fileIndex: 2, totalFiles: 2 });
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
+    const secondPromise = scraper.prepareFile(part2Path, { fileIndex: 2, totalFiles: 2 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
     });
-
-    expect(resolveOutputPlan).toHaveBeenCalledTimes(1);
-
-    releaseFirst?.();
+    try {
+      const second = await secondPromise;
+      expect(second.status).toBe("prepared");
+      expect(resolveOutputPlan).toHaveBeenCalledTimes(2);
+      expect(aggregate).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseFirst?.();
+      await firstPromise;
+    }
 
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
 
-    expect(first.status).toBe("success");
-    expect(second.status).toBe("success");
+    expect(first.status).toBe("prepared");
+    expect(second.status).toBe("prepared");
     expect(resolveOutputPlan).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes each multipart video and consumes one number-level feature exactly once", async () => {
+    const root = await createTempDir();
+    const output = join(root, "output", "FC2-123456");
+    const names = ["FC2-123456-CD1.mp4", "FC2-123456-CD2.mp4", "FC2-123456-CD3.mp4"];
+    const paths = names.map((name) => join(root, name));
+    const featurePath = join(root, "FC2-123456-花絮.mp4");
+    await Promise.all([...paths.map((filePath) => writeFile(filePath, filePath)), writeFile(featurePath, "feature")]);
+    const aggregate = vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData({ number: "FC2-123456" })));
+    const plan = vi.fn(
+      (fileInfo: FileInfo): OrganizePlan => ({
+        outputDir: output,
+        targetVideoPath: join(output, `${fileInfo.fileName}${fileInfo.extension}`),
+        nfoPath: join(output, "FC2-123456.nfo"),
+      }),
+    );
+    const { scraper } = createScraper(aggregate, { plan });
+    const mediaRoot = { id: "root", hostPath: root };
+    const journal = createMemoryPublicationJournal();
+
+    for (const [index, filePath] of paths.entries()) {
+      const result = await prepareAndExecuteFile(
+        scraper,
+        filePath,
+        { fileIndex: index + 1, totalFiles: paths.length },
+        undefined,
+        {
+          roots: [mediaRoot],
+        },
+      );
+      expect(result.status).toBe("success");
+      if (result.status !== "success") continue;
+      await commitPublishedMedia(result.publicationPlan, {
+        resolveRoot: async () => mediaRoot,
+        journal,
+        commit: () => undefined,
+      });
+    }
+
+    for (const name of names) await expect(access(join(output, name))).resolves.toBeUndefined();
+    await expect(readFile(join(output, "FC2-123456-花絮.mp4"), "utf8")).resolves.toBe("feature");
+    await expect(access(featurePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("emits a processing result before the terminal result", async () => {
     const aggregate = vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData({ number: "ABC-123" })));
-    const signalService = new SignalService(null);
     const results: string[] = [];
-    vi.spyOn(signalService, "showScrapeResult").mockImplementation((result: unknown) => {
-      results.push((result as { status: string }).status);
-    });
+    const signalService: RuntimeScrapeSignalService = {
+      showLogText: vi.fn(),
+      setProgress: vi.fn(),
+      showScrapeInfo: vi.fn(),
+      showScrapeResult: (result) => {
+        results.push(result.status);
+      },
+      showFailedInfo: vi.fn(),
+    };
     const { scraper } = createScraper(aggregate, { signalService });
     const [sourcePath] = await createTempFiles("ABC-123.mp4");
 
-    const terminal = await scraper.scrapeFile(sourcePath);
+    const terminal = await prepareAndExecuteFile(scraper, sourcePath, undefined, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(terminal.status).toBe("success");
     expect(results[0]).toBe("processing");
@@ -283,7 +390,12 @@ describe("FileScraper multipart aggregation cache", () => {
     const aggregate = vi.fn().mockResolvedValue(null);
     const { scraper } = createScraper(aggregate);
 
-    const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 });
+    const result = await prepareAndExecuteFile(scraper, sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(result).toMatchObject({
       status: "failed",

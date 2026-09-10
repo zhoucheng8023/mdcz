@@ -1,6 +1,7 @@
 export * from "./actorAliases";
 export * from "./actorSource";
 export * from "./assetNaming";
+export * from "./capabilityInventory";
 export * from "./config";
 export * from "./configCodec";
 export * from "./desktopNavigation";

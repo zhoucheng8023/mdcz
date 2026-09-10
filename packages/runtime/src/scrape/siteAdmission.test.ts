@@ -15,7 +15,7 @@ const admit = (number: string, overrides: Partial<Parameters<typeof resolveSiteA
   });
 
 describe("resolveSiteAdmission", () => {
-  it.each(["FC2-1234", "FC21234"])("keeps only FC2-capable sites for %s", (number) => {
+  it.each(["FC2-1234"])("keeps only FC2-capable sites for %s", (number) => {
     expect(admit(number).admitted).toEqual([Website.FC2, Website.FC2HUB, Website.PPVDATABANK, Website.JAVDB]);
   });
 

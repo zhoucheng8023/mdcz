@@ -107,7 +107,7 @@ export class ConfigManager extends EventEmitter {
   constructor() {
     super();
     this.config.onChange((event) => {
-      if (event.source !== "watch" && event.source !== "switch") return;
+      if (event.source !== "switch") return;
       this.applyLoadedConfiguration(event.configuration);
       void this.rebindRuntimeStoreIfNeeded();
       this.notify();
@@ -150,15 +150,6 @@ export class ConfigManager extends EventEmitter {
     }
 
     await this.initializePromise;
-  }
-
-  async startWatching(): Promise<void> {
-    await this.ensureLoaded();
-    await this.config.startWatching();
-  }
-
-  async stopWatching(): Promise<void> {
-    await this.config.stopWatching();
   }
 
   async get(): Promise<Configuration>;

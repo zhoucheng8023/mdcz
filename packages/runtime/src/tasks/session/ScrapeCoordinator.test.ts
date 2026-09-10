@@ -1,5 +1,6 @@
 import type { ScrapeResult } from "@mdcz/shared/types";
 import { describe, expect, it, vi } from "vitest";
+import { PublicationConflictError } from "../../publication/conflicts";
 import { ScrapeCoordinator, type ScrapeHostPort, type ScrapeRunStore } from "./ScrapeCoordinator";
 import type { ScrapeRunItem } from "./ScrapeRunSession";
 
@@ -57,13 +58,127 @@ const createHost = (
     items: entry.items.map((item) => ({ ...item, sourcePath: `/media/${item.relativePath}` })),
     concurrency,
     admitItem: async (item) => `${item.id}:attempt`,
-    executeItem,
+    prepareItem: async () => ({ status: "prepared", prepared: undefined }),
+    validatePrepared: vi.fn(async () => undefined),
+    executePreparedItem: async (item, _prepared, signal) => await executeItem(item, signal),
+    commitPreparationItem: async (_item, result) => result,
     commitItem: async (_item, result) => result,
   }),
-  onInvalidate: () => undefined,
+  onInvalidate: vi.fn(),
 });
 
 describe("ScrapeCoordinator", () => {
+  it("shares stop completion while an admitted publication is committing", async () => {
+    const run: Run = {
+      id: "stop-commit",
+      items: [
+        { id: "one", rootId: "root", relativePath: "one.mp4" },
+        { id: "two", rootId: "root", relativePath: "two.mp4" },
+      ],
+    };
+    const store = createStore(run);
+    const committing = deferred<void>();
+    const release = deferred<void>();
+    const host = createHost(run, async (item) => resultFor(item, "success"));
+    const create = host.createExecution;
+    host.createExecution = async (entry, reporter) => ({
+      ...(await create(entry, reporter)),
+      commitItem: async (item, result) => {
+        if (item.id === "one") {
+          committing.resolve();
+          await release.promise;
+        }
+        return result;
+      },
+    });
+    const coordinator = new ScrapeCoordinator(store, host);
+    await coordinator.start("start");
+    await committing.promise;
+    const first = coordinator.stop(run.id);
+    const second = coordinator.stop(run.id);
+    expect(store.finalize).not.toHaveBeenCalled();
+    release.resolve();
+    const snapshots = await Promise.all([first, second]);
+    expect(snapshots[0]).toEqual(snapshots[1]);
+    expect(snapshots[0].items.map((item) => item.status)).toEqual(["success", "skipped"]);
+    expect(store.finalize).toHaveBeenCalledOnce();
+  });
+
+  it("lets overlapping stop and shutdown share one settlement", async () => {
+    const run: Run = {
+      id: "stop-close",
+      items: [{ id: "one", rootId: "root", relativePath: "one.mp4" }],
+    };
+    const store = createStore(run);
+    const started = deferred<void>();
+    const release = deferred<void>();
+    const host = createHost(run, async (item, signal) => {
+      started.resolve();
+      await waitForAbort(signal, release.promise);
+      return resultFor(item, "success");
+    });
+    const coordinator = new ScrapeCoordinator(store, host);
+    await coordinator.start("start");
+    await started.promise;
+    const stopping = coordinator.stop(run.id);
+    const shuttingDown = coordinator.abortForShutdown();
+    release.resolve();
+    await Promise.all([stopping, shuttingDown]);
+    expect(store.finalize).toHaveBeenCalledOnce();
+    expect(store.interruptUnfinished).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "prepare",
+    "preflight",
+    "publication",
+  ] as const)("isolates item failures and stops publication conflicts (%s)", async (stage) => {
+    const run: Run = {
+      id: `conflict-${stage}`,
+      items: [
+        { id: "one", rootId: "root", relativePath: "one.mp4" },
+        { id: "two", rootId: "root", relativePath: "two.mp4" },
+      ],
+    };
+    const store = createStore(run);
+    const executeItem = vi.fn(async (item: ScrapeRunItem) => resultFor(item, "success"));
+    const host = createHost(run, executeItem);
+    host.onTerminal = vi.fn();
+    const create = host.createExecution;
+    host.createExecution = async (entry, reporter) => ({
+      ...(await create(entry, reporter)),
+      prepareItem: async (item) =>
+        stage === "prepare" && item.id === "one"
+          ? { status: "failed", result: resultFor(item, "failed") }
+          : { status: "prepared", prepared: undefined },
+      validatePrepared: async () => {
+        if (stage === "preflight") throw new PublicationConflictError("/one", "/two");
+      },
+      commitItem: async (item, result) => {
+        if (stage === "publication" && item.id === "one" && result.status === "success")
+          throw new PublicationConflictError("/one", "/two");
+        return result;
+      },
+    });
+    const coordinator = new ScrapeCoordinator(store, host);
+    await coordinator.start("start");
+    await coordinator.waitForIdle();
+    expect(executeItem).toHaveBeenCalledTimes(stage === "preflight" ? 0 : 1);
+    expect(host.onTerminal).toHaveBeenCalledWith(
+      run,
+      expect.objectContaining({
+        status: "failed",
+        items:
+          stage === "prepare"
+            ? [expect.objectContaining({ status: "failed" }), expect.objectContaining({ status: "success" })]
+            : stage === "preflight"
+              ? [expect.objectContaining({ status: "failed" }), expect.objectContaining({ status: "failed" })]
+              : [expect.objectContaining({ status: "skipped" }), expect.objectContaining({ status: "skipped" })],
+      }),
+    );
+    expect(store.finalize).toHaveBeenCalledOnce();
+    expect(coordinator.liveRuns()).toEqual([]);
+  });
   it("re-enqueues the settled run through retry instead of create()", async () => {
     const run: Run = {
       id: "run-1",
@@ -84,6 +199,14 @@ describe("ScrapeCoordinator", () => {
     expect(store.retry).toHaveBeenCalledWith("run-1");
     expect(host.create).not.toHaveBeenCalled();
     expect(snapshot.runId).toBe("run-1");
+    expect(host.onInvalidate).toHaveBeenCalledWith([
+      expect.objectContaining({
+        snapshot: expect.objectContaining({
+          runId: "run-1",
+          items: [expect.objectContaining({ status: "failed" })],
+        }),
+      }),
+    ]);
   });
 
   it("rejects retry until the same run has settled", async () => {

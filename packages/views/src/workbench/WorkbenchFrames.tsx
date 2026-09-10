@@ -9,8 +9,8 @@ export interface ScrapeWorkbenchFrameProps {
   detail: ReactNode;
   isScraping: boolean;
   scrapeStatus: "idle" | "running" | "stopping" | "paused";
-  outcome: "completed" | "failed" | "stopped" | "interrupted" | null;
   progress: number;
+  stageMessage?: string;
   showCompletedActions: boolean;
   failedCount: number;
   onPauseScrape: () => void;
@@ -20,18 +20,13 @@ export interface ScrapeWorkbenchFrameProps {
   onReturnToSetup: () => void;
 }
 
-const ABNORMAL_OUTCOME_LABEL = {
-  stopped: "已手动停止",
-  interrupted: "上次运行被中断",
-} as const;
-
 export function ScrapeWorkbenchFrame({
   list,
   detail,
   isScraping,
   scrapeStatus,
-  outcome,
   progress,
+  stageMessage,
   showCompletedActions,
   failedCount,
   onPauseScrape,
@@ -76,6 +71,7 @@ export function ScrapeWorkbenchFrame({
         <FloatingWorkbenchBar contentClassName={barContentClassName}>
           {isScraping ? (
             <div className="flex items-center gap-3">
+              {stageMessage ? <span className="text-xs text-muted-foreground">{stageMessage}</span> : null}
               <Progress value={progress} className="h-1.5 w-24 md:w-28" />
               <span className="font-numeric text-[11px] font-bold text-foreground">{Math.round(progress)}%</span>
             </div>
@@ -112,11 +108,6 @@ export function ScrapeWorkbenchFrame({
 
           {showCompletedActions ? (
             <>
-              {outcome === "stopped" || outcome === "interrupted" ? (
-                <Badge variant={outcome === "stopped" ? "secondary" : "destructive"} className="h-5 px-2 text-[10px]">
-                  {ABNORMAL_OUTCOME_LABEL[outcome]}
-                </Badge>
-              ) : null}
               <ReturnToWorkbenchSetupButton
                 dialogDescription="返回后会清空当前刮削结果并回到工作台初始页面。确定继续吗？"
                 onConfirm={onReturnToSetup}

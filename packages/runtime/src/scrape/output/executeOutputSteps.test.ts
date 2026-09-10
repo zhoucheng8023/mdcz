@@ -4,13 +4,11 @@ import type { CrawlerData, DownloadedAssets, FileInfo } from "@mdcz/shared/types
 import { describe, expect, it, vi } from "vitest";
 import type { RuntimeActorImageService } from "../actorOutput";
 import type { DownloadCallbacks, DownloadManager } from "../download";
-import type { OrganizePlan } from "../FileOrganizer";
 import type { NfoGenerator, NfoOptions } from "../nfo";
 import {
   downloadCrawlerAssets,
-  organizePreparedVideo,
   prepareOutputCrawlerData,
-  updateBatchProgress,
+  reportItemProgress,
   writePreparedNfo,
 } from "./executeOutputSteps";
 
@@ -35,13 +33,13 @@ const createFileInfo = (): FileInfo => ({
 });
 
 describe("shared output steps", () => {
-  it("normalizes per-file progress into batch progress", () => {
+  it("reports precise item progress regardless of batch size", () => {
     const setProgress = vi.fn();
 
-    updateBatchProgress({ setProgress }, { fileIndex: 2, totalFiles: 4 }, 50);
-    updateBatchProgress({ setProgress }, { fileIndex: 0, totalFiles: 0 }, 150);
+    reportItemProgress({ setProgress }, { fileIndex: 2, totalFiles: 150 }, 37.5);
+    reportItemProgress({ setProgress }, { fileIndex: 0, totalFiles: 0 }, 150);
 
-    expect(setProgress).toHaveBeenNthCalledWith(1, 38, 2, 4);
+    expect(setProgress).toHaveBeenNthCalledWith(1, 37.5, 2, 150);
     expect(setProgress).toHaveBeenNthCalledWith(2, 100, 1, 1);
   });
 
@@ -164,18 +162,5 @@ describe("shared output steps", () => {
       }),
     );
     expect(logs).toEqual(["Generating NFO"]);
-  });
-
-  it("returns the planned target without performing file work", async () => {
-    const fileInfo = createFileInfo();
-    const plan: OrganizePlan = {
-      nfoPath: "/output/ABC-123.nfo",
-      outputDir: "/output",
-      targetVideoPath: "/output/ABC-123.mp4",
-    };
-
-    await expect(organizePreparedVideo({ enabled: false, fileInfo, plan })).resolves.toBe(fileInfo.filePath);
-    await expect(organizePreparedVideo({ enabled: true, fileInfo })).resolves.toBe(fileInfo.filePath);
-    await expect(organizePreparedVideo({ enabled: true, fileInfo, plan })).resolves.toBe(plan.targetVideoPath);
   });
 });

@@ -9,6 +9,7 @@ import type { NetworkClient } from "@mdcz/runtime/network";
 import type { ActorImageService } from "@mdcz/runtime/scrape";
 import { AggregationService, DownloadManager, NfoGenerator, TranslateService } from "@mdcz/runtime/scrape";
 import { fileOrganizer } from "../FileScraper";
+import { applyDesktopPosterTagBadges } from "../output";
 import { translationMappingStore } from "../translationMappingStore";
 
 export interface DesktopMaintenanceRuntimeOptions {
@@ -36,7 +37,17 @@ export const createDesktopMaintenanceRuntime = (options: DesktopMaintenanceRunti
     fileOrganizer,
     networkPolicyClient: options.networkClient,
     nfoGenerator: new NfoGenerator(),
-    signalService: options.signalService,
+    postProcessAssets: async ({ configuration, ...input }) =>
+      await applyDesktopPosterTagBadges({
+        ...input,
+        config: configuration,
+        logger,
+        signalService: options.signalService,
+      }),
+    signalService: {
+      showLogText: (message) => options.signalService.showLogText(message),
+      setProgress: () => options.signalService.invalidate("maintenance"),
+    },
     translateService: new TranslateService(options.networkClient, {
       logger: loggerService.getLogger("TranslateService"),
       mappingStore: translationMappingStore,

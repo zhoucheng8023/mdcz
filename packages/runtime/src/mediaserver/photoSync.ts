@@ -65,10 +65,12 @@ export const runMediaServerPhotoSync = async <TPerson>(
     return createEmptyPersonSyncResult();
   }
 
+  let stage = "resolve photo source";
   const result = await runPersonSyncBatch({
     items: persons,
     signalService: options.signalService,
     processItem: async (person) => {
+      stage = "resolve photo source";
       const actorName = options.getPersonName(person).trim();
       if (!actorName) {
         return "skipped";
@@ -83,6 +85,11 @@ export const runMediaServerPhotoSync = async <TPerson>(
         requiredField: "photo_url",
       });
       logActorSourceWarnings(options.logger, actorName, actorSource.warnings);
+      const source = actorSource.profile.photo_url;
+      stage = source && /^https?:\/\//iu.test(source) ? "download photo" : "read local photo";
+      if (source && stage === "read local photo") {
+        options.signalService.showLogText(`Using local ${options.serviceName} actor photo for ${actorName}: ${source}`);
+      }
       const image = await loadPrimaryImageFromSource(options.networkClient, actorSource.profile.photo_url);
 
       if (!image) {
@@ -93,6 +100,7 @@ export const runMediaServerPhotoSync = async <TPerson>(
         return "skipped";
       }
 
+      stage = "upload photo";
       await options.uploadPrimaryImage(options.getPersonId(person), image.content, image.contentType);
       if (options.shouldRefreshPerson) {
         try {
@@ -110,7 +118,7 @@ export const runMediaServerPhotoSync = async <TPerson>(
     onError: (person, error) => {
       const actorName = options.getPersonName(person).trim() || options.getPersonName(person);
       options.logger.warn(
-        `Failed to update ${options.serviceName} actor photo for ${actorName}: ${formatPersonSyncError(error)}`,
+        `Failed to update ${options.serviceName} actor photo for ${actorName} (${stage}): ${formatPersonSyncError(error)}`,
       );
     },
   });

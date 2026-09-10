@@ -55,17 +55,25 @@ describe("PosterWatermarkService pure rendering helpers", () => {
   });
 
   it("resolves normal, single-badge, and height-constrained layouts", () => {
-    expect(resolveBadgeOverlayLayout(1000, 1500, 3)).toEqual({
-      badgeWidth: 184,
-      badgeHeight: 92,
-      badgeGap: 9,
-      overlayHeight: 294,
-    });
+    for (const [posterWidth, posterHeight, badgeWidth, badgeHeight, badgeGap, overlayHeight] of [
+      [1000, 1500, 128, 64, 6, 204],
+      [1500, 1000, 128, 64, 6, 204],
+      [400, 600, 64, 32, 3, 102],
+      [600, 400, 64, 32, 3, 102],
+      [200, 300, 56, 28, 3, 90],
+    ]) {
+      expect(resolveBadgeOverlayLayout(posterWidth, posterHeight, 3)).toEqual({
+        badgeWidth,
+        badgeHeight,
+        badgeGap,
+        overlayHeight,
+      });
+    }
     expect(resolveBadgeOverlayLayout(1000, 1500, 1)).toEqual({
-      badgeWidth: 184,
-      badgeHeight: 92,
+      badgeWidth: 128,
+      badgeHeight: 64,
       badgeGap: 0,
-      overlayHeight: 92,
+      overlayHeight: 64,
     });
 
     const constrained = resolveBadgeOverlayLayout(20, 5, 3);

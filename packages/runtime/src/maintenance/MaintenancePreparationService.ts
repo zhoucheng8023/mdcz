@@ -1,5 +1,6 @@
+import { basename, dirname, join, resolve } from "node:path";
+import { isMovieNfoBaseName } from "@mdcz/shared/assetNaming";
 import type { Configuration } from "@mdcz/shared/config";
-import { toErrorMessage } from "@mdcz/shared/error";
 import type {
   CrawlerData,
   FieldDiff,
@@ -10,8 +11,7 @@ import type {
 } from "@mdcz/shared/types";
 import type { AggregationService, FileOrganizer, OrganizePlan, SourceMap, TranslateService } from "../scrape";
 import { canonicalizeCrawlerDataActorAliases } from "../scrape/canonicalizeActorAliases";
-import { isAbortError, throwIfAborted } from "../scrape/utils/abort";
-import { runtimeLoggerService } from "../shared";
+import { throwIfAborted } from "../scrape/utils/abort";
 import { partitionCrawlerDataWithOptions } from "./diffCrawlerData";
 import { diffPaths } from "./diffPaths";
 import type { MaintenanceSignalService } from "./MaintenanceFileScraper";
@@ -48,8 +48,6 @@ interface PrepareOptions {
 }
 
 export class MaintenancePreparationService {
-  private readonly logger = runtimeLoggerService.getLogger("MaintenancePreparationService");
-
   constructor(
     private readonly deps: MaintenancePreparationDependencies,
     private readonly preset: MaintenancePreset,
@@ -101,7 +99,7 @@ export class MaintenancePreparationService {
       if (options.emitLogs) {
         this.deps.signalService.showLogText(`[${fileInfo.number}] Translating metadata...`);
       }
-      crawlerData = await this.translateCrawlerDataOrFallback(crawlerData, config, options.signal);
+      crawlerData = (await this.deps.translateService.translateCrawlerData(crawlerData, config, options.signal)).data;
     }
 
     return await this.finalizePreparedFile({
@@ -218,16 +216,35 @@ export class MaintenancePreparationService {
       throw new Error("本地 NFO 不存在或无法解析，无法执行后续步骤");
     }
 
-    const rawPlan = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState);
-    if (this.preset.id === "refresh_data") {
+    if (!this.preset.steps.organize) {
+      const metadataDir = entry.nfoPath
+        ? dirname(entry.nfoPath)
+        : this.deps.fileOrganizer.resolveMetadataDir(entry.currentDir, config);
+      const layout = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState);
       return {
-        plan: rawPlan,
+        plan: {
+          outputDir: entry.currentDir,
+          metadataDir,
+          targetVideoPath: entry.fileInfo.filePath,
+          nfoPath:
+            entry.nfoPath && !isMovieNfoBaseName(basename(entry.nfoPath, ".nfo"))
+              ? entry.nfoPath
+              : join(metadataDir, basename(layout.nfoPath)),
+          ...(metadataDir === entry.currentDir
+            ? {}
+            : { strmPath: join(metadataDir, `${basename(entry.fileInfo.filePath, entry.fileInfo.extension)}.strm`) }),
+        },
         pathDiff: undefined,
       };
     }
 
+    const rawPlan = this.deps.fileOrganizer.plan(entry.fileInfo, crawlerData, config, entry.nfoLocalState, {
+      outputTemplateRoot: resolve(config.paths.mediaPath, config.paths.successOutputFolder),
+    });
+
     const plan = await this.deps.fileOrganizer.resolveOutputPlan(rawPlan, entry.fileInfo.filePath, {
       createDirectories: options.createDirectories,
+      allowSharedDirectory: config.naming.assetNamingMode === "followVideo" && config.download.nfoNaming === "filename",
     });
 
     return {
@@ -236,29 +253,14 @@ export class MaintenancePreparationService {
     };
   }
 
-  private async translateCrawlerDataOrFallback(
-    crawlerData: CrawlerData,
-    config: Configuration,
-    signal?: AbortSignal,
-  ): Promise<CrawlerData> {
-    throwIfAborted(signal);
-
-    try {
-      return await this.deps.translateService.translateCrawlerData(crawlerData, config, signal);
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw error;
-      }
-
-      const message = toErrorMessage(error);
-      this.logger.warn(`Translation failed for ${crawlerData.number}: ${message}`);
-      return crawlerData;
-    }
-  }
-
   private buildDiffBaseline(entry: LocalScanEntry, crawlerData: CrawlerData | undefined): CrawlerData | undefined {
     if (entry.crawlerData) {
-      return entry.crawlerData;
+      return {
+        ...entry.crawlerData,
+        trailer_url:
+          entry.crawlerData.trailer_url ||
+          (entry.assets.trailer ? entry.assets.trailer.split(/[\\/]/u).pop() : undefined),
+      };
     }
 
     if (!crawlerData) {

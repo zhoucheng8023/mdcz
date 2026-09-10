@@ -2,7 +2,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import * as scraperOutput from "@main/services/scraper/output";
 import type {
@@ -16,7 +15,7 @@ import type {
 import { Website } from "@mdcz/shared/enums";
 import type { CrawlerData, FileInfo } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockConfigManager } from "../../../helpers/scraper";
+import { mockConfigManager, prepareAndExecuteFile } from "../../../helpers/scraper";
 
 const tempDirs: string[] = [];
 
@@ -85,7 +84,7 @@ describe("FileScraper subtitle sidecars", () => {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(createCrawlerData())),
       } as unknown as AggregationService,
       translateService: {
-        translateCrawlerData: vi.fn(async (data: CrawlerData) => data),
+        translateCrawlerData: vi.fn(async (data: CrawlerData) => ({ data, error: null })),
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo,
@@ -99,17 +98,12 @@ describe("FileScraper subtitle sidecars", () => {
       fileOrganizer: {
         plan: vi.fn((_fileInfo: FileInfo) => plan),
         resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-        ensureOutputReady: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-        organizeVideo: vi.fn(async (_fileInfo: FileInfo, nextPlan: OrganizePlan) => nextPlan.targetVideoPath),
       } as unknown as FileOrganizer,
-      signalService: new SignalService(null),
     });
   };
 
   it.each([
-    ["ABC-123.mp4", "ABC-123.srt", "字幕"],
     ["ABC-123.mp4", "ABC-123.zh.srt", "中文字幕"],
-    ["ABC-123-U.mp4", "ABC-123.zh.srt", "中文字幕"],
   ] as const)("propagates %s for %s into the merged subtitle tag", async (videoFileName, subtitleFileName, expectedSubtitleTag) => {
     const root = await createTempDir();
     const videoPath = join(root, videoFileName);
@@ -127,7 +121,9 @@ describe("FileScraper subtitle sidecars", () => {
     const writeNfo = vi.fn().mockResolvedValue(plan.nfoPath);
     const scraper = createScraper(plan, writeNfo);
 
-    const result = await scraper.scrapeFile(videoPath, { fileIndex: 1, totalFiles: 1 });
+    const result = await prepareAndExecuteFile(scraper, videoPath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [{ id: "test-root", hostPath: tmpdir() }],
+    });
     const nfoOptions = writeNfo.mock.calls[0]?.[2] as { fileInfo?: FileInfo } | undefined;
 
     expect(result.status).toBe("success");

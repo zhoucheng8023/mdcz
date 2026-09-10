@@ -12,6 +12,7 @@ export class TaskScheduler<TExecution extends SchedulableExecution> {
       claimNext: () => Promise<TExecution | null>;
       runExecution: (execution: TExecution) => Promise<void>;
       onExecutionError?: (execution: TExecution, error: unknown) => Promise<void> | void;
+      onDrainError?: (error: unknown) => Promise<void> | void;
     },
   ) {}
 
@@ -20,7 +21,7 @@ export class TaskScheduler<TExecution extends SchedulableExecution> {
     this.drainRequested = true;
     if (!this.activeDrain) {
       this.activeDrain = this.runDrain();
-      void this.activeDrain.catch(() => undefined);
+      if (this.deps.onDrainError) void this.activeDrain.catch(() => undefined);
     }
   }
 
@@ -31,6 +32,10 @@ export class TaskScheduler<TExecution extends SchedulableExecution> {
   requestStop(): void {
     this.stopRequested = true;
     this.drainRequested = false;
+  }
+
+  allowDrain(): void {
+    this.stopRequested = false;
   }
 
   private async runDrain(): Promise<void> {
@@ -48,6 +53,11 @@ export class TaskScheduler<TExecution extends SchedulableExecution> {
           }
         }
       } while (!this.stopRequested && this.drainRequested);
+    } catch (error) {
+      this.stopRequested = true;
+      this.drainRequested = false;
+      if (!this.deps.onDrainError) throw error;
+      await this.deps.onDrainError(error);
     } finally {
       this.activeDrain = null;
       if (!this.stopRequested && this.drainRequested) this.drain();

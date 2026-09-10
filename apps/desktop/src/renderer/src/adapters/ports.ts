@@ -7,6 +7,7 @@ import type {
   ScrapeActionPort,
   SharedWorkbenchPorts,
 } from "@mdcz/views/adapters";
+import { resolveBatchRescrapeOutput } from "@mdcz/views/adapters";
 import { type DetailViewItem, getDetailLocalAssetRef } from "@mdcz/views/detail";
 import { deleteFile, deleteFileAndFolder, readNfo, retryScrapeSelection, updateNfo } from "@/api/manual";
 import { ipc } from "@/client/ipc";
@@ -110,6 +111,17 @@ export const createDesktopDetailPort = (): DetailActionPort => ({
 });
 
 export const createDesktopScrapeActionPort = (): ScrapeActionPort => ({
+  rescrapeByUrl: async (targets, manualUrl) => {
+    const refs = targets.map((target) => target.ref);
+    const first = refs[0];
+    if (!first) throw new Error("请选择要刮削的文件");
+    const response = await ipc.scraper.start(
+      refs.length === 1
+        ? { mode: "single", ref: first, manualUrl }
+        : { mode: "selection", refs, ...resolveBatchRescrapeOutput(targets), manualUrl },
+    );
+    return { message: response.message };
+  },
   retryFailed: async (itemIds) => {
     const response = await retryScrapeSelection(itemIds);
     return {
@@ -146,7 +158,14 @@ export const createDesktopMaintenanceActionPort = (): MaintenanceActionPort => (
   discardSession: async () => {
     await ipc.maintenance.discardSession();
   },
-  preview: (refs, presetId) => ipc.maintenance.preview(refs, presetId),
+  preview: async (refs, presetId, targetDir) => {
+    const output = targetDir ? await ipc.mediaRoots.prepareOutputDirectory({ hostPath: targetDir }) : undefined;
+    return await ipc.maintenance.preview(
+      refs,
+      presetId,
+      output ? { outputRootId: output.id, outputRelativeDirectory: output.relativeDirectory } : undefined,
+    );
+  },
   execute: async (selections: MaintenanceApplySelection[], presetId: MaintenancePresetId) => {
     await ipc.maintenance.execute(selections, presetId);
   },

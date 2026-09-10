@@ -1,6 +1,6 @@
 import type { MovieAssetFileNames } from "@mdcz/shared/assetNaming";
 import type { Configuration } from "@mdcz/shared/config";
-import type { CrawlerData, DownloadedAssets, MaintenanceAssetDecisions } from "@mdcz/shared/types";
+import type { CrawlerData, DiscoveredAssets, DownloadedAssets, MaintenanceAssetDecisions } from "@mdcz/shared/types";
 import type { ImageAlternatives } from "../../aggregation";
 import type { ImageDownloadService } from "../ImageDownloadService";
 import type { SceneImageDownloader } from "../SceneImageDownloader";
@@ -15,6 +15,7 @@ export interface DownloadCallbacks {
   onSceneProgress?: (downloaded: number, total: number) => void;
   /** Reports the exact remote URLs that produced the finalized local scene image set for this scrape. */
   onResolvedSceneImageUrls?: (urls: string[] | undefined) => void;
+  onDerivedPosterSource?: (url: string) => void;
   /** Force a primary image to refresh even when its keep flag is enabled. */
   forceReplace?: Partial<Record<RefreshableAssetKey, boolean>>;
   /** Preserve or replace selected maintenance-managed assets regardless of preset keep flags. */
@@ -26,6 +27,7 @@ export interface DownloadCallbacks {
 export interface DownloadExecutionPlan {
   outputDir: string;
   existingAssetDir: string;
+  existingAssets?: DiscoveredAssets;
   movieBaseName: string;
   assetFileNames: MovieAssetFileNames;
   data: CrawlerData;

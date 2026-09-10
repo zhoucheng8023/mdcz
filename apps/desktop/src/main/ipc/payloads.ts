@@ -1,5 +1,11 @@
 import { Website } from "@mdcz/shared/enums";
-import { localFileTargetSchema, parseWireRelativeDirectory, rootFileRefSchema } from "@mdcz/shared/mediaRef";
+import {
+  LLM_API_FORMAT_OPTIONS,
+  LLM_OUTPUT_FORMAT_OPTIONS,
+  LLM_REASONING_OPTIONS,
+  LLM_SERVICE_TYPE_OPTIONS,
+} from "@mdcz/shared/llm";
+import { localFileTargetSchema, rootFileRefSchema, wireRelativeDirectorySchema } from "@mdcz/shared/mediaRef";
 import { normalizedCropRegionSchema } from "@mdcz/shared/posterCrop";
 import {
   configPathInputSchema,
@@ -37,11 +43,13 @@ export const scraperStartInputSchema = z.discriminatedUnion("mode", [
     mode: z.literal("selection"),
     refs: z.array(rootFileRefSchema).min(1),
     outputRootId: z.string().trim().min(1),
-    outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
+    outputRelativeDirectory: wireRelativeDirectorySchema.optional(),
+    manualUrl: z.string().trim().min(1).optional(),
   }),
   z.object({
     mode: z.literal("single"),
     ref: rootFileRefSchema,
+    manualUrl: z.string().trim().min(1).optional(),
   }),
 ]);
 export const scraperStartSinglePathInputSchema = z.object({ path: z.string().trim().min(1) });
@@ -49,18 +57,6 @@ export const scraperGetStatusInputSchema = z.object({ taskId: z.string().trim().
 export const scraperRetryInputSchema = z.object({
   runId: z.string().min(1),
   itemIds: z.array(z.string().min(1)).min(1).optional(),
-});
-export const scraperConfirmUncensoredInputSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        fileId: z.string().min(1),
-        nfoPath: z.string().min(1),
-        videoPath: z.string().min(1),
-        choice: z.enum(["umr", "leak", "uncensored"]),
-      }),
-    )
-    .optional(),
 });
 
 export const crawlerTestInputSchema = z.object({
@@ -73,8 +69,12 @@ export const translateTestLlmInputSchema = z.object({
   llmModelName: optionalString,
   llmApiKey: optionalString,
   llmBaseUrl: optionalString,
+  llmApiFormat: z.enum(LLM_API_FORMAT_OPTIONS).optional(),
+  llmServiceType: z.enum(LLM_SERVICE_TYPE_OPTIONS).optional(),
   llmPrompt: optionalString,
-  llmTemperature: z.number().optional(),
+  llmTemperature: z.number().min(0).max(2).nullable().optional(),
+  llmReasoning: z.enum(LLM_REASONING_OPTIONS).optional(),
+  llmOutputFormat: z.enum(LLM_OUTPUT_FORMAT_OPTIONS).optional(),
   llmTimeout: z.number().optional(),
 });
 
@@ -121,11 +121,8 @@ export {
 
 export const toolCreateSymlinkInputSchema = z.object({
   sourceDir: optionalString,
-  source_dir: optionalString,
   destDir: optionalString,
-  dest_dir: optionalString,
   copyFiles: z.boolean().optional(),
-  copy_files: z.boolean().optional(),
 });
 export const toolDirectoryInputSchema = z.object({ directory: optionalString });
 export const toolAmazonPosterLookupInputSchema = z.object({ nfoPath: optionalString, title: optionalString });
@@ -152,6 +149,8 @@ export const toolMediaServerModeInputSchema = z.object({ mode: z.enum(["all", "m
 export const maintenanceStartPreviewInputSchema = z.object({
   refs: z.array(rootFileRefSchema).optional(),
   presetId: maintenancePresetIdSchema.optional(),
+  outputRootId: z.string().trim().min(1).optional(),
+  outputRelativeDirectory: z.string().optional(),
 });
 export const maintenanceApplyInputSchema = z.object({
   selections: z

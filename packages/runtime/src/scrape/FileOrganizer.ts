@@ -1,17 +1,14 @@
-import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
 
 import type { Configuration } from "@mdcz/shared/config";
 import type { CrawlerData, FileInfo, NamingPreviewItem, NfoLocalState } from "@mdcz/shared/types";
 import { noopRuntimeLogger, type RuntimeLogger } from "../shared";
-import { isGeneratedSidecarVideo, type SubtitleSidecarMatch } from "./media";
+import { findSubtitleSidecars, isGeneratedSidecarVideo, type SubtitleSidecarMatch } from "./media";
 import { FileMover } from "./organize/FileMover";
 import { NamingEngine } from "./organize/NamingEngine";
-import { PathPlanner } from "./organize/PathPlanner";
 import { SidecarResolver } from "./organize/SidecarResolver";
-import { ensureParentDirectory, hasEnoughDiskSpace, isPathInside, listVideoFiles } from "./utils/filesystem";
+import { ensureParentDirectory, isPathInside, listVideoFiles } from "./utils/filesystem";
 import { parseFileInfo } from "./utils/number";
-import { inspectStrmTarget, isStrmFile, writeStrmTarget } from "./utils/strm";
 
 export interface OrganizePlan {
   outputDir: string;
@@ -24,16 +21,41 @@ export interface OrganizePlan {
 
 export const resolveMetadataOutputDir = (plan: OrganizePlan): string => plan.metadataDir ?? plan.outputDir;
 
+/**
+ * Parts of one number share the metadata directory and its fixed asset names
+ * (poster.jpg, extrafanart, .actors), so serializing publication per NFO file
+ * is too narrow: the whole directory has to be covered.
+ */
+export const buildScrapePublicationKey = (plan: OrganizePlan): string =>
+  `scrape-publication:${resolve(resolveMetadataOutputDir(plan))}`;
+
 interface ResolveOutputPlanOptions {
   createDirectories?: boolean;
+  allowSharedDirectory?: boolean;
 }
 
-interface PlanOptions {
+export interface OrganizePlanOptions {
   executionMode?: ScrapeExecutionMode;
-  outputBaseDirectory?: string;
+  outputDirectory?: string;
+  outputTemplateRoot?: string;
 }
 
 export type ScrapeExecutionMode = "single" | "batch";
+
+export const resolveOrganizeDirectory = (
+  sourcePath: string,
+  config: Configuration,
+  options: OrganizePlanOptions = {},
+): { directory: string; useFolderTemplate: boolean } => {
+  const sourceDir = resolve(dirname(sourcePath));
+  if (options.executionMode === "single" || !config.behavior.successFileMove) {
+    return { directory: sourceDir, useFolderTemplate: false };
+  }
+  if (options.outputDirectory) return { directory: resolve(options.outputDirectory), useFolderTemplate: false };
+  if (options.outputTemplateRoot) return { directory: resolve(options.outputTemplateRoot), useFolderTemplate: true };
+  const base = resolve(config.paths.mediaPath.trim() || sourceDir, config.paths.successOutputFolder.trim());
+  return { directory: base, useFolderTemplate: true };
+};
 
 interface ScrapeFileTransitionOptions {
   configuration: Configuration;
@@ -49,8 +71,6 @@ export class FileOrganizer {
 
   private readonly namingEngine = new NamingEngine();
 
-  private readonly pathPlanner = new PathPlanner(this.sidecarResolver);
-
   private readonly fileMover: FileMover;
 
   constructor(logger: RuntimeLogger = noopRuntimeLogger) {
@@ -63,23 +83,11 @@ export class FileOrganizer {
     data: CrawlerData,
     config: Configuration,
     localState?: NfoLocalState,
-    options: PlanOptions = {},
+    options: OrganizePlanOptions = {},
   ): OrganizePlan {
-    const sourceVideo = parse(fileInfo.filePath);
     const layout = this.namingEngine.buildLayout(fileInfo, data, config, localState);
-
-    let outputDir: string;
-    if (options.executionMode === "single" || !config.behavior.successFileMove) {
-      outputDir = sourceVideo.dir;
-    } else if (options.outputBaseDirectory) {
-      outputDir = join(resolve(options.outputBaseDirectory), layout.folderRelativePath);
-    } else {
-      const baseOutput = this.resolveBaseOutput(fileInfo, config);
-      const sourceDir = resolve(sourceVideo.dir);
-      const resolvedBase = resolve(baseOutput);
-      const isAlreadyInOutput = isPathInside(resolvedBase, sourceDir) && sourceDir !== resolvedBase;
-      outputDir = isAlreadyInOutput ? sourceDir : join(baseOutput, layout.folderRelativePath);
-    }
+    const { directory, useFolderTemplate } = resolveOrganizeDirectory(fileInfo.filePath, config, options);
+    const outputDir = useFolderTemplate ? join(directory, layout.folderRelativePath) : directory;
 
     const targetVideoPath = join(outputDir, layout.targetVideoFileName);
     const metadataDir = options.executionMode === "single" ? outputDir : this.resolveMetadataDir(outputDir, config);
@@ -99,10 +107,6 @@ export class FileOrganizer {
     return this.namingEngine.buildPreview(config);
   }
 
-  async ensureOutputReady(plan: OrganizePlan, sourceFilePath: string): Promise<OrganizePlan> {
-    return this.resolveOutputPlan(plan, sourceFilePath, { createDirectories: true });
-  }
-
   async resolveOutputPlan(
     plan: OrganizePlan,
     sourceFilePath: string,
@@ -120,7 +124,7 @@ export class FileOrganizer {
     const sourceDir = resolve(dirname(sourceFilePath));
     const sameDirectoryOutput = sourceDir === resolve(outputRoot);
 
-    if (sameDirectoryOutput) {
+    if (sameDirectoryOutput && !options.allowSharedDirectory) {
       const sourceFileInfo = parseFileInfo(sourceFilePath);
       const videoFiles = await listVideoFiles(sourceDir, false);
       const otherVideos = videoFiles.filter((filePath) => {
@@ -129,7 +133,7 @@ export class FileOrganizer {
         }
 
         const siblingFileInfo = parseFileInfo(filePath);
-        if (sourceFileInfo.number === siblingFileInfo.number && (sourceFileInfo.part || siblingFileInfo.part)) {
+        if (sourceFileInfo.number && sourceFileInfo.number === siblingFileInfo.number) {
           return false;
         }
 
@@ -141,68 +145,10 @@ export class FileOrganizer {
       }
     }
 
-    if (!sameDirectoryOutput) {
-      const stats = await stat(sourceFilePath);
-      const diskCheckPath = options.createDirectories
-        ? outputRoot
-        : await this.pathPlanner.resolveExistingDirectory(outputRoot);
-      const ok = await hasEnoughDiskSpace(diskCheckPath, stats.size);
-      if (!ok) {
-        throw new Error(`Not enough disk space to move file to ${outputRoot}`);
-      }
-    }
-
-    const resolvedPlan = await this.pathPlanner.resolveBundledTargetPaths({
-      sourceVideoPath: sourceFilePath,
-      targetVideoPath: plan.targetVideoPath,
-      nfoPath: plan.nfoPath,
-      subtitleSidecars: plan.subtitleSidecars,
-    });
-
-    const metadataDir = plan.metadataDir ?? dirname(resolvedPlan.nfoPath ?? plan.nfoPath);
     return {
-      outputDir: dirname(resolvedPlan.targetVideoPath),
-      metadataDir,
-      targetVideoPath: resolvedPlan.targetVideoPath,
-      nfoPath: resolvedPlan.nfoPath ?? plan.nfoPath,
-      strmPath: plan.strmPath ? join(metadataDir, `${parse(resolvedPlan.targetVideoPath).name}.strm`) : undefined,
-      subtitleSidecars: resolvedPlan.subtitleSidecars,
+      ...plan,
+      subtitleSidecars: plan.subtitleSidecars ?? (await findSubtitleSidecars(sourceFilePath)),
     };
-  }
-
-  async organizeVideo(
-    fileInfo: FileInfo,
-    plan: OrganizePlan,
-    config: Configuration,
-    sourceRootPath: string,
-  ): Promise<string> {
-    let organizedPath: string;
-    if (!config.behavior.successFileMove) {
-      if (!config.behavior.successFileRename) {
-        this.logger.info(`successFileMove disabled; leaving file at ${fileInfo.filePath}`);
-        organizedPath = fileInfo.filePath;
-      } else {
-        organizedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, plan.targetVideoPath, {
-          subtitleSidecars: plan.subtitleSidecars,
-          sharedMovieBaseName: parse(plan.nfoPath).name,
-        });
-      }
-    } else {
-      organizedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, plan.targetVideoPath, {
-        subtitleSidecars: plan.subtitleSidecars,
-        sharedMovieBaseName: parse(plan.nfoPath).name,
-      });
-
-      if (config.behavior.deleteEmptyFolder) {
-        await this.cleanupEmptySourceDirectories(fileInfo.filePath, sourceRootPath);
-      }
-    }
-
-    if (plan.strmPath) {
-      await this.writeMetadataStrm(plan.strmPath, organizedPath);
-    }
-
-    return organizedPath;
   }
 
   createScrapeFileTransitions(options: ScrapeFileTransitionOptions) {
@@ -225,28 +171,21 @@ export class FileOrganizer {
 
   async moveToFailedFolder(sourcePath: string, failureRootPath: string, config: Configuration): Promise<string> {
     const fileInfo = parseFileInfo(sourcePath, config.scrape.filenameIgnoreTokens);
-    const failedDir = resolve(failureRootPath, config.paths.failedOutputFolder.trim());
-    const resolvedPaths = await this.pathPlanner.resolveBundledTargetPaths({
-      sourceVideoPath: fileInfo.filePath,
-      targetVideoPath: join(failedDir, fileInfo.fileName + fileInfo.extension),
-    });
-
-    await ensureParentDirectory(resolvedPaths.targetVideoPath);
-    const movedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, resolvedPaths.targetVideoPath, {
-      subtitleSidecars: resolvedPaths.subtitleSidecars,
+    const targetVideoPath = this.resolveFailedVideoPath(sourcePath, failureRootPath, config);
+    await ensureParentDirectory(targetVideoPath);
+    const movedPath = await this.fileMover.moveBundledMedia(fileInfo.filePath, targetVideoPath, {
       sharedMovieBaseName: fileInfo.number,
     });
-    this.logger.info(`Moved failed file to ${failedDir}: ${fileInfo.fileName}`);
+    this.logger.info(`Moved failed file to ${dirname(targetVideoPath)}: ${fileInfo.fileName}`);
     return movedPath;
   }
 
-  private resolveBaseOutput(fileInfo: FileInfo, config: Configuration): string {
-    const mediaRoot = config.paths.mediaPath.trim();
-    const base = mediaRoot.length > 0 ? mediaRoot : dirname(fileInfo.filePath);
-    return resolve(base, config.paths.successOutputFolder.trim());
+  resolveFailedVideoPath(sourcePath: string, failureRootPath: string, config: Configuration): string {
+    const fileInfo = parseFileInfo(sourcePath, config.scrape.filenameIgnoreTokens);
+    return resolve(failureRootPath, config.paths.failedOutputFolder.trim(), fileInfo.fileName + fileInfo.extension);
   }
 
-  private resolveMetadataDir(outputDir: string, config: Configuration): string {
+  resolveMetadataDir(outputDir: string, config: Configuration): string {
     const configuredMetadataRoot = config.paths.metadataPath.trim();
     if (!configuredMetadataRoot) {
       return outputDir;
@@ -272,19 +211,6 @@ export class FileOrganizer {
     }
 
     return resolve(metadataRoot, outputRelativePath);
-  }
-
-  private async writeMetadataStrm(strmPath: string, organizedVideoPath: string): Promise<void> {
-    let target = resolve(organizedVideoPath);
-    if (isStrmFile(organizedVideoPath)) {
-      const sourceTarget = await inspectStrmTarget(organizedVideoPath);
-      if (!sourceTarget) {
-        throw new Error(`STRM 文件不包含有效目标：${organizedVideoPath}`);
-      }
-      target = sourceTarget.kind === "url" ? sourceTarget.target : (sourceTarget.resolvedPath ?? sourceTarget.target);
-    }
-
-    await writeStrmTarget(strmPath, target);
   }
 }
 

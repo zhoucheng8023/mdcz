@@ -18,7 +18,8 @@ export class TaskExecutor<TItem, TResult> {
       concurrency: number;
       runItem: (item: TItem, context: TaskExecutorContext) => Promise<TResult>;
       applyResult: (item: TItem, result: TResult, context: TaskExecutorContext) => Promise<unknown>;
-      discardResult?: (item: TItem, result: TResult, context: TaskExecutorContext) => Promise<unknown> | unknown;
+      finalizeResult?: (item: TItem, result: TResult, context: TaskExecutorContext) => Promise<unknown> | unknown;
+      onFinalizeError?: (item: TItem, error: unknown) => Promise<unknown> | unknown;
       gate?: TaskExecutorGate<TItem>;
     },
   ) {
@@ -60,12 +61,14 @@ export class TaskExecutor<TItem, TResult> {
     if (!controller) throw new Error("TaskExecutor controller was not initialized");
 
     let nextIndex = 0;
+    let fatalError: unknown;
+    let publicationTail = Promise.resolve();
     const context: TaskExecutorContext = {
       signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
     };
 
     const worker = async (): Promise<void> => {
-      while (!this.pauseRequested && !this.stopRequested) {
+      while (!this.pauseRequested && !this.stopRequested && fatalError === undefined) {
         const index = nextIndex;
         if (index >= items.length) return;
         nextIndex += 1;
@@ -73,25 +76,47 @@ export class TaskExecutor<TItem, TResult> {
         const item = items[index];
         let result: TResult | undefined;
         let hasResult = false;
-        let applied = false;
         try {
           await this.deps.gate?.beforeItem?.(item, context);
-          if (this.stopRequested) continue;
+          if (this.stopRequested || fatalError !== undefined) continue;
           result = await this.deps.runItem(item, context);
           hasResult = true;
-          await this.deps.gate?.beforeResult?.(item, context);
-          await this.deps.applyResult(item, result, context);
-          applied = true;
+          const previousPublication = publicationTail;
+          let releasePublication!: () => void;
+          publicationTail = new Promise<void>((resolve) => {
+            releasePublication = resolve;
+          });
+          await previousPublication;
+          try {
+            if (this.stopRequested || fatalError !== undefined) continue;
+            await this.deps.gate?.beforeResult?.(item, context);
+            if (this.stopRequested || fatalError !== undefined) continue;
+            await this.deps.applyResult(item, result, context);
+          } finally {
+            releasePublication();
+          }
+        } catch (error) {
+          if (fatalError === undefined) {
+            fatalError = error;
+            controller.abort(error);
+          }
         } finally {
-          if (hasResult && !applied) await this.deps.discardResult?.(item, result as TResult, context);
+          if (hasResult) {
+            try {
+              await this.deps.finalizeResult?.(item, result as TResult, context);
+            } catch (error) {
+              try {
+                await this.deps.onFinalizeError?.(item, error);
+              } catch {
+                // Finalization is best-effort and must not replace the execution error.
+              }
+            }
+          }
         }
       }
     };
 
-    const outcomes = await Promise.allSettled(
-      Array.from({ length: Math.min(this.deps.concurrency, items.length) }, worker),
-    );
-    const rejected = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
-    if (rejected) throw rejected.reason;
+    await Promise.all(Array.from({ length: Math.min(this.deps.concurrency, items.length) }, worker));
+    if (fatalError !== undefined) throw fatalError;
   }
 }

@@ -145,7 +145,7 @@ describe("buildServer scan integration", () => {
     expect(retriedLibraryResponse.json().result.data.total).toBe(0);
   });
 
-  it("lists supported candidates from a configured media root and excludes non-media files", async () => {
+  it("lists supported candidates and applies the current literal filename blacklist", async () => {
     mediaDirectory = await createTempDirectory("server-scan-candidates");
     await mkdir(join(mediaDirectory.path, "nested"));
     await mkdir(join(mediaDirectory.path, "JAV_output"));
@@ -153,8 +153,14 @@ describe("buildServer scan integration", () => {
     await writeFile(join(mediaDirectory.path, "nested", "trailer.mp4"), "trailer");
     await writeFile(join(mediaDirectory.path, "nested", "notes.txt"), "text");
     await writeFile(join(mediaDirectory.path, "JAV_output", "done.mp4"), "video");
+    await mkdir(join(mediaDirectory.path, "default"));
+    await writeFile(join(mediaDirectory.path, "default", "kept.mp4"), "video");
+    await writeFile(join(mediaDirectory.path, "nested", "DeFaUlT001.mp4"), "video");
+    await writeFile(join(mediaDirectory.path, "nested", "ads+[2024].mp4"), "video");
+    await writeFile(join(mediaDirectory.path, "nested", "ads-2024.mp4"), "video");
 
-    const { fastify } = await createTestServer();
+    const { fastify, services } = await createTestServer();
+    await services.config.update({ scrape: { filenameBlacklistTokens: ["default", "ADS+[2024]", "   "] } });
     const token = await loginAsAdmin(fastify);
     const response = await fastify.inject({
       method: "GET",
@@ -170,11 +176,21 @@ describe("buildServer scan integration", () => {
         name: "done.mp4",
         ref: { relativePath: "JAV_output/done.mp4", rootId: deterministicMediaRootId(mediaDirectory.path) },
       }),
+      expect.objectContaining({ name: "kept.mp4" }),
+      expect.objectContaining({ name: "ads-2024.mp4" }),
       expect.objectContaining({
         name: "movie.mp4",
         ref: { relativePath: "nested/movie.mp4", rootId: deterministicMediaRootId(mediaDirectory.path) },
       }),
     ]);
+    await services.config.update({ scrape: { filenameBlacklistTokens: [] } });
+    const refreshedResponse = await fastify.inject({
+      method: "GET",
+      url: `/trpc/scans.candidates?input=${encodeURIComponent(JSON.stringify({ scanDir: mediaDirectory.path }))}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(refreshedResponse.statusCode).toBe(200);
+    expect(refreshedResponse.json().result.data.candidates).toHaveLength(6);
   });
 
   it("reuses the enclosing root for a nested scan directory so candidates cannot escape it", async () => {

@@ -1,18 +1,27 @@
 import { IpcChannel } from "../IpcChannel";
 import type { IpcProcedure } from "../ipcTypes";
 import type { RootFileRef } from "../mediaRef";
-import type { ScrapeRunSnapshotDto } from "../serverDtos";
-import type { UncensoredConfirmItem, UncensoredConfirmResponse } from "../types";
+import type { ScrapeConfirmUncensoredInput, ScrapeRunSnapshotDto } from "../serverDtos";
+import type { UncensoredConfirmResponse } from "../types";
 
 export type ScraperStartInput =
-  | { mode: "selection"; refs: RootFileRef[]; outputRootId: string; outputRelativeDirectory?: string }
-  | { mode: "single"; ref: RootFileRef };
+  | {
+      mode: "selection";
+      refs: RootFileRef[];
+      outputRootId: string;
+      outputRelativeDirectory?: string;
+      manualUrl?: string;
+    }
+  | { mode: "single"; ref: RootFileRef; manualUrl?: string };
 
 export type ScraperIpcContract = {
-  [IpcChannel.Scraper_Start]: IpcProcedure<ScraperStartInput, { taskId: string; totalFiles: number; message: string }>;
+  [IpcChannel.Scraper_Start]: IpcProcedure<
+    ScraperStartInput,
+    { taskId: string; totalFiles: number; message: string; snapshot: ScrapeRunSnapshotDto }
+  >;
   [IpcChannel.Scraper_StartSinglePath]: IpcProcedure<
     { path: string },
-    { taskId: string; totalFiles: number; message: string }
+    { taskId: string; totalFiles: number; message: string; snapshot: ScrapeRunSnapshotDto }
   >;
   [IpcChannel.Scraper_Stop]: IpcProcedure<void, { success: true; pendingCount: number }>;
   [IpcChannel.Scraper_Pause]: IpcProcedure<void, { success: true }>;
@@ -20,7 +29,7 @@ export type ScraperIpcContract = {
   [IpcChannel.Scraper_GetStatus]: IpcProcedure<{ taskId?: string }, ScrapeRunSnapshotDto | null>;
   [IpcChannel.Scraper_Retry]: IpcProcedure<
     { runId: string; itemIds?: string[] },
-    { taskId: string; totalFiles: number; message: string }
+    { taskId: string; totalFiles: number; message: string; snapshot: ScrapeRunSnapshotDto }
   >;
-  [IpcChannel.Scraper_ConfirmUncensored]: IpcProcedure<{ items?: UncensoredConfirmItem[] }, UncensoredConfirmResponse>;
+  [IpcChannel.Scraper_ConfirmUncensored]: IpcProcedure<ScrapeConfirmUncensoredInput, UncensoredConfirmResponse>;
 };

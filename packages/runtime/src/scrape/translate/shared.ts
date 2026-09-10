@@ -1,4 +1,4 @@
-import { convertToSimplified, convertToTraditional, detectLanguage } from "../../shared";
+import { convertToSimplified, convertToTraditional } from "../../shared";
 import type { LanguageTarget } from "./types";
 
 export const normalizeNewlines = (value: string): string => value.replace(/\r\n?/gu, "\n");
@@ -20,9 +20,4 @@ export const getTargetLanguageLabel = (target: LanguageTarget): string => {
     return "繁体中文";
   }
   return "简体中文";
-};
-
-export const toTranslatedFieldValue = (value: string): string | undefined => {
-  const detected = detectLanguage(value);
-  return detected === "zh_cn" || detected === "zh_tw" ? value : undefined;
 };

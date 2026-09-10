@@ -1,4 +1,5 @@
 import {
+  beginScrapeTask,
   selectScrapeHasWork,
   selectScrapeResults,
   selectScrapeTaskId,
@@ -10,6 +11,7 @@ import { buildFailedScrapeSnapshot, buildScrapeLiveItem, buildScrapeSnapshot } f
 describe("scrape store contract", () => {
   beforeEach(() => {
     useScrapeStore.getState().reset();
+    useScrapeStore.setState({ retiredTaskIds: [] });
   });
 
   it("keeps the derived results snapshot stable until the scrape snapshot changes", () => {
@@ -36,56 +38,23 @@ describe("scrape store contract", () => {
     useScrapeStore.getState().setSnapshot(buildScrapeSnapshot());
     expect(selectScrapeHasWork(useScrapeStore.getState())).toBe(true);
     expect(selectScrapeResults(useScrapeStore.getState())).toHaveLength(1);
+    expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("task-1");
 
     useScrapeStore.getState().setSnapshot(null);
     expect(selectScrapeHasWork(useScrapeStore.getState())).toBe(true);
     expect(selectScrapeResults(useScrapeStore.getState())).toHaveLength(1);
-  });
 
-  it("does not erase this session's results when live status is null", () => {
-    const snapshot = buildFailedScrapeSnapshot();
-    useScrapeStore.getState().setSnapshot(snapshot);
-    useScrapeStore.getState().setSnapshot(null);
-
-    expect(useScrapeStore.getState().snapshot).toBe(snapshot);
-    expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("task-1");
-  });
-
-  it("returns to an empty session after reset", () => {
-    useScrapeStore.getState().setSnapshot(buildFailedScrapeSnapshot());
     useScrapeStore.getState().reset();
-
     expect(selectScrapeHasWork(useScrapeStore.getState())).toBe(false);
     expect(selectScrapeResults(useScrapeStore.getState())).toEqual([]);
     expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("");
-  });
-
-  it("exposes the current scrape task id from the store", () => {
+    useScrapeStore.getState().setSnapshot(buildFailedScrapeSnapshot());
     expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("");
-
-    useScrapeStore.getState().setSnapshot(
-      buildScrapeSnapshot({
-        task: { ...buildScrapeSnapshot().task, id: "running-1", status: "running", completedAt: null },
-        items: [buildScrapeLiveItem({ status: "processing" })],
-      }),
-    );
-    expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("running-1");
-
-    useScrapeStore.getState().setSnapshot(
-      buildScrapeSnapshot({
-        task: { ...buildScrapeSnapshot().task, id: "paused-1", status: "paused", completedAt: null },
-        items: [buildScrapeLiveItem({ status: "processing" })],
-      }),
-    );
-    expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("paused-1");
-
-    useScrapeStore.getState().setSnapshot(buildScrapeSnapshot());
-    expect(selectScrapeTaskId(useScrapeStore.getState())).toBe("task-1");
   });
 
   it("uses manifest item ids for retry and keeps unaffected items in retry snapshots", () => {
     const completed = buildScrapeSnapshot({
-      task: { ...buildScrapeSnapshot().task, totalItems: 2, successCount: 1, failedCount: 1 },
+      task: { ...buildScrapeSnapshot().task, revision: 80, totalItems: 2, successCount: 1, failedCount: 1 },
       items: [
         buildScrapeLiveItem({ id: "item-success", status: "success" }),
         buildScrapeLiveItem({ id: "item-failed", resultId: "result-failed", status: "failed" }),
@@ -95,9 +64,9 @@ describe("scrape store contract", () => {
 
     useScrapeStore.getState().setSnapshot(
       buildScrapeSnapshot({
-        task: { ...completed.task, status: "running", completedAt: null },
+        task: { ...completed.task, status: "running", completedAt: null, executionGeneration: 1, revision: 20 },
         progress: { percent: 50, completedItems: 1, totalItems: 2 },
-        items: [buildScrapeLiveItem({ id: "item-failed", resultId: null, status: "processing" })],
+        items: [completed.items[0], buildScrapeLiveItem({ id: "item-failed", resultId: null, status: "processing" })],
       }),
     );
 
@@ -105,5 +74,38 @@ describe("scrape store contract", () => {
       { fileId: "item-success", status: "success" },
       { fileId: "item-failed", status: "processing" },
     ]);
+  });
+
+  it("keeps the previous snapshot when a retry request starts or fails", () => {
+    const snapshot = buildFailedScrapeSnapshot();
+    useScrapeStore.getState().setSnapshot(snapshot);
+
+    beginScrapeTask(snapshot.task.id);
+    expect(useScrapeStore.getState()).toMatchObject({ snapshot, pending: true, error: null });
+
+    useScrapeStore.getState().setSnapshot({
+      ...snapshot,
+      task: { ...snapshot.task, revision: snapshot.task.revision + 1 },
+    });
+    expect(useScrapeStore.getState().pending).toBe(true);
+
+    useScrapeStore.getState().setError("request failed");
+    expect(useScrapeStore.getState()).toMatchObject({ pending: false, error: "request failed" });
+  });
+
+  it("does not let an older launch response overwrite a newer event snapshot", () => {
+    const newer = buildScrapeSnapshot({
+      task: { ...buildScrapeSnapshot().task, status: "running", revision: 2 },
+      items: [buildScrapeLiveItem({ id: "item-1", status: "success" })],
+    });
+    const older = buildScrapeSnapshot({
+      task: { ...newer.task, revision: 1 },
+      items: [buildScrapeLiveItem({ id: "item-1", status: "processing" })],
+    });
+
+    useScrapeStore.getState().setSnapshot(newer);
+    useScrapeStore.getState().setSnapshot(older);
+
+    expect(useScrapeStore.getState().snapshot).toBe(newer);
   });
 });

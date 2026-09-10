@@ -1,6 +1,7 @@
 import { copyFile, lstat, mkdir, readdir, stat, symlink, unlink } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
-import { inspectStrmTarget } from "../scrape/utils/strm";
+import { atomicWriteFile } from "@mdcz/media-store";
+import { inspectStrmTarget, prepareMovedStrmContent } from "../scrape/utils/strm";
 import { SUBTITLE_EXTENSIONS } from "../scrape/utils/subtitles";
 
 export * from "./AmazonJpImageService";
@@ -160,36 +161,34 @@ export const createSymlinks = async (payload: CreateSymlinkPayload): Promise<Sym
     result.planned.push(destinationPath);
     if (payload.dryRun) continue;
 
-    await mkdir(dirname(destinationPath), { recursive: true });
-    if (destinationState === "broken_symlink") {
-      await unlink(destinationPath).catch(() => undefined);
-    }
-
-    const strmTarget = extension === ".strm" ? await inspectStrmTarget(sourcePath).catch(() => undefined) : undefined;
-    if (strmTarget?.kind === "relative_path" || (copyExtensions.has(extension) && payload.copyFiles)) {
-      try {
+    try {
+      const strmTarget = extension === ".strm" ? await inspectStrmTarget(sourcePath) : undefined;
+      if (extension === ".strm" && !strmTarget) throw new Error(`STRM file does not contain a target: ${sourcePath}`);
+      if (copyExtensions.has(extension) && !payload.copyFiles) {
+        result.skipped += 1;
+        continue;
+      }
+      await mkdir(dirname(destinationPath), { recursive: true });
+      if (destinationState === "broken_symlink") await unlink(destinationPath);
+      if (strmTarget?.kind === "relative_path") {
+        const content = await prepareMovedStrmContent(sourcePath, destinationPath);
+        if (content === undefined) throw new Error(`Cannot relocate STRM target: ${sourcePath}`);
+        await atomicWriteFile(destinationPath, content);
+        result.copied += 1;
+        continue;
+      }
+      if (copyExtensions.has(extension)) {
         await copyFile(sourcePath, destinationPath);
         result.copied += 1;
-      } catch {
-        result.failed += 1;
+        continue;
       }
-      continue;
-    }
-
-    if (copyExtensions.has(extension)) {
-      result.skipped += 1;
-      continue;
-    }
-
-    const sourceKey = resolve(sourcePath);
-    if (linkedSources.has(sourceKey)) {
-      result.skipped += 1;
-      continue;
-    }
-    linkedSources.add(sourceKey);
-
-    try {
+      const sourceKey = resolve(sourcePath);
+      if (linkedSources.has(sourceKey)) {
+        result.skipped += 1;
+        continue;
+      }
       await symlink(sourcePath, destinationPath);
+      linkedSources.add(sourceKey);
       result.linked += 1;
     } catch {
       result.failed += 1;

@@ -1,11 +1,18 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Configuration } from "@mdcz/shared/config";
 import PQueue from "p-queue";
+import { z } from "zod";
 import { parseRetryAfterMs, readRetryAfterHeader, toErrorMessage } from "../../../shared";
 import { isAbortError, throwIfAborted } from "../../utils/abort";
 import { getTargetLanguageLabel } from "../shared";
 import type { LanguageTarget } from "../types";
-import { isMissingRequiredLlmApiKey, type LlmApiClient, LlmTransportError } from "./LlmApiClient";
+import {
+  isMissingRequiredLlmApiKey,
+  type LlmApiClient,
+  type LlmJsonSchema,
+  LlmTransportError,
+  toLlmTextRequest,
+} from "./LlmApiClient";
 
 interface TranslationLogger {
   warn(message: string): void;
@@ -13,22 +20,62 @@ interface TranslationLogger {
 
 const OPENAI_RETRY_STATUS_CODE = 429;
 const RETRY_AFTER_CAP_MS = 15_000;
-const QUOTE_PATTERN = /^['\u0022\u201C\u201D]+|['\u0022\u201C\u201D]+$/gu;
 const REQUEST_TIMEOUT_PATTERN =
   /request timeout|timed ?out|timeout \(\d+ ms\)|error reading response stream|kind: *body|econnreset|etimedout/iu;
 const COMPLETE_LEADING_THINK_PATTERN = /^<think>[\s\S]*?<\/think>\s*/iu;
 const TRANSLATION_ONLY_INSTRUCTION = "只输出最终译文，不要输出思考过程、解释、提示词或原文。";
+const JSON_TRANSLATION_INSTRUCTION = '只输出 JSON 对象，格式为 {"translation":"最终译文"}，不要添加其他字段。';
+
+const textTranslationSchema = z.strictObject({ translation: z.string().trim().min(1) });
+const metadataTranslationSchema = z.strictObject({
+  title: z.string().trim().min(1).nullable(),
+  plot: z.string().trim().min(1).nullable(),
+  genres: z.array(z.string().trim().min(1)),
+});
+
+export const LLM_TEXT_TRANSLATION_SCHEMA: LlmJsonSchema = {
+  name: "text_translation",
+  schema: z.toJSONSchema(textTranslationSchema),
+};
+
+export const LLM_METADATA_TRANSLATION_SCHEMA: LlmJsonSchema = {
+  name: "metadata_translation",
+  schema: z.toJSONSchema(metadataTranslationSchema),
+};
 
 const buildTranslationPrompt = (prompt: string): string => `${prompt.trim()}
 
 ${TRANSLATION_ONLY_INSTRUCTION}`;
 
-export const cleanTranslationOutput = (output: string | null, prompt: string, source: string): string | null => {
+export const buildLlmTranslatePrompt = (
+  promptTemplate: string,
+  text: string,
+  target: LanguageTarget,
+  structured = false,
+): string => {
+  const prompt = promptTemplate.replaceAll("{lang}", getTargetLanguageLabel(target)).replaceAll("{content}", text);
+  return `${prompt.trim()}\n\n${structured ? JSON_TRANSLATION_INSTRUCTION : TRANSLATION_ONLY_INSTRUCTION}`;
+};
+
+export const cleanTranslationOutput = (
+  output: string | null,
+  prompt: string,
+  source: string,
+  structured = false,
+): string | null => {
   if (typeof output !== "string") {
     return null;
   }
 
-  const translated = output.replace(COMPLETE_LEADING_THINK_PATTERN, "").trim();
+  const cleaned = output.replace(COMPLETE_LEADING_THINK_PATTERN, "").trim();
+  let translated = cleaned;
+  if (structured) {
+    try {
+      translated = textTranslationSchema.parse(JSON.parse(cleaned)).translation;
+    } catch {
+      return null;
+    }
+  }
   const normalizedPrompt = prompt.trim();
   const normalizedSource = source.trim();
   if (
@@ -47,6 +94,9 @@ interface RetryDecision {
   delayMs: number;
   reason: string;
 }
+
+export type LlmMetadataTranslationInput = z.infer<typeof metadataTranslationSchema>;
+export type LlmMetadataTranslationResult = z.infer<typeof metadataTranslationSchema>;
 
 export class OpenAiTranslator {
   private readonly requestQueues = new Map<number, PQueue>();
@@ -71,88 +121,74 @@ export class OpenAiTranslator {
 
     throwIfAborted(signal);
 
-    const prompt = config.translate.llmPrompt
-      .replaceAll("{lang}", getTargetLanguageLabel(target))
-      .replaceAll("{content}", text);
-    const contractedPrompt = buildTranslationPrompt(prompt);
-
-    const content = await this.requestText(config, contractedPrompt, config.translate.llmTemperature, signal).catch(
-      (error) => {
-        if (isAbortError(error)) {
-          throw error;
-        }
-        this.logger.warn(`LLM translation failed: ${toErrorMessage(error)}`);
-        return null;
-      },
+    const structured = config.translate.llmOutputFormat !== "none";
+    const contractedPrompt = buildLlmTranslatePrompt(config.translate.llmPrompt, text, target, structured);
+    const content = await this.requestText(
+      config,
+      contractedPrompt,
+      signal,
+      structured ? LLM_TEXT_TRANSLATION_SCHEMA : undefined,
     );
-
-    return cleanTranslationOutput(content, prompt, text);
+    const translation = cleanTranslationOutput(content, config.translate.llmPrompt, text, structured);
+    if (!translation) throw new Error("LLM translation returned invalid output");
+    return translation;
   }
 
-  async translateSingleLine(prompt: string, config: Configuration, signal?: AbortSignal): Promise<string | null> {
+  async translateMetadata(
+    input: LlmMetadataTranslationInput,
+    target: LanguageTarget,
+    config: Configuration,
+    signal?: AbortSignal,
+  ): Promise<LlmMetadataTranslationResult> {
+    if (!input.title && !input.plot && input.genres.length === 0) {
+      return { title: null, plot: null, genres: [] };
+    }
     if (
       !config.translate.llmModelName.trim() ||
       isMissingRequiredLlmApiKey(config.translate.llmBaseUrl, config.translate.llmApiKey)
     ) {
-      return null;
+      throw new Error("LLM metadata translation requires a model and the endpoint's required API key");
     }
 
     throwIfAborted(signal);
 
-    const contractedPrompt = buildTranslationPrompt(prompt);
-    const content = await this.requestText(config, contractedPrompt, 0, signal).catch((error) => {
-      if (isAbortError(error)) {
-        throw error;
+    const prompt = [
+      `将输入 JSON 中的影片元数据翻译为${getTargetLanguageLabel(target)}。`,
+      '只返回一个 JSON 对象，字段固定为 "title"、"plot" 和 "genres"。',
+      "title 和 plot 为 null 时保持 null，否则只返回最终译文。",
+      `genres 必须返回 ${input.genres.length} 项，顺序与输入完全一致，每项只包含一个简短标签。`,
+      "不要返回解释、Markdown、提示词或原文之外的额外字段。",
+      "输入 JSON：",
+      JSON.stringify(input),
+    ].join("\n");
+    const content = await this.requestText(config, prompt, signal, LLM_METADATA_TRANSLATION_SCHEMA);
+    try {
+      const parsed = metadataTranslationSchema.parse(JSON.parse(content ?? ""));
+      if (
+        (input.title === null) !== (parsed.title === null) ||
+        (input.plot === null) !== (parsed.plot === null) ||
+        parsed.genres.length !== input.genres.length
+      ) {
+        throw new Error("title/plot nullability or genre count does not match the input");
       }
-      this.logger.warn(`LLM term translation failed: ${toErrorMessage(error)}`);
-      return null;
-    });
-
-    const translated = cleanTranslationOutput(content, prompt, prompt);
-    if (!translated) {
-      return null;
+      return parsed;
+    } catch (error) {
+      throw new Error(`LLM metadata translation returned invalid structured output: ${toErrorMessage(error)}`, {
+        cause: error,
+      });
     }
-
-    const firstLine = translated.split(/\r?\n/gu).find((line) => line.trim().length > 0);
-
-    return firstLine ? firstLine.trim().replace(QUOTE_PATTERN, "") : null;
   }
 
-  private requestText(config: Configuration, prompt: string, temperature: number, signal?: AbortSignal) {
+  private requestText(config: Configuration, prompt: string, signal?: AbortSignal, outputSchema?: LlmJsonSchema) {
     return this.executeRequestWithRetry(
       config,
-      () =>
-        this.llmApiClient.generateText(
-          {
-            model: config.translate.llmModelName,
-            apiKey: config.translate.llmApiKey,
-            baseUrl: config.translate.llmBaseUrl,
-            temperature,
-            prompt,
-            timeout: this.getTimeoutMs(config),
-          },
-          signal,
-        ),
+      () => this.llmApiClient.generateText(toLlmTextRequest(config.translate, prompt, outputSchema), signal),
       signal,
     );
   }
 
   private getRequestsPerSecond(config: Configuration): number {
-    const configured = Number(config.translate.llmMaxRequestsPerSecond);
-    if (!Number.isFinite(configured)) {
-      return 1;
-    }
-
-    return Math.max(1, Math.trunc(configured));
-  }
-
-  private getTimeoutMs(config: Configuration): number {
-    const configured = Number(config.translate.llmTimeout);
-    if (!Number.isFinite(configured)) {
-      return 60_000;
-    }
-
-    return Math.max(1, Math.trunc(configured)) * 1000;
+    return config.translate.llmMaxRequestsPerSecond;
   }
 
   private getQueue(config: Configuration): PQueue {
@@ -176,7 +212,7 @@ export class OpenAiTranslator {
     request: () => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
-    const maxRetryCount = Math.max(0, Math.trunc(config.translate.llmMaxRetries));
+    const maxRetryCount = config.translate.llmMaxRetries;
     let attempt = 0;
 
     while (true) {

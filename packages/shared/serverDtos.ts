@@ -1,7 +1,13 @@
 import { z } from "zod";
 import type { Configuration, DeepPartial } from "./config";
 import { Website } from "./enums";
-import { assetRefSchema, parseWireRelativeDirectory, type RootFileRef, rootFileRefSchema } from "./mediaRef";
+import {
+  LLM_API_FORMAT_OPTIONS,
+  LLM_OUTPUT_FORMAT_OPTIONS,
+  LLM_REASONING_OPTIONS,
+  LLM_SERVICE_TYPE_OPTIONS,
+} from "./llm";
+import { assetRefSchema, type RootFileRef, rootFileRefSchema, wireRelativeDirectorySchema } from "./mediaRef";
 import { normalizedCropRegionSchema } from "./posterCrop";
 import type { MediaCandidate } from "./types";
 
@@ -215,6 +221,8 @@ export const scrapeRunTaskSchema = z.object({
   failedCount: z.number().int().nonnegative(),
   skippedCount: z.number().int().nonnegative(),
   error: z.string().nullable(),
+  revision: z.number().int().nonnegative(),
+  executionGeneration: z.number().int().nonnegative(),
   continuity: z.enum(["live", "final", "interrupted"]),
 });
 
@@ -269,7 +277,7 @@ export type AmbiguousUncensoredItemDto = z.infer<typeof ambiguousUncensoredItemS
 const scrapeBatchStartInputSchema = z.object({
   executionMode: z.literal("batch"),
   outputRootId: z.string().trim().min(1),
-  outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
+  outputRelativeDirectory: wireRelativeDirectorySchema.optional(),
   refs: z.array(scrapeFileRefSchema).min(1),
   maintenancePreset: maintenancePresetIdSchema.optional(),
   uncensoredConfirmed: z.boolean().optional(),
@@ -279,7 +287,7 @@ const scrapeBatchStartInputSchema = z.object({
 const scrapeSingleStartInputSchema = z.object({
   executionMode: z.literal("single"),
   outputRootId: z.string().trim().min(1).optional(),
-  outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
+  outputRelativeDirectory: wireRelativeDirectorySchema.optional(),
   refs: z.array(scrapeFileRefSchema).length(1),
   maintenancePreset: maintenancePresetIdSchema.optional(),
   uncensoredConfirmed: z.boolean().optional(),
@@ -302,16 +310,7 @@ export type ScrapeTaskControlInput = z.infer<typeof scrapeTaskControlInputSchema
 
 export const scrapeConfirmUncensoredInputSchema = z.object({
   taskId: z.string().trim().min(1),
-  refs: z.array(scrapeFileRefSchema).min(1).optional(),
-  items: z
-    .array(
-      z.object({
-        ref: scrapeFileRefSchema,
-        choice: z.enum(["umr", "leak", "uncensored"]),
-      }),
-    )
-    .min(1)
-    .optional(),
+  items: z.array(z.object({ itemId: z.string().trim().min(1), choice: z.enum(["umr", "leak", "uncensored"]) })).min(1),
 });
 
 export type ScrapeConfirmUncensoredInput = z.infer<typeof scrapeConfirmUncensoredInputSchema>;
@@ -503,6 +502,8 @@ export const maintenanceStartInputSchema = z.object({
   rootId: z.string().trim().min(1),
   presetId: maintenancePresetIdSchema,
   refs: z.array(scrapeFileRefSchema).min(1),
+  outputRootId: z.string().trim().min(1).optional(),
+  outputRelativeDirectory: wireRelativeDirectorySchema.optional(),
 });
 
 export type MaintenanceStartInput = z.infer<typeof maintenanceStartInputSchema>;
@@ -850,7 +851,7 @@ export const automationScrapeStartInputSchema = z
     refs: z.array(scrapeFileRefSchema).min(1).optional(),
     rootId: z.string().trim().min(1).optional(),
     outputRootId: z.string().trim().min(1).optional(),
-    outputRelativeDirectory: z.string().transform(parseWireRelativeDirectory).optional(),
+    outputRelativeDirectory: wireRelativeDirectorySchema.optional(),
     executionMode: z.enum(["single", "batch"]).default("batch"),
     manualUrl: z.string().trim().min(1).optional(),
     uncensoredConfirmed: z.boolean().optional(),
@@ -941,8 +942,12 @@ export const translateTestLlmInputSchema = z.object({
   llmModelName: z.string().optional(),
   llmApiKey: z.string().optional(),
   llmBaseUrl: z.string().optional(),
+  llmApiFormat: z.enum(LLM_API_FORMAT_OPTIONS).optional(),
+  llmServiceType: z.enum(LLM_SERVICE_TYPE_OPTIONS).optional(),
   llmPrompt: z.string().optional(),
-  llmTemperature: z.number().optional(),
+  llmTemperature: z.number().min(0).max(2).nullable().optional(),
+  llmReasoning: z.enum(LLM_REASONING_OPTIONS).optional(),
+  llmOutputFormat: z.enum(LLM_OUTPUT_FORMAT_OPTIONS).optional(),
   llmTimeout: z.number().optional(),
 });
 

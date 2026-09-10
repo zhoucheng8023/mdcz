@@ -1,8 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { configurationSchema, defaultConfiguration } from "@main/services/config";
-import { SignalService } from "@main/services/SignalService";
 import { createFileScraper } from "@main/services/scraper/FileScraper";
 import type { LocalScanService } from "@mdcz/runtime/maintenance";
 import type {
@@ -16,7 +15,7 @@ import type {
 import { Website } from "@mdcz/shared/enums";
 import type { CrawlerData } from "@mdcz/shared/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mockConfigManager } from "../../../helpers/scraper";
+import { mockConfigManager, prepareAndExecuteFile } from "../../../helpers/scraper";
 
 const tempDirs: string[] = [];
 
@@ -91,7 +90,7 @@ const createScraper = ({
       aggregate: vi.fn().mockResolvedValue(createAggregationResult(crawlerData)),
     } as unknown as AggregationService,
     translateService: {
-      translateCrawlerData: vi.fn().mockResolvedValue(crawlerData),
+      translateCrawlerData: vi.fn().mockResolvedValue({ data: crawlerData, error: null }),
     } as unknown as TranslateService,
     nfoGenerator: {
       writeNfo,
@@ -105,10 +104,7 @@ const createScraper = ({
     fileOrganizer: {
       plan: vi.fn().mockReturnValue(plan),
       resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-      ensureOutputReady: vi.fn().mockResolvedValue(plan),
-      organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
     } as unknown as FileOrganizer,
-    signalService: new SignalService(null),
     localScanService,
   });
 };
@@ -141,7 +137,12 @@ describe("FileScraper .strm support", () => {
     const scraper = createScraper({ config, crawlerData, plan, writeNfo });
     const sourcePath = await createTempFile("ABC-123.strm");
 
-    const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 });
+    const result = await prepareAndExecuteFile(scraper, sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(result.status).toBe("success");
     expect(result.fileName).toBe("ABC-123");
@@ -180,12 +181,27 @@ describe("FileScraper .strm support", () => {
       const scraper = createScraper({ config, crawlerData, plan, writeNfo });
       const sourcePath = await createTempFile("ABC-123.strm");
 
-      const result = await scraper.scrapeFile(sourcePath, { fileIndex: 1, totalFiles: 1 });
+      const result = await prepareAndExecuteFile(scraper, sourcePath, { fileIndex: 1, totalFiles: 1 }, undefined, {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      });
 
       expect(writeNfo).not.toHaveBeenCalled();
-      expect(result.nfo?.relativePath).toBe(nfoPath);
+      expect(result.nfo).toEqual({
+        rootId: "test-root",
+        relativePath: relative(tmpdir(), nfoPath).replaceAll("\\", "/"),
+      });
       if (scenario.shouldSyncMovieAlias) {
-        await expect(readFile(movieNfoPath, "utf8")).resolves.toBe(await readFile(nfoPath, "utf8"));
+        expect(result.publicationPlan?.artifacts).toContainEqual({
+          target: {
+            rootId: "test-root",
+            relativePath: relative(tmpdir(), movieNfoPath).replaceAll("\\", "/"),
+          },
+          content: { kind: "text", data: await readFile(nfoPath, "utf8") },
+        });
+        await expect(readFile(movieNfoPath)).rejects.toMatchObject({ code: "ENOENT" });
         continue;
       }
       await expect(readFile(movieNfoPath, "utf8")).rejects.toThrow();
@@ -211,8 +227,6 @@ describe("FileScraper .strm support", () => {
     const fileOrganizer = {
       plan: vi.fn().mockReturnValue(plan),
       resolveOutputPlan: vi.fn(async (nextPlan: OrganizePlan) => nextPlan),
-      ensureOutputReady: vi.fn().mockResolvedValue(plan),
-      organizeVideo: vi.fn().mockResolvedValue(plan.targetVideoPath),
     } as unknown as FileOrganizer;
     const scanVideoMock = vi.fn().mockResolvedValue({
       nfoLocalState: {
@@ -228,7 +242,7 @@ describe("FileScraper .strm support", () => {
         aggregate: vi.fn().mockResolvedValue(createAggregationResult(crawlerData)),
       } as unknown as AggregationService,
       translateService: {
-        translateCrawlerData: vi.fn().mockResolvedValue(crawlerData),
+        translateCrawlerData: vi.fn().mockResolvedValue({ data: crawlerData, error: null }),
       } as unknown as TranslateService,
       nfoGenerator: {
         writeNfo,
@@ -240,11 +254,21 @@ describe("FileScraper .strm support", () => {
         }),
       } as unknown as DownloadManager,
       fileOrganizer,
-      signalService: new SignalService(null),
       localScanService,
     });
     await writeFile(join(root, "ABC-123-U.strm"), "video");
-    const result = await scraper.scrapeFile(join(root, "ABC-123-U.strm"), { fileIndex: 1, totalFiles: 1 });
+    const result = await prepareAndExecuteFile(
+      scraper,
+      join(root, "ABC-123-U.strm"),
+      { fileIndex: 1, totalFiles: 1 },
+      undefined,
+      {
+        roots: [
+          { id: "test-root", hostPath: tmpdir() },
+          { id: "output-root", hostPath: "/output" },
+        ],
+      },
+    );
 
     expect(fileOrganizer.plan).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -294,7 +318,12 @@ describe("FileScraper .strm support", () => {
       localScanService,
     });
     await writeFile(join(root, "ABC-123.strm"), "video");
-    await scraper.scrapeFile(join(root, "ABC-123.strm"), { fileIndex: 1, totalFiles: 1 });
+    await prepareAndExecuteFile(scraper, join(root, "ABC-123.strm"), { fileIndex: 1, totalFiles: 1 }, undefined, {
+      roots: [
+        { id: "test-root", hostPath: tmpdir() },
+        { id: "output-root", hostPath: "/output" },
+      ],
+    });
 
     expect(writeNfo).toHaveBeenCalledWith(
       plan.nfoPath,

@@ -7,14 +7,10 @@ import {
   POSTER_TAG_BADGE_ASPECT_WIDTH,
   POSTER_TAG_BADGE_IMAGE_EXTENSIONS,
   POSTER_TAG_BADGE_IMAGE_FILENAMES,
-  POSTER_TAG_BADGE_MAX_WIDTH,
-  POSTER_TAG_BADGE_MAX_WIDTH_RATIO,
-  POSTER_TAG_BADGE_MIN_WIDTH,
   POSTER_TAG_BADGE_POSITION_LABELS,
   POSTER_TAG_BADGE_POSITION_OPTIONS,
   POSTER_TAG_BADGE_TYPE_LABELS,
   POSTER_TAG_BADGE_TYPE_OPTIONS,
-  POSTER_TAG_BADGE_WIDTH_RATIO,
 } from "@mdcz/shared/posterBadges";
 import { previewTitleRepair } from "@mdcz/shared/titleRepair";
 import type { NamingPreviewItem } from "@mdcz/shared/types";
@@ -68,6 +64,27 @@ const TRANSLATE_ENGINE_OPTIONS: EnumOption[] = [
   { value: "google", label: "Google 翻译（免费）" },
 ];
 const LANGUAGE_OPTIONS = [...TRANSLATION_TARGET_OPTIONS];
+const LLM_REASONING_FIELD_OPTIONS: EnumOption[] = [
+  { value: "default", label: "服务端默认" },
+  { value: "disabled", label: "关闭" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+];
+const LLM_API_FORMAT_FIELD_OPTIONS: EnumOption[] = [
+  { value: "responses", label: "Responses" },
+  { value: "chat-completions", label: "Chat Completions" },
+];
+const LLM_SERVICE_TYPE_FIELD_OPTIONS: EnumOption[] = [
+  { value: "openai-compatible", label: "OpenAI 兼容" },
+  { value: "google", label: "Google" },
+  { value: "deepseek", label: "DeepSeek" },
+];
+const LLM_OUTPUT_FORMAT_FIELD_OPTIONS: EnumOption[] = [
+  { value: "none", label: "提示词 JSON" },
+  { value: "json_object", label: "JSON Object" },
+  { value: "json_schema", label: "JSON Schema" },
+];
 const PART_STYLE_OPTIONS: EnumOption[] = [
   { value: "RAW", label: "保持原始后缀" },
   { value: "CD", label: "统一为 CD1 / CD2" },
@@ -119,9 +136,6 @@ const TAG_BADGE_IMAGE_EXTENSION_LABEL = POSTER_TAG_BADGE_IMAGE_EXTENSIONS.map((e
   " / ",
 );
 const TAG_BADGE_IMAGE_RATIO_LABEL = `${POSTER_TAG_BADGE_ASPECT_WIDTH}:${POSTER_TAG_BADGE_ASPECT_HEIGHT}`;
-const TAG_BADGE_IMAGE_DEFAULT_SIZE_LABEL = `${POSTER_TAG_BADGE_ASPECT_WIDTH}x${POSTER_TAG_BADGE_ASPECT_HEIGHT}px`;
-const TAG_BADGE_IMAGE_WIDTH_PERCENT_LABEL = `${Math.round(POSTER_TAG_BADGE_WIDTH_RATIO * 100)}%`;
-const TAG_BADGE_IMAGE_MAX_WIDTH_PERCENT_LABEL = `${Math.round(POSTER_TAG_BADGE_MAX_WIDTH_RATIO * 100)}%`;
 
 const NAMING_TEMPLATE_PLACEHOLDERS = [
   ["{actor}", "用于文件命名的演员显示名；会按“演员名最大数量”截断，超出时追加当前配置的后缀，默认是“等演员”"],
@@ -517,7 +531,7 @@ function PosterBadgeImageOverridesField() {
       <BaseField
         name="download.tagBadgeImageOverrides"
         label="覆盖角标图片"
-        description="开启后，放在 userdata/watermark 中的匹配图片会替换内建角标样式。"
+        description="开启后，使用用户数据目录 watermark 文件夹中的匹配图片替换内建角标。"
         commitMode="immediate"
       >
         {(field) => (
@@ -567,12 +581,7 @@ function PosterBadgeImageOverridesField() {
             </div>
             <div className="space-y-1 text-xs leading-5 text-muted-foreground">
               <p>支持格式：{TAG_BADGE_IMAGE_EXTENSION_LABEL}。</p>
-              <p>
-                推荐比例：{TAG_BADGE_IMAGE_RATIO_LABEL}，推荐素材尺寸 {TAG_BADGE_IMAGE_DEFAULT_SIZE_LABEL}
-                。角标槽位宽度约为海报宽度的 {TAG_BADGE_IMAGE_WIDTH_PERCENT_LABEL}，并限制在{" "}
-                {POSTER_TAG_BADGE_MIN_WIDTH}-{POSTER_TAG_BADGE_MAX_WIDTH}px；低分辨率海报会继续压到不超过海报宽度的{" "}
-                {TAG_BADGE_IMAGE_MAX_WIDTH_PERCENT_LABEL}，高度按比例计算。
-              </p>
+              <p>推荐比例：{TAG_BADGE_IMAGE_RATIO_LABEL}。角标高度按海报短边约 8% 计算，并限制在 28-64px。</p>
               <p>图片会按角标槽位等比缩放，不会拉伸；方形图片会以槽位高度 x 槽位高度靠左放置。</p>
               <p>建议使用透明 PNG 或 WebP。图片过大时会自动缩小，损坏或无法读取的图片会回退到内建角标。</p>
             </div>
@@ -1027,6 +1036,7 @@ export function TranslateSection() {
   const form = useFormContext<FieldValues>();
   const search = useOptionalSettingsSearch();
   const engine = useWatch({ control: form.control, name: "translate.engine" });
+  const serviceType = useWatch({ control: form.control, name: "translate.llmServiceType" });
   const isLLM = engine !== "google";
 
   const handleTestLlm = async () => {
@@ -1034,9 +1044,13 @@ export function TranslateSection() {
       llmModelName: String(form.getValues("translate.llmModelName") ?? ""),
       llmApiKey: String(form.getValues("translate.llmApiKey") ?? ""),
       llmBaseUrl: String(form.getValues("translate.llmBaseUrl") ?? ""),
+      llmApiFormat: form.getValues("translate.llmApiFormat") ?? "responses",
+      llmServiceType: form.getValues("translate.llmServiceType") ?? "openai-compatible",
       llmPrompt: String(form.getValues("translate.llmPrompt") ?? ""),
-      llmTemperature: Number(form.getValues("translate.llmTemperature") ?? 0),
-      llmTimeout: Number(form.getValues("translate.llmTimeout") ?? 60),
+      llmTemperature: form.getValues("translate.llmTemperature"),
+      llmReasoning: form.getValues("translate.llmReasoning") ?? "default",
+      llmOutputFormat: form.getValues("translate.llmOutputFormat") ?? "none",
+      llmTimeout: Number(form.getValues("translate.llmTimeout") ?? 120),
     };
 
     setTesting(true);
@@ -1070,10 +1084,10 @@ export function TranslateSection() {
               >
                 {testing ? (
                   <>
-                    <Loader2 className="h-3 w-3 mr-1 animate-spin" /> 测试中...
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" /> 验证中...
                   </>
                 ) : (
-                  "测试连通性"
+                  "验证元数据翻译"
                 )}
               </Button>
             )}
@@ -1097,8 +1111,57 @@ export function TranslateSection() {
             label="LLM API 地址"
             description={`默认值：${DEFAULT_LLM_BASE_URL}。Google Gemini 示例：https://generativelanguage.googleapis.com/v1beta/openai。本地示例：Ollama 用 http://127.0.0.1:11434/v1`}
           />
+          {serviceType === "openai-compatible" && (
+            <EnumField name="translate.llmApiFormat" label="请求形式" options={LLM_API_FORMAT_FIELD_OPTIONS} />
+          )}
+          <EnumField
+            name="translate.llmServiceType"
+            label="服务类型"
+            description="自定义代理需要显式选择 Google 或 DeepSeek；不要依赖网址域名识别。"
+            options={LLM_SERVICE_TYPE_FIELD_OPTIONS}
+          />
           <PromptFieldWrapper name="translate.llmPrompt" label="LLM 翻译提示词" />
-          <NumberField name="translate.llmTemperature" label="LLM 温度" min={0} max={2} step={0.1} />
+          <NumberField
+            name="translate.llmTemperature"
+            label="LLM 温度（高级，可选）"
+            description="留空时使用服务端默认值。"
+            min={0}
+            max={2}
+            step={0.1}
+            optional
+          />
+          <EnumField
+            name="translate.llmReasoning"
+            label="LLM 推理强度"
+            description={
+              serviceType === "google"
+                ? "默认省略推理字段。Gemini 2.5 Pro 和 Gemini 3 系列不能关闭推理；其他模型由服务端校验。"
+                : serviceType === "deepseek"
+                  ? "默认省略开关和强度；开启可使用服务端默认强度，或选择 low / high / max。思考模式下 temperature 不生效。"
+                  : "默认省略推理字段；关闭与指定强度是否可用由模型和服务端校验。"
+            }
+            options={
+              serviceType === "deepseek"
+                ? [
+                    { value: "default", label: "服务端默认" },
+                    { value: "disabled", label: "关闭" },
+                    { value: "enabled", label: "开启（服务端默认强度）" },
+                    { value: "low", label: "low" },
+                    { value: "high", label: "high" },
+                    { value: "max", label: "max" },
+                  ]
+                : LLM_REASONING_FIELD_OPTIONS
+            }
+          />
+          <EnumField
+            name="translate.llmOutputFormat"
+            label="输出格式"
+            description="提示词 JSON 省略结构化输出参数；元数据翻译始终要求 JSON 并在本地校验。"
+            options={LLM_OUTPUT_FORMAT_FIELD_OPTIONS.filter(
+              (option) =>
+                serviceType !== "deepseek" || (typeof option === "string" ? option : option.value) !== "json_schema",
+            )}
+          />
           <NumberField name="translate.llmTimeout" label="LLM 请求超时(秒)" min={1} max={300} />
           <NumberField name="translate.llmMaxRetries" label="LLM 最大重试次数" min={1} max={20} />
           <NumberField name="translate.llmMaxRequestsPerSecond" label="LLM 每秒最大请求数" min={1} max={100} />

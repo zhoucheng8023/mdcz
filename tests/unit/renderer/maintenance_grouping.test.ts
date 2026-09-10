@@ -113,7 +113,7 @@ describe("maintenance multipart grouping", () => {
     });
   });
 
-  it("treats a ready preview as the effective status when local scanError has been recovered", () => {
+  it("treats preview status ready as success and clears recovered local scanError", () => {
     const entry: LocalScanEntry = {
       ...createMaintenanceEntry(),
       scanError: "NFO 解析失败: NFO missing website",

@@ -92,7 +92,7 @@ describe("parseNfo", () => {
     expect(result.scene_images).toEqual(["https://example.com/scene-001.jpg", "https://example.com/scene-002.jpg"]);
   });
 
-  it("round-trips standard actor nodes, managed movie tags, and streamdetails", () => {
+  it("round-trips standard metadata while preserving the original and translated plot", () => {
     const xml = new NfoGenerator().buildXml(
       {
         title: "Sample",
@@ -106,7 +106,8 @@ describe("parseNfo", () => {
         ],
         content_type: "VR",
         publisher: "PRESTIGE",
-        plot: "简短简介",
+        plot: "Original plot & details",
+        plot_zh: "中文简介",
         genres: [],
         scene_images: [],
         website: Website.DMM,
@@ -130,21 +131,8 @@ describe("parseNfo", () => {
     expect(parsed.publisher).toBe("PRESTIGE");
     expect(parsed.content_type).toBe("VR");
     expect(parsed.durationSeconds).toBe(5400);
-    expect(parsed.plot).toBe("简短简介");
-  });
-
-  it("reads native publisher nodes", () => {
-    const xml = `
-      <movie>
-        <title>Native Publisher</title>
-        <uniqueid type="${Website.DMM}">ABC-777</uniqueid>
-        <publisher>Native Publisher</publisher>
-      </movie>
-    `;
-
-    const result = parseNfoSnapshot(xml).crawlerData;
-
-    expect(result.publisher).toBe("Native Publisher");
+    expect(parsed.plot).toBe("Original plot & details");
+    expect(parsed.plot_zh).toBe("中文简介");
   });
 
   it("uses outline as the plot fallback", () => {

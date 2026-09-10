@@ -5,7 +5,7 @@ import { normalizeUrl } from "../ImageHostCooldownTracker";
 import { resolveSingleAsset, shouldFallbackToExistingAsset, shouldKeepAsset } from "./helpers";
 import type { AssetDownloader, DownloadExecutionContext, DownloadExecutionPlan } from "./types";
 
-const TRAILER_TOTAL_TIMEOUT_MS = 30_000;
+const TRAILER_TOTAL_TIMEOUT_MS = 180_000;
 const TRAILER_READ_TIMEOUT_MS = 10_000;
 
 export class TrailerAssetDownloader implements AssetDownloader {
@@ -25,7 +25,7 @@ export class TrailerAssetDownloader implements AssetDownloader {
     const keepTrailer = shouldKeepAsset(plan.assetDecisions.trailer, plan.config.download.keepTrailer);
     const trailerResult = await resolveSingleAsset({
       targetPath: trailerPath,
-      existingPath: join(plan.existingAssetDir, plan.assetFileNames.trailer),
+      existingPath: plan.existingAssets?.trailer ?? join(plan.existingAssetDir, plan.assetFileNames.trailer),
       keepExisting: keepTrailer,
       fallbackToExistingOnFailure: shouldFallbackToExistingAsset(plan.assetDecisions.trailer),
       create: async () => {

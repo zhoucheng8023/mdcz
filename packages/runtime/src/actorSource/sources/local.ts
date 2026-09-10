@@ -105,7 +105,8 @@ const resolveActorPhotoUrl = async (
   }
 
   const actorPhotoRoot = resolveActorPhotoFolderPath(configuration);
-  if (!actorPhotoRoot || !isPathInside(actorPhotoRoot, absolutePath)) {
+  const movieActorRoot = join(dirname(nfoPath), ".actors");
+  if (!isPathInside(movieActorRoot, absolutePath) && (!actorPhotoRoot || !isPathInside(actorPhotoRoot, absolutePath))) {
     return undefined;
   }
 
@@ -113,16 +114,17 @@ const resolveActorPhotoUrl = async (
 };
 
 const buildLocalActorRecordIndex = async (configuration: Configuration): Promise<Map<string, IndexedActorRecord>> => {
-  const mediaPath = configuration.paths.mediaPath.trim();
-  if (!mediaPath) {
-    return new Map<string, IndexedActorRecord>();
+  const mediaPath = (configuration.paths.mediaPath ?? "").trim();
+  const outputPath = (configuration.paths.successOutputFolder ?? "").trim();
+  const roots = mediaPath ? [resolve(mediaPath)] : [];
+  if (outputPath && (mediaPath || isAbsolute(outputPath))) {
+    const outputRoot = resolve(mediaPath, outputPath);
+    if (!roots.some((root) => isPathInside(root, outputRoot))) roots.push(outputRoot);
   }
 
-  let files: string[];
-  try {
-    files = await listFiles(mediaPath, true);
-  } catch {
-    return new Map<string, IndexedActorRecord>();
+  const files: string[] = [];
+  for (const root of roots) {
+    if (await pathExists(root)) files.push(...(await listFiles(root, true)));
   }
 
   const nfoFiles = files.filter((filePath) => extname(filePath).toLowerCase() === ".nfo");
@@ -240,8 +242,9 @@ export class LocalActorSource implements BaseActorSource {
     }
 
     const cacheKey = JSON.stringify({
-      mediaPath: configuration.paths.mediaPath.trim(),
-      actorPhotoFolder: configuration.paths.actorPhotoFolder.trim(),
+      mediaPath: (configuration.paths.mediaPath ?? "").trim(),
+      successOutputFolder: (configuration.paths.successOutputFolder ?? "").trim(),
+      actorPhotoFolder: (configuration.paths.actorPhotoFolder ?? "").trim(),
     });
 
     return this.indexResolver.resolve(cacheKey, async () => buildLocalActorRecordIndex(configuration));

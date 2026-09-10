@@ -62,6 +62,7 @@ import type {
   ScrapePendingUncensoredConfirmationResponse,
   ScrapeResultDetailResponse,
   ScrapeResultIdInput,
+  ScrapeRunSnapshotDto,
   ScrapeStartInput,
   ScrapeTaskControlInput,
   ServerPathSuggestInput,
@@ -177,6 +178,7 @@ export interface ServerApiContract {
   };
   scrape: {
     liveRuns(): Promise<ScrapeLiveRunsResponse>;
+    snapshot(input: ScrapeTaskControlInput): Promise<ScrapeRunSnapshotDto>;
     pendingUncensoredConfirmation(): Promise<ScrapePendingUncensoredConfirmationResponse>;
     deleteFile(input: FileActionInput): Promise<FileActionResponse>;
     history(input?: ScrapeTaskControlInput): Promise<ScrapeHistoryResponse>;

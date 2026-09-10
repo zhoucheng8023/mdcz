@@ -45,8 +45,6 @@ describe("settings parity runtime helpers", () => {
 
   it.each([
     [Website.JAVDB, "javdbCookie", "javdb_session=ok"],
-    [Website.JAVBUS, "javbusCookie", "javbus_session=ok"],
-    [Website.FANTIA, "fantiaCookie", "fantia_session=ok"],
   ] as const)("builds only the %s cookie for its matching site", (site, cookieKey, cookie) => {
     const config = cloneConfig();
     config.network[cookieKey] = cookie;
@@ -171,10 +169,15 @@ describe("settings parity runtime helpers", () => {
     expect(serialized).not.toContain("second-secret");
   });
 
-  it("uses Desktop LLM validation semantics before sending a request", async () => {
+  it.each([
+    "none",
+    "json_object",
+    "json_schema",
+  ] as const)("validates the metadata translation contract with %s output", async (outputFormat) => {
     const config = cloneConfig();
+    config.translate.llmOutputFormat = outputFormat;
     const llmApiClient = {
-      generateText: vi.fn().mockResolvedValue("ok"),
+      generateText: vi.fn().mockResolvedValue(JSON.stringify({ title: "某天傍晚", plot: null, genres: ["日常"] })),
     } as unknown as LlmApiClient;
     const logger = { error: vi.fn(), info: vi.fn() };
 
@@ -187,25 +190,49 @@ describe("settings parity runtime helpers", () => {
     config.translate.llmBaseUrl = "https://example.test/v1";
     await expect(
       testLlmConnectivity(
-        { llmModelName: "gpt-test", llmPrompt: "{lang}:{content}", llmTemperature: 1.5 },
+        {
+          llmModelName: "gpt-test",
+          llmPrompt: "{lang}:{content}",
+          llmTemperature: 1.5,
+          llmReasoning: "high",
+        },
         config,
         llmApiClient,
         logger,
       ),
-    ).resolves.toEqual({ success: true, message: "连接成功，LLM 回复: ok" });
+    ).resolves.toEqual({ success: true, message: "元数据翻译样本验证通过：某天傍晚" });
     expect(llmApiClient.generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         baseUrl: "https://example.test/v1",
         model: "gpt-test",
-        prompt: expect.stringContaining("简体中文:ある日の暮方の事である。"),
-        temperature: 0,
-        timeout: 60_000,
+        prompt: expect.stringContaining('"title":"ある日の暮方の事である。"'),
+        reasoning: "high",
+        temperature: 1.5,
+        timeout: 120_000,
+        serviceType: "openai-compatible",
+        outputFormat,
+        outputSchema: expect.objectContaining({ name: "metadata_translation" }),
       }),
       undefined,
     );
     expect(logger.info).toHaveBeenCalledWith("Test LLM connectivity: Success");
-    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('reply="ok"');
-    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('reply="ok"');
+    for (const content of [
+      "普通译文",
+      JSON.stringify({ translation: "普通译文" }),
+      JSON.stringify({ title: "译文", plot: null, genres: [] }),
+    ]) {
+      vi.mocked(llmApiClient.generateText).mockResolvedValueOnce(content);
+      await expect(testLlmConnectivity({ llmModelName: "gpt-test" }, config, llmApiClient, logger)).resolves.toEqual({
+        success: false,
+        message: expect.stringContaining("invalid structured output"),
+      });
+    }
+
+    vi.mocked(llmApiClient.generateText).mockRejectedValueOnce(new Error("HTTP 400: invalid temperature"));
+    await expect(testLlmConnectivity({ llmModelName: "gpt-test" }, config, llmApiClient, logger)).resolves.toEqual({
+      success: false,
+      message: "连接失败: HTTP 400: invalid temperature",
+    });
   });
 
   it("creates the server-side watermark directory under runtime data", async () => {

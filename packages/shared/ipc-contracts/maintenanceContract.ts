@@ -6,12 +6,12 @@ import type { MaintenancePresetId } from "../types";
 
 export type MaintenanceIpcContract = {
   [IpcChannel.Maintenance_StartPreview]: IpcProcedure<
-    { refs?: RootFileRef[]; presetId?: MaintenancePresetId },
-    { sessionId: string }
+    { refs?: RootFileRef[]; presetId?: MaintenancePresetId; outputRootId?: string; outputRelativeDirectory?: string },
+    { sessionId: string; snapshot: MaintenanceActiveSessionSnapshot }
   >;
   [IpcChannel.Maintenance_Apply]: IpcProcedure<
     { selections?: MaintenanceApplySelection[]; presetId?: MaintenancePresetId },
-    { sessionId: string }
+    { sessionId: string; snapshot: MaintenanceActiveSessionSnapshot }
   >;
   [IpcChannel.Maintenance_Stop]: IpcProcedure<void, { success: true }>;
   [IpcChannel.Maintenance_Pause]: IpcProcedure<void, { success: true }>;
